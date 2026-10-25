@@ -1,8 +1,9 @@
 // The OmniCoreSDR driver (source_omnicore.cpp) against a fake OmniCore Host library (omnicore_fake.cpp): the listing, receive, live retunes
 // without new streams, the radio settings (analog bandwidths, DC / IQ correction, gain mode, RX input), refused frequencies that must not stop
 // the stream, receive and transmit at once on one handle (the masks are set up again when a direction joins or leaves), the shared sample
-// rate, and the radio being released after stop. test_omnicore <path of the fake library>
+// rate, the RX RSSI the interface shows, and the radio being released after stop. test_omnicore <path of the fake library>
 #include "../../core/src/source/native_common.h"
+#include "dect2/source/omnicore.h"
 #include <cstdio>
 
 using namespace dect2;
@@ -34,6 +35,16 @@ static bool loadFake(const std::string& path) {
     fset = (SetFn)dlsym(h, "fake_set");
 #endif
     return fget && fset;
+}
+
+// the interface's status of the fake radio once pred holds (or after 2 s)
+template <class P> static OmniCoreStatus statusWhen(P pred) {
+    for (int k = 0; k < 100; k++) {
+        const OmniCoreStatus st = omnicoreStatus("FAKE0001");
+        if (pred(st)) return st;
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    return omnicoreStatus("FAKE0001");
 }
 
 struct Got { size_t n = 0; double dc = 0, rms = 0; };
@@ -169,11 +180,43 @@ int main(int argc, char** argv) {
     rx->retune(t, err);
     CHECK(fget("rx_agc") == 0);
 
+    // ---- RX RSSI: switched on by default (the SDK starts with it off), read while receiving without touching the stream
+    {
+        CHECK(fget("rssi_on") == 1);
+        const double streams = fget("rx_streams");
+        OmniCoreStatus st = statusWhen([](const OmniCoreStatus& x) { return x.rssiKnown; });
+        CHECK(st.receiving && st.rssiOn && st.rssiKnown && st.valid[0] && st.valid[1] && st.input == 0 && st.note.empty());
+        CHECK(std::fabs(st.rssiDb[0] - (-90 + fget("rx_gain") / 2)) < 1e-9 && std::fabs(st.rssiDb[1] - (st.rssiDb[0] - 1.5)) < 1e-9);
+        // a new gain shows up in the next reading (every 500 ms)
+        t.gainDb = 50;
+        CHECK(rx->retune(t, err));
+        st = statusWhen([](const OmniCoreStatus& x) { return x.rssiKnown && std::fabs(x.rssiDb[0] - (-65)) < 1e-9; });
+        CHECK(std::fabs(st.rssiDb[0] - (-65)) < 1e-9);
+        CHECK(fget("rx_streams") == streams && fget("refused") == 0);
+        CHECK(receive(ring, 100).n > 0);
+        // off: the radio stops reporting and the driver stops asking
+        t.radio["rssi"] = "0";
+        CHECK(rx->retune(t, err));
+        CHECK(fget("rssi_on") == 0);
+        st = statusWhen([](const OmniCoreStatus& x) { return !x.rssiOn; });
+        CHECK(st.receiving && !st.rssiOn && !st.rssiKnown);
+        const double reads = fget("rssi_reads");
+        std::this_thread::sleep_for(std::chrono::milliseconds(700));
+        CHECK(fget("rssi_reads") == reads);
+        t.radio.erase("rssi");
+        CHECK(rx->retune(t, err));
+        CHECK(fget("rssi_on") == 1);
+        CHECK(statusWhen([](const OmniCoreStatus& x) { return x.rssiKnown; }).rssiKnown);
+        t.gainDb = 30;
+        rx->retune(t, err);
+    }
+
     // ---- the other input: OCH needs the streams set up again for another channel mask
     t.radio["rxport"] = "rx2";
     err.clear();
     CHECK(rx->retune(t, err));
     CHECK(fget("rx_mask") == 2 && fget("rx_streams") == 2);
+    CHECK(statusWhen([](const OmniCoreStatus& x) { return x.input == 1; }).input == 1);   // the RSSI status says which input is in use
     CHECK(receive(ring, 150).n > 0);
     t.radio.erase("rxport");
     rx->retune(t, err);
@@ -237,6 +280,7 @@ int main(int argc, char** argv) {
     CHECK(receive(ring, 150).n > 0);
     rx->stop();
     CHECK(fget("open") == 0);
+    CHECK(!omnicoreStatus("FAKE0001").receiving);   // no status of a radio that does not receive here
 
     // ---- transmit alone, then a receiver joins and leaves
     {
@@ -276,6 +320,46 @@ int main(int argc, char** argv) {
         rx->stop();
     }
     fset("nocorr", 0);
+
+    // ---- an SDK without the RSSI switch (before rssi=1): it always reports, the switch is refused, the reading still shows
+    fset("oldsdk", 1);
+    {
+        TuneSettings r;
+        r.centerHz = 100e6; r.sampleRate = 4e6; r.gainDb = 20;
+        err.clear();
+        CHECK(rx->start(r, ring, err));
+        const OmniCoreStatus st = statusWhen([](const OmniCoreStatus& x) { return x.rssiKnown; });
+        CHECK(st.rssiKnown && st.valid[0] && std::fabs(st.rssiDb[0] - (-80)) < 1e-9);
+        rx->stop();
+    }
+    fset("oldsdk", 0);
+
+    // ---- a control command that times out leaves OCH's handle unable to send more: the radio is opened again
+    {
+        TuneSettings r;
+        r.centerHz = 100e6; r.sampleRate = 4e6; r.gainDb = 20;
+        // during the open (the 2nd control call: the first RX DC correction): start() opens the radio again and succeeds
+        double opens = fget("opens");
+        fset("ctlfailin", 2);
+        err.clear();
+        CHECK(rx->start(r, ring, err));
+        CHECK(fget("ctl_timeouts") == 1 && fget("opens") == opens + 2);
+        CHECK(receive(ring, 100).n > 0);
+        // while receiving (the next RSSI reading): the stream thread opens the radio again by itself, and tuning works afterwards
+        opens = fget("opens");
+        fset("ctlfailin", 1);
+        for (int k = 0; k < 150 && fget("opens") == opens; k++) std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        CHECK(fget("ctl_timeouts") == 2 && fget("opens") == opens + 1);
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        CHECK(receive(ring, 150).n > 0);
+        r.centerHz = 101e6;
+        err.clear();
+        CHECK(rx->retune(r, err));
+        CHECK(fget("rx_freq") == 101e6);
+        CHECK(statusWhen([](const OmniCoreStatus& x) { return x.rssiKnown; }).rssiKnown);
+        rx->stop();
+        CHECK(fget("open") == 0);
+    }
 
     // ---- USB 2.0: a note above what it carries
     fset("usb2", 1);

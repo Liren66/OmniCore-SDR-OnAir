@@ -58,6 +58,7 @@ struct device {
     stream* rx = nullptr;
     stream* tx = nullptr;
     uint32_t dc = 1, iq = 1;
+    bool ctlFailed = false;   // a control command timed out: as OCH, every later one fails until the radio is closed
 };
 
 std::mutex gMu;              // the record
@@ -75,6 +76,17 @@ void record(const config& c) {
     rec("rx_freq", (double)c.rx_frequency); rec("tx_freq", (double)c.tx_frequency);
     rec("rx_bw", c.rx_bandwidth); rec("tx_bw", c.tx_bandwidth);
     rec("rx_gain", c.rx_gain[0]); rec("tx_atten", c.tx_attenuation[0]); rec("rx_agc", c.rx_agc);
+}
+// A control call. "ctlfailin" = n: the n-th control call from now times out, and the handle refuses every later one with IO (OCH's
+// control_failed: "close/reopen device"). 0 = no failure.
+int ctlCall(device* d) {
+    if (d->ctlFailed) return fail(-5, "SDK command timed out: earlier; close/reopen device after firmware responds");
+    const double n = get("ctlfailin");
+    if (n > 0) {
+        rec("ctlfailin", n - 1);
+        if (n == 1) { d->ctlFailed = true; bump("ctl_timeouts"); return fail(-1, "SDK command timed out: fake; close/reopen device after firmware responds"); }
+    }
+    return 0;
 }
 // what the real library's clock plan does for 11.2 Msps
 uint32_t applied(uint32_t r) { return r == 11200000 ? 11200011 : r; }
@@ -138,6 +150,7 @@ EXPORT int och_get_info(device*, device_info* i) {
 EXPORT int och_configure(device* d, const config* c) {
     std::lock_guard<std::mutex> lk(gDevMu);
     if (c->struct_size != sizeof(config)) return fail(-2, "och_config ABI size mismatch");
+    if (const int r = ctlCall(d)) return r;
     if ((d->rx || d->tx) && d->configured && (c->rx_mask != d->cfg.rx_mask || c->tx_mask != d->cfg.tx_mask))
         return fail(-2, "channel masks cannot change while streams exist");
     if (!c->sample_rate || c->sample_rate > 61440000 || (!c->rx_mask && !c->tx_mask) || c->rx_mask > 3 || c->tx_mask > 3) return fail(-2, "invalid rate/channel masks");
@@ -259,12 +272,39 @@ EXPORT int och_get_rx_correction(device* d, rx_correction* c) {
 EXPORT int och_set_rx_dc_correction(device* d, uint32_t on) {
     if (get("nocorr") != 0) return fail(-6, "SDK lacks rx_correction");
     std::lock_guard<std::mutex> lk(gDevMu);
+    if (const int r = ctlCall(d)) return r;
     d->dc = on; rec("dc", on);
     return 0;
 }
 EXPORT int och_set_rx_iq_correction(device* d, uint32_t on) {
     if (get("nocorr") != 0) return fail(-6, "SDK lacks rx_correction");
     std::lock_guard<std::mutex> lk(gDevMu);
+    if (const int r = ctlCall(d)) return r;
     d->iq = on; rec("iq", on);
+    return 0;
+}
+// RX RSSI (OCH 0.4.7): off after a cold boot; valid while the receive stream runs. "oldsdk" = 1: an SDK without the switch (always on,
+// set returns UNSUPPORTED). The reading follows the RX gain so the test can tell readings apart.
+namespace { struct rx_rssi { uint32_t struct_size, enabled, usb_rx_mask, valid[2]; double rssi_db[2]; uint32_t reserved[4]; }; }
+EXPORT int och_get_rx_rssi(device* d, rx_rssi* m) {
+    if (m->struct_size != sizeof(rx_rssi)) return fail(-2, "output struct_size mismatch");
+    std::lock_guard<std::mutex> lk(gDevMu);
+    if (const int r = ctlCall(d)) return r;
+    bump("rssi_reads");
+    const bool on = get("oldsdk") != 0 || get("rssi_on") != 0;
+    const bool rx = d->rx && d->rx->started && !d->rx->stopped;
+    *m = {};
+    m->struct_size = sizeof *m; m->enabled = on; m->usb_rx_mask = d->cfg.rx_mask;
+    for (int k = 0; k < 2; k++) {
+        m->valid[k] = on && rx;
+        m->rssi_db[k] = m->valid[k] ? -90 + d->cfg.rx_gain[0] / 2 - 1.5 * k : 0;
+    }
+    return 0;
+}
+EXPORT int och_set_rx_rssi_enabled(device* d, uint32_t on) {
+    if (get("oldsdk") != 0) return fail(-6, "SDK lacks rssi");
+    { std::lock_guard<std::mutex> lk(gDevMu); if (const int r = ctlCall(d)) return r; }
+    rec("rssi_on", on);
+    bump("rssi_switches");
     return 0;
 }

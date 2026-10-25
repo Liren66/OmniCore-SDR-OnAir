@@ -130,7 +130,7 @@ OnAir drives the OmniCoreSDR (AD9361 + Zynq + CH32H417 USB 3 bridge, USB id 1a86
 (OCH, `omnicore.dll` / `libomnicore.so`, C ABI 1). The library is not shipped with OnAir; OnAir loads it at run time and the radio is listed
 only when it is found:
 
-- Windows: install OmniCore Host 0.4.6 or later (`OmniCoreHost-<version>-win64-setup.exe`) and its libusbK driver (`och-driver install`).
+- Windows: install OmniCore Host 0.4.6 or later (0.4.7 for the RX RSSI) (`OmniCoreHost-<version>-win64-setup.exe`) and its libusbK driver (`och-driver install`).
   OnAir looks for `omnicore.dll` next to `OnAir.exe`, then in `C:\Program Files\OmniCore Host\bin`, then on the PATH.
 - Linux: build and install OmniCore Host (`tools/build-linux.sh`, `cmake --install ... --prefix /opt/omnicore/<version>`); OnAir finds
   `/opt/omnicore/<version>/lib/libomnicore.so*` and the usual library folders. OnAir's udev rules cover the radio.
@@ -147,8 +147,19 @@ says which library was loaded, how many radios it lists, and the firmware and US
 - radio settings: **RX input**, **Gain mode** (manual, or the AD9361's AGC: slow attack, fast attack, hybrid), **RX analog bandwidth** and
   **TX analog bandwidth** (0.2 to 56 MHz, 0 = automatic: the channel's bandwidth, else 95 % of the sample rate), **RX DC correction** and
   **RX IQ correction** (the AD9361's DC offset and quadrature tracking, both on by default; they need OCH 0.3.1 and firmware with
-  `rx_correction`, otherwise a note says so), and the frequency correction (ppm, applied to the frequencies)
-- frequency and gain change while streaming without a gap in the samples (OCH 0.4.6 fast retune, about 10 ms); the sample rate, the
+  `rx_correction`, otherwise a note says so), **RX RSSI** (on by default), and the frequency correction (ppm, applied to the frequencies)
+- RX RSSI (OCH 0.4.7): while receiving, the driver reads the AD9361's symbol RSSI of both receivers twice a second and the radio
+  settings show it ("RX RSSI: RX1 -90.5 dB *, RX2 -95.8 dB", * = the input in use). Relative dB, higher is stronger: not a calibrated
+  input power. A query only, the stream goes on. The SDK starts with RSSI reporting off: the driver switches it on (an SDK without the
+  switch always reports, and OCH reads it from `system_status?`; a slow reading there is read less often). With OCH 0.4.6 the line
+  says the library has no RSSI
+- control link: a control command that times out leaves OCH's handle unable to send any other (every later one fails until the radio is
+  opened again). The driver then opens the radio again by itself (at start through its open retry, while receiving through the
+  reconnect of the stream thread; a running transmission ends with a message, so that the radio can be opened again). With firmware at
+  3.125 MBd a command sent just after a stream started timed out often on the test radio, so the RX tracking and the RSSI switch are
+  sent before the streams start
+- frequency and gain change while streaming without a gap in the samples (OCH 0.4.6 fast retune: about 14 ms with firmware at 115200 baud,
+  less at 3.125 MBd); the sample rate, the
   bandwidths and the gain mode change while streaming too (OCH pauses and resumes its streams, a short gap)
 - **simultaneous RX/TX**: select the same radio for the receiver and the transmitter. They share one OCH handle and one sample clock: the
   second direction uses the running direction's rate when it is high enough, a higher rate is refused (stop the other direction first).
@@ -160,6 +171,9 @@ says which library was loaded, how many radios it lists, and the firmware and US
   Transmit validated on TX1 into a dummy load (433.92 MHz, -70 dB) with the receiver running on RX1: at 4, 20, 30.72 and 61.44 Msps the
   radio takes the samples at its rate, the tone shows up at -43 dBFS in the receiver (-108 to -123 dBFS once TX is closed), no receive
   samples lost; TX retune (+1 MHz, -10 dB) and close with the receiver going on. TX2 is checked against the fake library only
+- RX RSSI validated on the same radio with OCH 0.4.7 and firmware at 3.125 MBd (`system_info?`: `rssi=1 console_baud=3125000`,
+  2026-10-26): readings in every receive check of the matrix (57 of 57), RX1 about -90 dB and RX2 about -96 dB with no antenna,
+  no lost samples; three probe runs of start / stop cycles without a lost control link once the RX tracking is set before the streams
 - transmit latency: OCH's default buffers hold seconds of samples (64 MiB: about 6 s at 4 Msps). The driver gives the transmit stream
   transfers of about 5 ms, 16 in flight and 32 on the host: about 0.25 s from OnAir to the antenna. Smaller buffers (8 in flight, or a
   host ring of about 10 transfers) ran dry hundreds of times in 6 s on the test machine

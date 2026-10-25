@@ -3500,3 +3500,9 @@ Next tab	Next tab
 Previous tab	Previous tab
 The radio runs this many times faster than the mode asks, and OnAir filters the samples down to the mode's rate itself.\nFor radios that are poor at low sample rates (images, a weak anti-alias filter). Costs CPU and USB bandwidth;\nthe radio's highest rate still applies. Off: the radio runs at the mode's rate.	The radio runs this many times faster than the mode asks, and OnAir filters the samples down to the mode's rate itself.\nFor radios that are poor at low sample rates (images, a weak anti-alias filter). Costs CPU and USB bandwidth;\nthe radio's highest rate still applies. Off: the radio runs at the mode's rate.
 At a set speed each row is the highest level of the frames in between, so a short burst is never missed.\nAverage: the mean level instead, which calms the noise and shows steady weak signals better.	At a set speed each row is the highest level of the frames in between, so a short burst is never missed.\nAverage: the mean level instead, which calms the noise and shows steady weak signals better.
+RX RSSI: shown while this radio receives	RX RSSI：接收时显示
+RX RSSI: off	RX RSSI：已关闭
+RX RSSI: %s	RX RSSI：%s
+waiting for the first reading	等待第一次读数
+RX RSSI: RX1 %s, RX2 %s	RX RSSI：RX1 %s，RX2 %s
+The AD9361's signal strength of both receivers, read twice a second (* = the input in use).\nRelative dB, higher is stronger: not a calibrated input power, the gain and the front end change it.	AD9361 两路接收机的信号强度，每秒读取两次（* 为正在使用的输入口）。\n相对 dB，数值越大信号越强；不是校准过的输入功率，增益和前端都会影响它。

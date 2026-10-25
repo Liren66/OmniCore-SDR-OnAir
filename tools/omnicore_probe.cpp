@@ -1,9 +1,10 @@
 // Opt-in hardware acceptance tool for the OmniCoreSDR. Uses OnAir's actual source and transmit sink (source_omnicore.cpp).
 // omnicore_probe [--freq Hz] [--rate Hz] [--gain dB] [--secs N] [--matrix] [--capture file.cf32]
-//                [--tx] [--txfreq Hz] [--txgain dB] [--txch 0|1]
+//                [--tx] [--txfreq Hz] [--txgain dB] [--txch 0|1] [--radio key=value ...]
 // Without --tx nothing is transmitted. --tx sends a tone 100 kHz above --txfreq at --txgain (default -70 dB, i.e. 70 dB attenuation):
 // connect a dummy load or an attenuator, and use a frequency you may transmit on. Close och.exe and other programs using the radio first.
 #include "../core/src/source/native_common.h"
+#include "dect2/source/omnicore.h"
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -17,6 +18,8 @@ void listOmnicore(std::vector<DeviceInfo>& out);
 std::unique_ptr<IqSource> makeOmnicore(const DeviceInfo& d);
 std::unique_ptr<TxSink> makeOmnicoreTx(const DeviceInfo& d);
 } }
+
+static std::string gSerial;   // the radio in use, for its RSSI
 
 // toneDbfs: the level at +100 kHz from the centre (where --tx puts its tone when RX and TX share the frequency)
 static bool receive(IqSource& source, IqRing& ring, double seconds, std::ofstream* capture, double* dcDbfs = nullptr, double* toneDbfs = nullptr) {
@@ -55,6 +58,9 @@ static bool receive(IqSource& source, IqRing& ring, double seconds, std::ofstrea
     std::cout << std::fixed << std::setprecision(3) << (ok ? "PASS" : "FAIL") << " rate=" << expected << " measured=" << measured
               << " samples=" << total << " dropped=" << ring.dropped() << " bad=" << bad
               << " rms_dbfs=" << (total && energy > 0 ? 10 * std::log10(energy / total) : -999) << " dc_dbfs=" << dc << " tone_dbfs=" << td << " peak=" << std::sqrt(peak);
+    const OmniCoreStatus rs = omnicoreStatus(gSerial);
+    if (rs.rssiKnown) std::cout << " rssi=" << (rs.valid[0] ? std::to_string(rs.rssiDb[0]) : "--") << "/" << (rs.valid[1] ? std::to_string(rs.rssiDb[1]) : "--") << " dB";
+    else if (rs.receiving && !rs.note.empty()) std::cout << " rssi: " << rs.note;
     const std::string note = source.statusNote();
     if (!note.empty()) std::cout << " [" << note << "]";
     std::cout << '\n';
@@ -116,6 +122,7 @@ int main(int argc, char** argv) {
         else if (a == "--txfreq") tt.centerHz = std::stod(v);
         else if (a == "--txgain") tt.gainDb = std::stod(v);
         else if (a == "--txch") tt.channel = std::stoi(v);
+        else if (a == "--radio") { const size_t eq = v.find('='); if (eq != std::string::npos) t.radio[v.substr(0, eq)] = v.substr(eq + 1); }   // a radio setting, e.g. --radio rssi=0
         else { std::cerr << "unknown option " << a << '\n'; return 2; }
     }
     if (seconds < 1 || seconds > 3600) return 2;
@@ -124,6 +131,7 @@ int main(int argc, char** argv) {
     for (size_t i = 0; i < devices.size(); ++i) std::cout << i << ": " << devices[i].name << '\n';
     if (devices.empty()) { std::cerr << "no OmniCoreSDR: install OmniCore Host, check the driver (och-driver check) and close och.exe\n"; return 1; }
     const DeviceInfo& dev = devices.front();
+    gSerial = dev.serial;
     std::ofstream capture;
     if (!capturePath.empty()) { capture.open(capturePath, std::ios::binary); if (!capture) return 2; }
     auto source = native::makeOmnicore(dev);

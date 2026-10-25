@@ -7,10 +7,12 @@
 // configures the channels and starts the ones in use again: the receiver sees a short gap. Frequency, gain, sample rate, the analog filter
 // and the gain mode change while streaming (OCH pauses and resumes its streams itself where it has to; since 0.4.6 a change of frequency or
 // gain alone does not stop anything).
-// Radio settings: the RX input, the AD9361's gain mode, the RX / TX analog filter bandwidth, and the AD9361's RX DC and IQ (quadrature)
-// tracking. The OCH structures and calls used are declared here (OCH ABI 1, include/omnicore/och.h of OmniCore Host 0.4.6), so building
+// Radio settings: the RX input, the AD9361's gain mode, the RX / TX analog filter bandwidth, the AD9361's RX DC and IQ (quadrature)
+// tracking, and its RX RSSI (OCH 0.4.7), read while receiving and shown by the interface (omnicoreStatus, dect2/source/omnicore.h). The OCH structures and calls used are declared here (OCH ABI 1, include/omnicore/och.h of OmniCore Host 0.4.6), so building
 // OnAir needs nothing from OmniCore Host.
 #include "native_common.h"
+#include "dect2/source/omnicore.h"
+#include <functional>
 #include <map>
 
 namespace dect2 {
@@ -62,7 +64,13 @@ struct event {
 struct rx_correction {
     uint32_t struct_size, dc_enabled, iq_enabled, reserved[5];
 };
+struct rx_rssi {   // OCH 0.4.7
+    uint32_t struct_size, enabled, usb_rx_mask, valid[2];
+    double rssi_db[2];
+    uint32_t reserved[4];
+};
 static_assert(sizeof(config) == 104, "och_config is 104 bytes in OCH ABI 1");
+static_assert(sizeof(rx_rssi) == 56, "och_rx_rssi is 56 bytes in OCH 0.4.7");
 } // namespace och
 
 struct OchApi {
@@ -88,6 +96,9 @@ struct OchApi {
     int (DECT2_CALL* get_rx_correction)(och::device*, och::rx_correction*) = nullptr;
     int (DECT2_CALL* set_rx_dc_correction)(och::device*, uint32_t) = nullptr;
     int (DECT2_CALL* set_rx_iq_correction)(och::device*, uint32_t) = nullptr;
+    // optional (OCH 0.4.7 and later): the AD9361's RX symbol RSSI
+    int (DECT2_CALL* get_rx_rssi)(och::device*, och::rx_rssi*) = nullptr;
+    int (DECT2_CALL* set_rx_rssi_enabled)(och::device*, uint32_t) = nullptr;
     bool ok = false;
     DynLib lib;
     OchApi() {
@@ -115,6 +126,8 @@ struct OchApi {
         lib.opt(get_rx_correction, "och_get_rx_correction");
         lib.opt(set_rx_dc_correction, "och_set_rx_dc_correction");
         lib.opt(set_rx_iq_correction, "och_set_rx_iq_correction");
+        lib.opt(get_rx_rssi, "och_get_rx_rssi");
+        lib.opt(set_rx_rssi_enabled, "och_set_rx_rssi_enabled");
         if (ok) {
             fprintf(stderr, "OmniCore Host: library %s\n", version());
             fflush(stderr);
@@ -182,8 +195,19 @@ std::vector<RadioSetting> omniSettings() {
                         "Off: the correction found so far is kept but no longer updated. Needs OmniCore Host 0.3.1 and firmware with rx_correction.", true),
             boolSetting("iqcorr", "RX IQ correction",
                         "The AD9361's quadrature (IQ imbalance) tracking (both RX inputs). On by default: suppresses the mirror image of strong signals.\n"
-                        "Off: the correction found so far is kept but no longer updated. Needs OmniCore Host 0.3.1 and firmware with rx_correction.", true)};
+                        "Off: the correction found so far is kept but no longer updated. Needs OmniCore Host 0.3.1 and firmware with rx_correction.", true),
+            boolSetting("rssi", "RX RSSI",
+                        "Reads the AD9361's RX signal strength (both receivers) twice a second while receiving and shows it under the radio settings.\n"
+                        "Relative dB, higher is stronger: not a calibrated input power (the gain and the front end change it).\n"
+                        "A query only: the stream is not interrupted. Needs OmniCore Host 0.4.7.", true)};
 }
+
+// ------------------------------------------------------------------ what the interface shows (omnicoreStatus)
+
+std::mutex gStatusMu;
+std::map<std::string, OmniCoreStatus> gStatus;   // per serial, while a receiver of this program runs on the radio
+void noteStatus(const std::string& serial, const std::function<void(OmniCoreStatus&)>& f) { std::lock_guard<std::mutex> lk(gStatusMu); f(gStatus[serial]); }
+void dropStatus(const std::string& serial) { std::lock_guard<std::mutex> lk(gStatusMu); gStatus.erase(serial); }
 
 // ------------------------------------------------------------------ the radio both directions share
 
@@ -203,8 +227,17 @@ struct OmniRadio {
     uint32_t rxMask = 1, txMask = 1; // the channel each uses: 1 = RX1 / TX1, 2 = RX2 / TX2
     std::atomic<bool> rebuilding{false};
     std::atomic<uint64_t> streamGen{0};   // counts the stream rebuilds: a receive or send that failed in an old stream tries the new one
+    // A control command that timed out leaves OCH's handle unable to send any other (every later one fails with IO until the radio is
+    // opened again; seen on the radio about once in ten opens with firmware at 3.125 MBd). Set by link(): the receiver then opens the
+    // radio again (NativeSource's open retry, or its reconnect when the stream thread ends).
+    std::atomic<bool> linkLost{false};
+    std::string linkError;           // OCH's words for it (ctl)
     int dc = -1, iq = -1;            // the RX tracking as last set (-1: not yet); ctl
     bool correctionNoted = false;
+    int rssi = -1;                   // the RSSI reporting as last set (-1: not yet); ctl
+    bool rssiWanted = true;          // the receiver's "rssi" setting (ctl)
+    std::chrono::steady_clock::time_point rssiNext{};
+    std::chrono::milliseconds rssiEvery{500};
     std::mutex evMu;
     std::chrono::steady_clock::time_point evNext{};
 
@@ -215,6 +248,16 @@ struct OmniRadio {
         if (dev) a.close(dev);
     }
     double rate() const { return cfg.sample_rate; }
+    // (ctl) the result of a control call; a timeout or an I/O failure marks the control link lost
+    int link(int r) {
+        if ((r == och::TIMEOUT || r == och::IO) && !linkLost) {
+            linkError = ochApi().why(r);
+            linkLost = true;
+            fprintf(stderr, "OmniCoreSDR: the control link stopped answering (%s): the radio is opened again\n", linkError.c_str());
+            fflush(stderr);
+        }
+        return r;
+    }
 
     // (ctl) Stops and destroys both streams, configures cfg with the channels of the directions in use and starts their streams again
     bool rebuild(std::string& err) {
@@ -246,7 +289,7 @@ struct OmniRadio {
     // (ctl) cfg to the radio, with or without streams (the channels must not change while streams exist: rebuild() for that)
     bool configure(std::string& err) {
         auto& a = ochApi();
-        if (const int r = a.configure(dev, &cfg); r != och::OK) { err = "OmniCoreSDR: the configuration was refused: " + a.why(r); return false; }
+        if (const int r = link(a.configure(dev, &cfg)); r != och::OK) { err = "OmniCoreSDR: the configuration was refused: " + a.why(r); return false; }
         och::config got{};
         got.struct_size = sizeof got;
         if (a.get_config(dev, &got) == och::OK && got.sample_rate > 0) cfg.sample_rate = got.sample_rate;   // OCH may take the nearest rate its clocks can make
@@ -265,7 +308,7 @@ struct OmniRadio {
             const bool want = k == 0 ? dcOn : iqOn;
             int& cur = k == 0 ? dc : iq;
             if (cur == (int)want) continue;
-            const int r = k == 0 ? a.set_rx_dc_correction(dev, want) : a.set_rx_iq_correction(dev, want);
+            const int r = link(k == 0 ? a.set_rx_dc_correction(dev, want) : a.set_rx_iq_correction(dev, want));
             if (r == och::OK) { cur = want; continue; }
             if (r == och::UNSUPPORTED) {
                 if (!correctionNoted) { correctionNoted = true; addNote(note, "this OmniCoreSDR firmware has no RX DC / IQ correction control (rx_correction)"); }
@@ -291,6 +334,55 @@ struct OmniRadio {
                 fflush(stderr);
             }
         }
+    }
+    // (ctl) the RX RSSI reporting, switched only when it changes. The SDK starts with it off; an SDK without the switch (OCH: UNSUPPORTED)
+    // always reports, and OCH reads it from its status lines there
+    void setRssi(bool on) {
+        auto& a = ochApi();
+        rssiWanted = on;
+        if (!a.set_rx_rssi_enabled || rssi == (int)on) return;
+        const int r = link(a.set_rx_rssi_enabled(dev, on));
+        if (r != och::OK && r != och::UNSUPPORTED) { fprintf(stderr, "OmniCoreSDR: the RX RSSI was not switched %s: %s\n", on ? "on" : "off", a.why(r).c_str()); fflush(stderr); return; }
+        rssi = on;
+        rssiNext = {};
+    }
+    // Reads the RX RSSI into the interface's status, at most every rssiEvery; from the receive thread. It never waits for ctl (a retune
+    // or a rebuild has it): the reading is skipped then. A slow reading (an old SDK, through its status lines at 115200 baud) is read less
+    // often, so the radio's control link stays free for tuning.
+    void pollRssi() {
+        auto& a = ochApi();
+        const auto now = std::chrono::steady_clock::now();
+        if (now < rssiNext) return;
+        std::unique_lock<std::mutex> lk(ctl, std::try_to_lock);
+        if (!lk.owns_lock()) return;
+        const int input = rxMask == 2 ? 1 : 0;
+        if (!rssiWanted || !a.get_rx_rssi) {
+            rssiNext = now + std::chrono::milliseconds(500);
+            const bool lib = a.get_rx_rssi != nullptr, want = rssiWanted;
+            noteStatus(serial, [&](OmniCoreStatus& st) {
+                st.receiving = true; st.rssiOn = want; st.rssiKnown = false; st.input = input;
+                st.note = !want ? "" : lib ? "" : "this OmniCore Host library has no RX RSSI (0.4.7 or later has it)";
+            });
+            return;
+        }
+        och::rx_rssi m{};
+        m.struct_size = sizeof m;
+        const int r = a.get_rx_rssi(dev, &m);
+        const std::string why = r == och::OK ? "" : a.why(r);
+        link(r);
+        const auto took = std::chrono::steady_clock::now() - now;
+        rssiEvery = std::clamp(std::chrono::duration_cast<std::chrono::milliseconds>(took * 10), std::chrono::milliseconds(500), std::chrono::milliseconds(5000));
+        rssiNext = now + rssiEvery;
+        lk.unlock();
+        noteStatus(serial, [&](OmniCoreStatus& st) {
+            st.receiving = true; st.rssiOn = true; st.input = input;
+            st.rssiKnown = r == och::OK && m.enabled;
+            for (int k = 0; k < 2; k++) { st.valid[k] = st.rssiKnown && m.valid[k]; st.rssiDb[k] = st.valid[k] ? m.rssi_db[k] : 0; }
+            st.note = r == och::UNSUPPORTED ? "this OmniCoreSDR firmware does not report the RX RSSI"
+                    : r != och::OK ? "the RX RSSI could not be read: " + why
+                    : !m.enabled ? "the radio has its RSSI reporting off"
+                    : "";
+        });
     }
 
 private:
@@ -448,10 +540,15 @@ protected:
         const double g = std::clamp(std::round(s.gainDb), 0.0, maxRxGain(tuneHz));
         c.rx_gain[0] = c.rx_gain[1] = g;
         const uint32_t mask = radioOption(s, "rxport", "rx1") == "rx2" ? 2 : 1;
+        // the RX tracking and the RSSI switch before the streams are (re)started: OCH changes the tracking by pausing the streams, and a
+        // control command just after a stream started timed out on the radio (firmware at 3.125 MBd)
+        r.corrections(radioFlag(s, "dccorr", true), radioFlag(s, "iqcorr", true), err);
+        r.setRssi(radioFlag(s, "rssi", true));
         const och::config before = r.cfg;
         r.cfg = c;
-        bool ok;
-        if (!r.rxOn || mask != r.rxMask) {   // a new stream, or the other input: both streams are set up again
+        bool ok = !r.linkLost;
+        if (!ok) {}
+        else if (!r.rxOn || mask != r.rxMask) {   // a new stream, or the other input: both streams are set up again
             r.rxOn = ownsRx_ = true;
             r.rxMask = mask;
             ok = r.rebuild(err);
@@ -460,8 +557,12 @@ protected:
             ok = r.configure(err);
             if (!ok) r.cfg = before;
         }
-        if (!ok) return false;
-        r.corrections(radioFlag(s, "dccorr", true), radioFlag(s, "iqcorr", true), err);
+        if (!ok && !r.linkLost) return false;
+        if (r.linkLost) {   // the handle can send no more commands: open the radio again (start(): its retry; a retune: the stream thread)
+            err = "OmniCoreSDR: the radio's control link stopped answering (" + r.linkError + ")";
+            if (!live) openFailure_ = OpenFailure::Retry;
+            return false;
+        }
         rate_ = r.rate();
         requested_ = s.sampleRate;
         checkRate(std::max(s.sampleRate, kMinRateHz), err);
@@ -484,6 +585,7 @@ protected:
             }
             ownsRx_ = false;
         }
+        dropStatus(radio_->serial);
         radio_.reset();
     }
     void streamLoop() override {
@@ -493,6 +595,8 @@ protected:
         conv_.resize(kChunk);
         while (run_) {
             r->drainEvents();
+            r->pollRssi();
+            if (r->linkLost) return;   // NativeSource closes the radio and opens it again (OCH's handle sends no more commands)
             och::stream* st;
             uint64_t gen;
             int rc;
@@ -592,6 +696,8 @@ public:
         if (!radio_) { err = "the OmniCoreSDR is not open for transmitting"; return false; }
         OmniRadio& r = *radio_;
         auto& a = ochApi();
+        // the handle sends no more commands: the transmission ends, so that the radio can be opened again
+        if (r.linkLost) { err = "the OmniCoreSDR's control link stopped answering: start the transmission again"; return false; }
         size_t i = 0;
         auto progress = std::chrono::steady_clock::now();
         while (i < n) {
@@ -726,4 +832,11 @@ std::unique_ptr<IqSource> makeOmnicore(const DeviceInfo& d) { return std::make_u
 std::unique_ptr<TxSink> makeOmnicoreTx(const DeviceInfo& d) { return std::make_unique<OmniTx>(d.nativeArgs); }
 
 } // namespace native
+
+OmniCoreStatus omnicoreStatus(const std::string& serial) {
+    std::lock_guard<std::mutex> lk(native::gStatusMu);
+    const auto it = native::gStatus.find(serial);
+    return it == native::gStatus.end() ? OmniCoreStatus() : it->second;
+}
+
 } // namespace dect2

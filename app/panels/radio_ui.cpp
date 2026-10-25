@@ -4,6 +4,7 @@
 // effect when the radio is opened restarts a running receiver. A value set back to its default is dropped, so the driver does what it always did.
 #include "../app.h"
 #include "dect2/source/converter.h"
+#include "dect2/source/omnicore.h"
 #include "dect2/selfcal/selfcal.h"
 #include "dect2/selfcal/ppmcal.h"
 #include "dect2/source/icom_r8600.h"
@@ -518,6 +519,23 @@ void radioSettingsUi(App& a, bool vertical) {
         if (r.restart) restart = true; else retune = true;
     }
     if (d.board == "icr8600") icomFirmwareUi(a);
+    if (d.board == "omnicore") {   // the AD9361's RX RSSI the driver reads while receiving (radio setting "RX RSSI")
+        const dect2::OmniCoreStatus st = dect2::omnicoreStatus(d.serial);
+        if (!a.engine.running() || !st.receiving) ImGui::TextDisabled("%s", tr("RX RSSI: shown while this radio receives"));
+        else if (!st.rssiOn) ImGui::TextDisabled("%s", tr("RX RSSI: off"));
+        else if (!st.rssiKnown) ImGui::TextDisabled(tr("RX RSSI: %s"), st.note.empty() ? tr("waiting for the first reading") : st.note.c_str());
+        else {
+            char v[2][32];
+            for (int k = 0; k < 2; k++) {
+                if (st.valid[k]) snprintf(v[k], sizeof v[k], "%.1f dB%s", st.rssiDb[k], k == st.input ? " *" : "");
+                else snprintf(v[k], sizeof v[k], "--");
+            }
+            ImGui::Text(tr("RX RSSI: RX1 %s, RX2 %s"), v[0], v[1]);
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s", tr("The AD9361's signal strength of both receivers, read twice a second (* = the input in use).\n"
+                                       "Relative dB, higher is stronger: not a calibrated input power, the gain and the front end change it."));
+    }
     if (converterUi(a, vertical)) { saveRadioSettings(a); retune = true; }
     if (d.kind == DeviceInfo::HackRF || d.kind == DeviceInfo::Soapy || d.kind == DeviceInfo::Native) {   // #233: decimation in OnAir, for radios that are poor at low sample rates
         static const int kDec[] = {1, 2, 4, 8, 16};

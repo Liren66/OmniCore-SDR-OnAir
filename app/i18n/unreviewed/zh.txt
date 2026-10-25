@@ -220,3 +220,9 @@ test downlink scene (this generator does not take a custom message)
 test weather-fax chart (custom image not wired)
 this mode has no transmit generator
 video
+RX RSSI: shown while this radio receives
+RX RSSI: off
+RX RSSI: %s
+waiting for the first reading
+RX RSSI: RX1 %s, RX2 %s
+The AD9361's signal strength of both receivers, read twice a second (* = the input in use).\nRelative dB, higher is stronger: not a calibrated input power, the gain and the front end change it.
