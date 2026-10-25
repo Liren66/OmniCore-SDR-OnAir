@@ -33,7 +33,10 @@ static std::string readFile(const fs::path& p) {
     std::ifstream f(p, std::ios::binary);
     std::stringstream ss;
     ss << f.rdbuf();
-    return ss.str();
+    // a Windows checkout (core.autocrlf) has CRLF: the rules read lines as the repository has them ("}" ends a function, a label's columns)
+    std::string t = ss.str();
+    t.erase(std::remove(t.begin(), t.end(), '\r'), t.end());
+    return t;
 }
 
 // comments become spaces (line numbers kept); string and character literals are kept as they are

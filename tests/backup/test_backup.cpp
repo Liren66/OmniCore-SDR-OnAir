@@ -229,6 +229,7 @@ static void testExtract() {
     CHECK(!fs::exists(root.parent_path() / "evil.txt"));
     std::ifstream in(root / "layouts" / "a.ini"); std::string s((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     CHECK(s == "A");
+    in.close();   // Windows cannot replace a file that is still open
     CHECK(!fs::exists(root / "layouts" / "a.ini.onairtmp"));          // atomic: no temp file left
     // replace overwrites
     ent[0].data = "B";
