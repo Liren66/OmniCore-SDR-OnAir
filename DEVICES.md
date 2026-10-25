@@ -124,6 +124,49 @@ of the one that was opened.
 - SoapySDR: a SoapyFobosSDR module built with Visual Studio (PothosSDR) cannot be loaded by OnAir's Windows build, which is built with
   MinGW; the native driver needs no SoapySDR
 
+# OmniCoreSDR (OmniCore Host)
+
+OnAir drives the OmniCoreSDR (AD9361 + Zynq + CH32H417 USB 3 bridge, USB id 1a86:5537) through its own host library, **OmniCore Host**
+(OCH, `omnicore.dll` / `libomnicore.so`, C ABI 1). The library is not shipped with OnAir; OnAir loads it at run time and the radio is listed
+only when it is found:
+
+- Windows: install OmniCore Host 0.4.6 or later (`OmniCoreHost-<version>-win64-setup.exe`) and its libusbK driver (`och-driver install`).
+  OnAir looks for `omnicore.dll` next to `OnAir.exe`, then in `C:\Program Files\OmniCore Host\bin`, then on the PATH.
+- Linux: build and install OmniCore Host (`tools/build-linux.sh`, `cmake --install ... --prefix /opt/omnicore/<version>`); OnAir finds
+  `/opt/omnicore/<version>/lib/libomnicore.so*` and the usual library folders. OnAir's udev rules cover the radio.
+
+OCH lets one program open the radio at a time: close `och.exe` (and any other OCH program) first. `onair.log` (Windows) or the terminal
+says which library was loaded, how many radios it lists, and the firmware and USB speed of the one that was opened.
+
+- one receive input (RX1 or RX2, radio settings) and one transmit output (TX1 or TX2, the Transmit panel's output choice)
+- 70 MHz to 6 GHz; OCH refuses anything else, and OnAir refuses it before asking (a refused configuration would stop both streams)
+- 2.084 to 61.44 Msps (no AD9361 FIR is loaded: below 2.084 Msps OnAir resamples); OCH takes the nearest rate its clock plan can make
+  exactly (11.2 Msps becomes 11200011 Hz) and the receiver is set up with that rate. USB 2.0 carries about 14 Msps of one channel without loss
+- RX gain 0 to 73 dB (the AD9361's tables: at most 73 dB to 1.3 GHz, 71 dB to 4 GHz, 62 dB above); TX gain is the attenuation as a negative
+  number, -89.75 dB (least power) to 0 dB, in 0.25 dB steps
+- radio settings: **RX input**, **Gain mode** (manual, or the AD9361's AGC: slow attack, fast attack, hybrid), **RX analog bandwidth** and
+  **TX analog bandwidth** (0.2 to 56 MHz, 0 = automatic: the channel's bandwidth, else 95 % of the sample rate), **RX DC correction** and
+  **RX IQ correction** (the AD9361's DC offset and quadrature tracking, both on by default; they need OCH 0.3.1 and firmware with
+  `rx_correction`, otherwise a note says so), and the frequency correction (ppm, applied to the frequencies)
+- frequency and gain change while streaming without a gap in the samples (OCH 0.4.6 fast retune, about 10 ms); the sample rate, the
+  bandwidths and the gain mode change while streaming too (OCH pauses and resumes its streams, a short gap)
+- **simultaneous RX/TX**: select the same radio for the receiver and the transmitter. They share one OCH handle and one sample clock: the
+  second direction uses the running direction's rate when it is high enough, a higher rate is refused (stop the other direction first).
+  OCH cannot change which channels are in use while a stream exists, so starting or stopping one direction, or choosing the other input
+  or output, stops both streams and starts them again: the receiver has a gap of a few hundred milliseconds
+- receive validated on hardware (Windows 11, OCH 0.4.6, firmware `SDK_CMD_1.0_20261024_IQ8`, USB 3, 2026-10-25): 2.084 to 30.72 Msps
+  without lost samples, 70 MHz to 6 GHz at 0 / 40 / 73 dB, frequency and gain retunes in about 14 ms, rate changes in 0.3 to 0.5 s,
+  RX DC correction off -31 dBFS / on -87 dBFS of DC, the bandwidths, gain modes and both inputs, repeated stop / start.
+  Transmit validated on TX1 into a dummy load (433.92 MHz, -70 dB) with the receiver running on RX1: at 4, 20, 30.72 and 61.44 Msps the
+  radio takes the samples at its rate, the tone shows up at -43 dBFS in the receiver (-108 to -123 dBFS once TX is closed), no receive
+  samples lost; TX retune (+1 MHz, -10 dB) and close with the receiver going on. TX2 is checked against the fake library only
+- transmit latency: OCH's default buffers hold seconds of samples (64 MiB: about 6 s at 4 Msps). The driver gives the transmit stream
+  transfers of about 5 ms, 16 in flight and 32 on the host: about 0.25 s from OnAir to the antenna. Smaller buffers (8 in flight, or a
+  host ring of about 10 transfers) ran dry hundreds of times in 6 s on the test machine
+- hardware check: `omnicore_probe` (built with `-DDECT2_BUILD_TESTS=ON`) receives through OnAir's driver and reports rate, loss, DC level
+  and the level at +100 kHz; `--matrix` goes through rates, frequencies, gains and the radio settings, `--tx` transmits a tone 100 kHz
+  above `--txfreq` (default -70 dB) while receiving: connect a dummy load or an attenuator first
+
 # LimeSDR Mini (and Mini 2)
 
 **Experimental: written from LimeSuite's public C API (`LimeSuite.h`) and tested only against a fake library. It has not run on a real
@@ -291,6 +334,7 @@ same USB id 1d50:6089 (the code lists it in `kPids`, and `boardName(5)` reads "H
 |---|---|---|
 | HackRF One / Pro (OnAir's own USB driver) | `UsbHackrfTx` | 2 to 20 Msps, TX VGA 0 to 47 dB, the +14 dB amplifier is a switch |
 | PlutoSDR (libiio) | `PlutoTx` | 2.1 Msps and up, TX attenuation -89.75 to 0 dB; simultaneous RX/TX under the conditions below |
+| OmniCoreSDR (OmniCore Host) | `OmniTx` | 2.084 to 61.44 Msps, TX1 or TX2, TX attenuation -89.75 to 0 dB; simultaneous RX/TX, see [OmniCoreSDR](#omnicoresdr-omnicore-host) |
 | Any SoapySDR radio with a TX channel (LimeSDR, bladeRF, USRP, ...) | `SoapyTx` (`writeStream`) | known after the radio has been opened once, or by its driver name |
 
 Every other radio (RTL-SDR, Airspy, RX888, SDRplay, Fobos, ... receive-only; the native LimeSDR / bladeRF / USRP drivers are receive-only, use their SoapySDR module to transmit) reports `canTransmit = false`.

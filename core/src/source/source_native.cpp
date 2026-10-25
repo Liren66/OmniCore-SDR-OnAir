@@ -1,6 +1,6 @@
-// Native radios (RTL-SDR, Airspy, BladeRF, LimeSDR, PlutoSDR, USRP, SDRplay, Fobos SDR, RFNM): the list of connected ones and the way to open one.
+// Native radios (RTL-SDR, Airspy, BladeRF, LimeSDR, PlutoSDR, USRP, SDRplay, Fobos SDR, RFNM, OmniCoreSDR): the list of connected ones and the way to open one.
 // The drivers are in source_rtlsdr.cpp, source_airspy.cpp, source_bladerf.cpp, source_limesdr.cpp, source_plutosdr.cpp, source_usrp.cpp,
-// source_sdrplay.cpp, source_airspyhf.cpp, source_fobos.cpp and source_rx888.cpp;
+// source_sdrplay.cpp, source_airspyhf.cpp, source_fobos.cpp, source_rx888.cpp and source_omnicore.cpp;
 // each loads the radio's own library at run time (native_common.h), so nothing here depends on those libraries being installed.
 // The exception is the RFNM (source_rfnm.cpp): librfnm has a C++ interface only, so it is linked, and only when CMake found it (DECT2_HAVE_RFNM).
 #include "native_common.h"
@@ -20,6 +20,10 @@ std::unique_ptr<IqSource> makeRx888(const DeviceInfo& d);
 // ---- icom (IC-R8600 I/Q, receive only)
 void listIcom(std::vector<DeviceInfo>& out);
 std::unique_ptr<IqSource> makeIcom(const DeviceInfo& d);
+// ---- omnicore
+void listOmnicore(std::vector<DeviceInfo>& out);
+std::unique_ptr<IqSource> makeOmnicore(const DeviceInfo& d);
+std::unique_ptr<TxSink> makeOmnicoreTx(const DeviceInfo& d);
 #ifdef DECT2_HAVE_RFNM
 // ---- rfnm
 void listRfnm(std::vector<DeviceInfo>& out);
@@ -42,6 +46,7 @@ std::vector<DeviceInfo> listNativeDevices(std::string& err) {
         native::listFobos(out);      // ---- fobos
         native::listRx888(out);      // ---- rx888
         native::listIcom(out);       // ---- icom
+        native::listOmnicore(out);   // ---- omnicore
 #ifdef DECT2_HAVE_RFNM
         native::listRfnm(out);       // ---- rfnm
 #endif
@@ -60,11 +65,12 @@ std::vector<DeviceInfo> listNativeDevices(std::string& err) {
     return out;
 }
 
-// The radios of the native drivers that can transmit: the PlutoSDR (libiio). The LimeSDR, BladeRF and USRP can transmit through SoapySDR
+// The radios of the native drivers that can transmit: the PlutoSDR (libiio), the USRP (UHD) and the OmniCoreSDR (OmniCore Host). The LimeSDR, BladeRF and USRP can transmit through SoapySDR
 // when its module is installed; their native drivers here are receive-only.
 std::unique_ptr<TxSink> makeNativeTxSink(const DeviceInfo& d) {
     if (d.board == "pluto") return native::makePlutoTx(d);
     if (d.board == "usrp") return native::makeUsrpTx(d);
+    if (d.board == "omnicore") return native::makeOmnicoreTx(d);   // ---- omnicore
     return nullptr;
 }
 
@@ -88,6 +94,7 @@ std::unique_ptr<IqSource> makeNativeSource(const DeviceInfo& d) {
     if (d.board == "fobos") return native::makeFobos(d);         // ---- fobos
     if (d.board == "rx888") return native::makeRx888(d);         // ---- rx888
     if (d.board == "icr8600") return native::makeIcom(d);        // ---- icom
+    if (d.board == "omnicore") return native::makeOmnicore(d);   // ---- omnicore
 #ifdef DECT2_HAVE_RFNM
     if (d.board == "rfnm") return native::makeRfnm(d);           // ---- rfnm
 #endif

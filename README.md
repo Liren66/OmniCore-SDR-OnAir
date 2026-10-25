@@ -97,7 +97,7 @@ OnAir is a receiver first. It can also send test signals through a transmit-capa
 | **KA family (own modes)** | 6 | KAAL, KAPP, KAFT, KAVB, KAIT, KAWS: digital modes designed for OnAir, in development (see below) |
 <!-- modes-table:end -->
 
-**Many radios:** HackRF, RTL-SDR, Airspy, SDRplay, BladeRF, LimeSDR, USRP, Pluto, Fobos, RX888, RFNM, network radios, sound cards and Hamlib rigs. The mode counts are generated from the mode list in the app (`tools/release/gen_changelog.py`; the numbering rules are in [docs/MODE-NUMBERS.md](docs/MODE-NUMBERS.md)). Details per mode are under [Modes](#modes).
+**Many radios:** HackRF, RTL-SDR, Airspy, SDRplay, BladeRF, LimeSDR, USRP, Pluto, Fobos, RX888, RFNM, OmniCoreSDR, network radios, sound cards and Hamlib rigs. The mode counts are generated from the mode list in the app (`tools/release/gen_changelog.py`; the numbering rules are in [docs/MODE-NUMBERS.md](docs/MODE-NUMBERS.md)). Details per mode are under [Modes](#modes).
 
 ## What is new in 3.0
 
@@ -472,6 +472,7 @@ OnAir supports the **HackRF One and HackRF Pro** natively, and drives these radi
 | **RTL-SDR** | ❌ | ✅ | An RTL-SDR Blog V4 or V4 Lite works for HF on macOS too |
 | **Airspy HF+** | ❌ | Narrow channels only | Specified for HF and 60 – 260 MHz |
 | **Fobos SDR** (agile firmware) | ✅ | ✅ | Contributed, untested here. Specified for 50 MHz – 6 GHz on the RF input, HF on the HF1 / HF2 inputs. Library not included: put RigExpert's `fobos_sdr` library next to OnAir, see [DEVICES.md](DEVICES.md) |
+| **OmniCoreSDR** | ✅ | ✅ | AD9361, 70 MHz – 6 GHz, receive and transmit (also both at once). Library not included: install [OmniCore Host](DEVICES.md#omnicoresdr-omnicore-host) 0.4.6 or later |
 | **RX888 MkII** | ✅ | ✅ | Native SDDC/USB driver (FX3 firmware, 16-bit ADC), still being hardened on real hardware. USB 3 required. Packages include `SDDC_FX3.img` (RAM load only); see [DEVICES.md](DEVICES.md) |
 | **Icom IC-R8600 (I/Q OUT)** | ✅ | ✅ | Native USB driver, receive only, 10 kHz to 3 GHz, 0.24 to 5.12 Msps. Needs Icom's own firmware file (imported once, never shipped); **needs a user test**. See [docs/ICOM-R8600.md](docs/ICOM-R8600.md) |
 | **RFNM** | ✅ | ✅ | Contributed. Only in builds made with [librfnm](https://github.com/rfnm/librfnm) installed (not the downloads yet), see [DEVICES.md](DEVICES.md). One entry per receive channel of the daughterboards |
