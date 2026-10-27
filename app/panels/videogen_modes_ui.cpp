@@ -1,5 +1,5 @@
 // Tools > Digital video generator, tab "Digital Television Mode Selector" (videogen_modes_ui.h). Left: the link (bitrate, bandwidth,
-// C/N). Right: a block per system (DVB-T, DVB-T2, DVB-S, DVB-S2, DVB-S2X), its parameters on the left - each left open ("Any") or set -
+// C/N), and under it the most optimal mode. Right: a block per system (DVB-T, DVB-T2, DVB-S, DVB-S2, DVB-S2X), its parameters on the left - each left open ("Any") or set -
 // and on the right the modes that still work on the link with those parameters, the best first. The inputs and the parameters are
 // kept in <data dir>/videogen_modes.txt.
 #include "videogen_modes_ui.h"
@@ -21,6 +21,8 @@ namespace {
 const char* const kLinkHelp = N_("What the link offers. The bitrate is what has to be carried: the generator's TS mux rate unless you untick it. The bandwidth is the room you have on the spectrum (a channel, a band-plan segment). The C/N is the ratio of the carrier to the noise you see on the spectrum analyser, in the same bandwidth as the signal.");
 
 const char* const kModesHelp = N_("Per system, set the parameters you want or leave them on Any. The list beside them shows the modes that carry the bitrate within the bandwidth at the C/N, the best first: the smallest bandwidth, then the most C/N margin. Satellite modes have a free symbol rate: their bandwidth is what the bitrate needs, their capacity what the whole bandwidth would carry. The thresholds are the ideal AWGN values of the standards (no implementation margin, phase noise or multipath): keep a few dB in hand. The DVB-T2 bitrate is the ideal cell capacity (P1/P2 symbols and signalling not deducted), so the real one is a few percent lower.");
+
+const char* const kBestHelp = N_("The mode with the smallest bandwidth that carries the bitrate at this C/N, over all systems and with the parameters set in their blocks; between modes of the same bandwidth, the one with the most C/N margin. Set parameters in a block (or the bandwidth) to steer it, e.g. to a system your receiver has.");
 
 struct Sel {
     bool init = false;
@@ -264,6 +266,47 @@ void modeList(const Sel& s, DvbSystem sys, float h) {
     ImGui::EndTable();
 }
 
+// The best mode of all systems: the front of each system's list, compared the same way as within a list
+void bestMode(const Sel& s) {
+    ImGui::Spacing();
+    ImGui::SeparatorText(tr("Most optimal mode"));
+    helpMark(kBestHelp);
+    const ModeChoice* best = nullptr;
+    for (const std::vector<ModeChoice>& a : s.avail)
+        if (!a.empty() && (!best || betterChoice(a.front(), *best))) best = &a.front();
+    if (!best) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.65f, 0.2f, 1));
+        ImGui::TextWrapped("%s", tr("No mode carries this bitrate within this bandwidth at this C/N. Allow more bandwidth, a lower bitrate or a better C/N, or leave more parameters on Any."));
+        ImGui::PopStyleColor();
+        return;
+    }
+    const DvbMode& m = *best->mode;
+    ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_PlotHistogram), "%s", modeName(m).c_str());
+    if (ImGui::IsItemHovered()) modeTooltip(m);
+    if (!ImGui::BeginTable("##dmsbest", 2, ImGuiTableFlags_SizingStretchProp)) return;
+    auto row = [](const char* k, const std::string& v) {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::TextDisabled("%s", k);
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(v.c_str());
+    };
+    auto num = [](double v, const char* unit) {
+        std::array<char, 48> b{};
+        snprintf(b.data(), b.size(), "%.3f", v);
+        return std::string(b.data()) + " " + unit;
+    };
+    row(tr("System"), dvbSystemName(m.system));
+    const std::vector<ModeParam>& params = modeParams(m.system);
+    for (size_t k = 0; k < params.size(); k++) row(tr(params[k].name), tr(params[k].values[(size_t)m.value[k]].c_str()));
+    row(tr("Bandwidth"), num(best->fit.bwMHz, "MHz"));
+    if (isSatellite(m.system)) row(tr("Symbol rate"), num(best->fit.symbolRate, "Msym/s"));
+    row(isSatellite(m.system) ? tr("Capacity in the bandwidth") : tr("Capacity"), num(best->fit.capacityMbps, "Mbit/s"));
+    row(tr("C/N needed"), num(m.cnDb, "dB"));
+    row(tr("C/N margin"), num(best->fit.marginDb, "dB"));
+    ImGui::EndTable();
+}
+
 // one system: the parameters beside the modes they leave
 void systemBlock(Sel& s, DvbSystem sys) {
     ImGui::PushID((int)sys);
@@ -291,8 +334,9 @@ void dvbModeSelectorTab(int generatorKbps) {
     const float left = std::min(330 * gUi, ImGui::GetContentRegionAvail().x * 0.35f);
     ImGui::BeginChild("##dmsinput", ImVec2(left, 0));
     linkInputs(s, generatorKbps);
-    ImGui::EndChild();
     update(s);
+    bestMode(s);
+    ImGui::EndChild();
     ImGui::SameLine();
     ImGui::BeginChild("##dmsmodes", ImVec2(0, 0));
     ImGui::TextDisabled("%s", tr("Modes per system"));
