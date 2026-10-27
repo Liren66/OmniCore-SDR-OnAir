@@ -59,6 +59,18 @@ static void writePicture(const fs::path& p) {
         }
 }
 
+// a picture of pure noise: the largest an MPEG-2 picture of this size gets, even at the encoder's lowest quality
+static void writeNoise(const fs::path& p, int w, int h) {
+    std::ofstream f(p, std::ios::binary);
+    f << "P6\n" << w << " " << h << "\n255\n";
+    uint32_t x = 12345;
+    for (int i = 0; i < w * h * 3; i++) {
+        x = x * 1664525u + 1013904223u;
+        const char c = (char)(x >> 24);
+        f.write(&c, 1);
+    }
+}
+
 static bool hasEncoder(const char* name) {
     for (const EncoderInfo& e : videoEncoders()) if (e.name == name) return true;
     return false;
@@ -426,6 +438,27 @@ static bool encodeFile(GenConfig c, std::string& err) {
     return err.empty() && g.stats().finished;
 }
 
+// The settings of a crash on Windows: MPEG-2, CBR, 10 kbit/s, 640x360, 2 fps. FFmpeg aborted the program ("vbv_delay < 0xFFFF"):
+// a picture took longer than vbv_delay holds. Now the rate is raised to the minimum and, for a noise picture, the headers say VBR.
+static void testMpeg2LowRate(const fs::path& dir) {
+    const fs::path noise = dir / "noise.ppm";
+    writeNoise(noise, 640, 360);
+    GenConfig c = pictureConfig(noise);
+    c.output = Output::File;
+    c.tsPath = (dir / "mpeg2_low.ts").string();
+    c.seconds = 3;
+    c.fit = Fit::Stretch;
+    c.enc.videoEncoder = "mpeg2video";
+    c.enc.rc = RateControl::Cbr;
+    c.enc.autoBitrate = false; c.enc.videoKbps = 10;
+    c.enc.width = 640; c.enc.height = 360; c.enc.fps = 2; c.enc.gopSeconds = 2.4;
+    c.enc.frames = FrameTypes::IP;
+    std::string err;
+    CHECK(encodeFile(c, err), "MPEG-2 CBR at 10 kbit/s, 640x360, 2 fps: %s", err.c_str());
+    const TsInfo ti = parseTs(readAll(c.tsPath));
+    CHECK(ti.sync && ti.packets > 10, "a TS file at the lowest MPEG-2 rate (%zu packets)", ti.packets);
+}
+
 // A video file as the source: its length, looping when the output is longer, its sound kept in step, and a file without sound
 static void testVideoFile(const fs::path& dir, const fs::path& pic) {
     // a 1 s clip with a tone, made by the generator itself (MPEG-2 + MP2: in every FFmpeg build)
@@ -678,6 +711,7 @@ int main() {
     testOverlay();
     testTsFile(dir, pic);
     testH264(dir, pic);
+    testMpeg2LowRate(dir);
     testVideoFile(dir, pic);
     testFailures(dir, pic);
     testStopAndOverlayChanges(dir, pic);
