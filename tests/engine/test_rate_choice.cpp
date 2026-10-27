@@ -125,6 +125,17 @@ int main() {
             printf("  pluto %-15s DVB-S auto %.3f Msps\n", uri, got / 1e6);
         }
     }
+    {   // the baseband filter once the rate is settled: P25's 1.75 MHz filter is for its 2 Msps
+        const ModeTuning* p25 = modeTuning(52);
+        CHECK(p25 && p25->basebandHz == 1.75e6 && p25->sampleRate == 2e6);
+        CHECK(basebandFilterFor(1.75e6, 2e6, 2e6) == 1.75e6);    // the mode's own rate keeps its filter
+        CHECK(basebandFilterFor(1.75e6, 2e6, 10e6) == 0);        // raised to 10 Msps: the radio opens for the whole capture
+        CHECK(basebandFilterFor(1.75e6, 2e6, 2.01e6) == 1.75e6); // the radio's rounding is not a raise
+        CHECK(basebandFilterFor(7e6, 8e6, 4e6) == 0);            // lowered below the filter: it would fold in
+        CHECK(basebandFilterFor(2.5e6, 4e6, 3.2e6) == 2.5e6);    // lowered, still wider than the filter: kept
+        CHECK(basebandFilterFor(0, 2e6, 10e6) == 0);             // Auto stays Auto
+        CHECK(basebandFilterFor(1.75e6, 0, 10e6) == 1.75e6);     // no rate known for the mode: as before
+    }
     if (fails) { printf("%d failures\n", fails); return 1; }
     printf("rate choice ok\n");
     return 0;

@@ -30,6 +30,12 @@ struct RateCheck { bool ok = false; double hz = 0; std::string why; };   // hz: 
 // A typed rate: within the radio's limits, not in a gap between its ranges, and the rate delivered at least the mode's minimum.
 RateCheck checkManualRate(const RateLimits& L, double modeMinHz, double hz);
 
+// The radio's baseband filter (TuneSettings::basebandFilterHz, 0 = the radio's own choice for its rate) once the rate is settled. filterHz:
+// the mode's filter, meant for autoRateHz (its rate on this radio); rateHz: the rate it runs at. A filter wider than the rate lets
+// everything up to its edge fold into the band; a rate the user raised above autoRateHz is asked for to see more, which the mode's narrow
+// filter would cut away (a P25 traffic channel 3 MHz from the control channel, 25 dB down on the LimeSDR's 1.75 MHz filter): both give 0.
+double basebandFilterFor(double filterHz, double autoRateHz, double rateHz);
+
 // The rate a radio whose link is slower than its converter (DeviceInfo::steadyRateHz) runs a mode at. wantHz: the mode's rate; needHz:
 // the least its receiver works with (minSampleRateFor). The mode fits the link: at most the link's rate, no samples lost. It does not:
 // wantHz anyway (within maxRateHz), since a decode with some lost samples beats none. A Tezuka PlutoSDR with the IQ format CS8 ("iqformat",
