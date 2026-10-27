@@ -103,6 +103,7 @@ static void testEstimate() {
     CHECK(suggestVideoKbps(lowAuto) >= minVideoKbps(low), "the suggestion is never below the minimum");
     Settings lowH264 = low; lowH264.videoEncoder = "libx264";
     CHECK(minVideoKbps(lowH264) == 10 && effectiveVideoKbps(lowH264) == 10, "H.264 keeps 10 kbit/s");
+    CHECK(!mpeg2CbrHeaders(640, 360, 150000) && mpeg2CbrHeaders(640, 360, 828000), "CBR headers from 900 bit/s per macroblock");
 
     const Budget b = estimate(s);
     CHECK(std::fabs(b.total - (b.video + b.audio + b.pesTs + b.psiSi)) < 1e-6, "total is the sum of its parts");

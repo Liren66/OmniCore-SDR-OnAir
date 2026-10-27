@@ -79,9 +79,11 @@ double bitsPerPixel(Codec c, FrameTypes f);
 // FFmpeg's mpeg2video aborts the program when a picture takes longer than that at the bitrate. Even at its lowest quality a camera or
 // still picture needs about 160 bit/s per macroblock (16x16 pixels) to stay within it, pure noise about 900 (measured with FFmpeg 8).
 constexpr int kMpeg2MinBitsPerMb = 160;   // the lowest MPEG-2 video bitrate the generator allows
+constexpr int kMpeg2CbrBitsPerMb = 900;   // below this, MPEG-2 CBR writes VBR headers (vbv_delay 0xFFFF), which no picture can overflow
 int macroblocks(int width, int height);
 // The lowest video bitrate in kbit/s: kMpeg2MinBitsPerMb for MPEG-2 (rounded up to 10), 10 for the other codecs
 int minVideoKbps(const Settings& s);
+bool mpeg2CbrHeaders(int width, int height, int64_t bitrate);   // bitrate in bit/s
 // The video bitrate the picture settings need, in kbit/s (rounded to 10)
 int suggestVideoKbps(const Settings& s);
 int effectiveVideoKbps(const Settings& s);              // autoBitrate ? suggestion : videoKbps, never below minVideoKbps

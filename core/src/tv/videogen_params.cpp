@@ -194,6 +194,8 @@ int minVideoKbps(const Settings& s) {
     return std::max(10, (int)((bits + 9999) / 10000 * 10));
 }
 
+bool mpeg2CbrHeaders(int width, int height, int64_t bitrate) { return bitrate >= (int64_t)macroblocks(width, height) * kMpeg2CbrBitsPerMb; }
+
 int suggestVideoKbps(const Settings& s) {
     const double kb = bitsPerPixel(codecOf(s.videoEncoder), s.frames) * s.width * s.height * std::max(0.1, s.fps) / 1000.0;
     return std::max({50, (int)std::lround(kb / 10.0) * 10, minVideoKbps(s)});

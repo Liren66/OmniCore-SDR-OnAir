@@ -429,6 +429,9 @@ void VideoGenerator::Impl::run(GenConfig c) {
             // vbv_delay is 16 bits of 90 kHz: a buffer longer than about 0.7 s of the rate makes the stream VBR in the headers
             vx->rc_buffer_size = (int)std::min<int64_t>(vx->rc_buffer_size, vx->rc_max_rate * 7 / 10);
             vx->rc_initial_buffer_occupancy = vx->rc_buffer_size * 3 / 4;
+            // a busy picture (camera noise) can still take longer than vbv_delay holds, and FFmpeg aborts on it in CBR: VBR headers
+            // then (vbv_delay 0xFFFF); the rate control keeps the set rate, the muxer pads the rest with null packets
+            if (vx->rc_min_rate && !mpeg2CbrHeaders(W, H, vx->rc_min_rate)) vx->rc_min_rate = 0;
         }
         if (caps.preset) av_dict_set(&o, "preset", kPresets[std::clamp(s.preset, 0, kNumPresets - 1)], 0);
         if (caps.zeroLatency && s.zeroLatency) av_dict_set(&o, "tune", "zerolatency", 0);
