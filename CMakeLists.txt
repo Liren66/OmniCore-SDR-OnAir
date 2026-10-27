@@ -1926,6 +1926,9 @@ if(DECT2_BUILD_TESTS)
   add_executable(test_videogen tests/tv/test_videogen.cpp)   # Digital video generator: bitrate estimate, encoder settings, overlay, .ts file, UDP / RTP
   target_link_libraries(test_videogen PRIVATE dect2core)
   add_test(NAME videogen COMMAND test_videogen WORKING_DIRECTORY ${ONAIR_ROOT})
+  add_executable(test_dvb_modes tests/tv/test_dvb_modes.cpp)   # its mode selector: DVB modes against the workbook, link fit, best mode
+  target_link_libraries(test_dvb_modes PRIVATE dect2core)
+  add_test(NAME dvb_modes COMMAND test_dvb_modes)
 
   add_executable(test_text_charset tests/common/test_text_charset.cpp)
   target_link_libraries(test_text_charset PRIVATE dect2core)
