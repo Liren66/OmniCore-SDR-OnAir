@@ -91,6 +91,18 @@ static void testEstimate() {
     CHECK(suggestVideoKbps(intra) > 2 * base, "I-only needs much more");
     Settings manual = s; manual.autoBitrate = false; manual.videoKbps = 2500;
     CHECK(effectiveVideoKbps(manual) == 2500, "a set bitrate is kept");
+    // MPEG-2 has a lowest bitrate per picture size (vbv_delay); the others only the 10 kbit/s floor
+    Settings low = s; low.videoEncoder = "mpeg2video"; low.autoBitrate = false; low.videoKbps = 10; low.width = 640; low.height = 360; low.fps = 2;
+    CHECK(macroblocks(640, 360) == 920, "640x360 is 40x23 macroblocks (%d)", macroblocks(640, 360));
+    CHECK(minVideoKbps(low) == 150, "MPEG-2 640x360 minimum %d kbit/s, expected 150", minVideoKbps(low));
+    CHECK(effectiveVideoKbps(low) == 150, "a set bitrate below the minimum is raised (%d)", effectiveVideoKbps(low));
+    bool lowWarned = false;
+    for (const std::string& w : checkSettings(low, estimate(low))) if (w.find("MPEG-2 minimum") != std::string::npos) lowWarned = true;
+    CHECK(lowWarned, "a bitrate below the MPEG-2 minimum is warned about");
+    Settings lowAuto = low; lowAuto.autoBitrate = true;
+    CHECK(suggestVideoKbps(lowAuto) >= minVideoKbps(low), "the suggestion is never below the minimum");
+    Settings lowH264 = low; lowH264.videoEncoder = "libx264";
+    CHECK(minVideoKbps(lowH264) == 10 && effectiveVideoKbps(lowH264) == 10, "H.264 keeps 10 kbit/s");
 
     const Budget b = estimate(s);
     CHECK(std::fabs(b.total - (b.video + b.audio + b.pesTs + b.psiSi)) < 1e-6, "total is the sum of its parts");

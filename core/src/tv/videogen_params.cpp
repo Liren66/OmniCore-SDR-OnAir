@@ -186,12 +186,20 @@ double bitsPerPixel(Codec c, FrameTypes f) {
     return b;
 }
 
-int suggestVideoKbps(const Settings& s) {
-    const double kb = bitsPerPixel(codecOf(s.videoEncoder), s.frames) * s.width * s.height * std::max(0.1, s.fps) / 1000.0;
-    return std::max(50, (int)std::lround(kb / 10.0) * 10);
+int macroblocks(int width, int height) { return ((std::max(1, width) + 15) / 16) * ((std::max(1, height) + 15) / 16); }
+
+int minVideoKbps(const Settings& s) {
+    if (codecOf(s.videoEncoder) != Codec::Mpeg2) return 10;
+    const int64_t bits = (int64_t)macroblocks(s.width, s.height) * kMpeg2MinBitsPerMb;
+    return std::max(10, (int)((bits + 9999) / 10000 * 10));
 }
 
-int effectiveVideoKbps(const Settings& s) { return s.autoBitrate ? suggestVideoKbps(s) : std::max(10, s.videoKbps); }
+int suggestVideoKbps(const Settings& s) {
+    const double kb = bitsPerPixel(codecOf(s.videoEncoder), s.frames) * s.width * s.height * std::max(0.1, s.fps) / 1000.0;
+    return std::max({50, (int)std::lround(kb / 10.0) * 10, minVideoKbps(s)});
+}
+
+int effectiveVideoKbps(const Settings& s) { return std::max(minVideoKbps(s), s.autoBitrate ? suggestVideoKbps(s) : s.videoKbps); }
 
 Budget estimate(const Settings& s) {
     Budget b;
@@ -229,6 +237,7 @@ std::vector<std::string> checkSettings(const Settings& s, const Budget& b) {
     if (s.profile == 0 && s.frames == FrameTypes::IPB && capsOf(s.videoEncoder).profile) w.push_back("The Baseline profile has no B-frames: I/P is used.");
     if (s.rc == RateControl::Crf && !capsOf(s.videoEncoder).crf) w.push_back("This encoder has no CRF mode: constrained VBR is used.");
     if (codecOf(s.videoEncoder) == Codec::Mpeg2 && (s.width > 1920 || s.height > 1152)) w.push_back("MPEG-2 Main Profile at High Level stops at 1920x1152.");
+    if (!s.autoBitrate && s.videoKbps < minVideoKbps(s)) w.push_back("The video bitrate is below the MPEG-2 minimum for this picture size: the minimum is used.");
     return w;
 }
 

@@ -75,9 +75,16 @@ int audioTrackCount(const Settings& s);                 // 0 for video only
 
 // Bits per pixel for a watchable picture: a rule of thumb per codec and frame-type set, not a measurement
 double bitsPerPixel(Codec c, FrameTypes f);
+// MPEG-2 sends with each picture how long the decoder waits for it (vbv_delay: 16 bits of 90 kHz, at most about 0.73 s), and in CBR
+// FFmpeg's mpeg2video aborts the program when a picture takes longer than that at the bitrate. Even at its lowest quality a camera or
+// still picture needs about 160 bit/s per macroblock (16x16 pixels) to stay within it, pure noise about 900 (measured with FFmpeg 8).
+constexpr int kMpeg2MinBitsPerMb = 160;   // the lowest MPEG-2 video bitrate the generator allows
+int macroblocks(int width, int height);
+// The lowest video bitrate in kbit/s: kMpeg2MinBitsPerMb for MPEG-2 (rounded up to 10), 10 for the other codecs
+int minVideoKbps(const Settings& s);
 // The video bitrate the picture settings need, in kbit/s (rounded to 10)
 int suggestVideoKbps(const Settings& s);
-int effectiveVideoKbps(const Settings& s);              // autoBitrate ? suggestion : videoKbps
+int effectiveVideoKbps(const Settings& s);              // autoBitrate ? suggestion : videoKbps, never below minVideoKbps
 
 // The transport-stream budget in kbit/s: what each part adds and the mux rate it needs
 struct Budget {
