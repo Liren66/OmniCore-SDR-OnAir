@@ -92,7 +92,7 @@ const RowHelp kRowHelp[] = {
     {N_("Audio PID"), N_("The packet ID of the first audio track; further tracks follow it.")},
 };
 
-const char* const kToolHelp = N_("Encodes a camera, a still picture or a video file, with the overlay of the second tab, into an MPEG transport stream: a .ts file, or a UDP / RTP stream to watch in VLC. A .ts file can be given to the transmitter as its \"MPEG-TS / video file\". The estimate on the right of the first tab shows the bitrate the settings need, so you can fit the stream to your DVB link before encoding. Each setting has its own (?). The whole guide: docs/VIDEO-GENERATOR.md.");
+const char* const kToolHelp = N_("Encodes a camera, a still picture or a video file, with the overlay of the second tab, into an MPEG transport stream: a .ts file, or a UDP / RTP stream to watch in VLC. A .ts file can be given to the transmitter as its \"MPEG-TS / video file\". The estimate on the right of the first tab shows the bitrate the settings need, so you can fit the stream to your DVB link before encoding; the tab Digital Television Mode Selector shows which DVB modes carry it in your bandwidth at your C/N. Each setting has its own (?). The whole guide: docs/VIDEO-GENERATOR.md.");
 
 struct DropItem { int kind; int param; };   // the drag-and-drop payload "VGBLOCK"
 
