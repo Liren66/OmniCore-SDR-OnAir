@@ -1,10 +1,12 @@
 // Tools > Digital video generator: a camera, a still picture or a video file encoded into an MPEG transport stream, written to a .ts
-// file or sent over UDP / RTP (port 5000 unless changed). Two tabs: "Sources and encoding" (inputs, output, every encoder parameter and
-// the bitrate estimate, which follows each change) and "Overlay" (a logo, parameter blocks, free text and rolling text, placed on the
-// picture by drag and drop, magnetic). A standalone tool: it does not touch the receiver or the transmitter; a .ts file it writes can
-// be given to the transmitter as its "MPEG-TS / video file". The engine is core/src/tv/videogen*.cpp.
+// file or sent over UDP / RTP (port 5000 unless changed). Three tabs: "Sources and encoding" (inputs, output, every encoder parameter and
+// the bitrate estimate, which follows each change), "Overlay" (a logo, parameter blocks, free text and rolling text, placed on the
+// picture by drag and drop, magnetic) and "Digital Television Mode Selector" (the DVB modes that carry the stream on a link,
+// videogen_modes_ui.cpp). A standalone tool: it does not touch the receiver or the transmitter; a .ts file it writes can be given to the
+// transmitter as its "MPEG-TS / video file". The engine is core/src/tv/videogen*.cpp.
 #include "../app.h"
 #include "../platform/platform.h"
+#include "videogen_modes_ui.h"
 #include "dect2/audio/audioin.h"
 #include "dect2/audio/videoin.h"
 #include "dect2/common/u8file.h"
@@ -1017,6 +1019,7 @@ void videoGenWindow(App& a) {
     if (ImGui::BeginTabBar("##vgtabs")) {
         if (ImGui::BeginTabItem(trw("Sources and encoding"))) { sourcesTab(s); ImGui::EndTabItem(); }
         if (ImGui::BeginTabItem(trw("Overlay"))) { overlayTab(s); ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem(trw("Digital Television Mode Selector"))) { dvbModeSelectorTab(estimate(s.cfg.enc).mux); ImGui::EndTabItem(); }
         ImGui::EndTabBar();
     }
     ImGui::End();
