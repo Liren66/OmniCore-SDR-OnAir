@@ -174,7 +174,8 @@ The overlay text uses the font of the OnAir interface (Inter). The layout is kep
 ## Digital Television Mode Selector
 
 The third tab answers: with this bitrate, this much room on the spectrum and this signal quality, which DVB modes will work, and which
-is the best? It knows every standard mode of DVB-T, DVB-T2 (with the 1,7 MHz channel), DVB-S, DVB-S2 and DVB-S2X.
+is the best? It knows every standard mode of DVB-T, DVB-T2, DVB-T2 narrow band (the 1,7 MHz channel, a block of its own), DVB-S,
+DVB-S2 and DVB-S2X.
 
 **Left, the link:**
 
@@ -197,7 +198,7 @@ How the modes are worked out (the formulas and standard tables of the workbook `
 | System | Bandwidth | Bitrate | Minimum C/N (AWGN) |
 |---|---|---|---|
 | DVB-T (EN 300 744) | K / Tu of the channel | data carriers x bits x code rate x 188/204 / symbol time | Annex A Table A.1 |
-| DVB-T2 (EN 302 755) | Ktotal / Tu of the channel | data cells x bits x (Kbch - 80) / Nldpc / symbol time | TS 102 831 Tables 44/45 + pilot boost (Table 46) |
+| DVB-T2 and DVB-T2 1.7 MHz (EN 302 755) | Ktotal / Tu of the channel | data cells x bits x (Kbch - 80) / Nldpc / symbol time | TS 102 831 Tables 44/45 + pilot boost (Table 46) |
 | DVB-S (EN 300 421) | symbol rate x 1.35 | symbol rate x 2 x code rate x 188/204 | Eb/N0 of Table 3, as C/N |
 | DVB-S2 (EN 302 307-1) | symbol rate x (1 + roll-off) | symbol rate x (Kbch - 80) / PLFRAME | Es/N0 of Table 13 |
 | DVB-S2X (EN 302 307-2) | symbol rate x (1 + roll-off) | symbol rate x (Kbch - 80) / PLFRAME | Es/N0 of Tables 20a-20c |

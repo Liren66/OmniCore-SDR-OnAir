@@ -43,7 +43,7 @@ static void expectMode(DvbSystem s, const std::string& name, double bw, double r
 }
 
 static void testCounts() {
-    const size_t want[] = {480, 34272, 5, 312, 714};
+    const size_t want[] = {480, 28560, 5712, 5, 312, 714};
     for (int s = 0; s < kNumDvbSystems; s++) {
         const size_t n = dvbModes((DvbSystem)s).size();
         CHECK(n == want[s], "%s: %zu modes, expected %zu", dvbSystemName((DvbSystem)s), n, want[s]);
@@ -58,7 +58,7 @@ static void testValues() {
     expectMode(DvbSystem::T, "T-8MHz-2K-GI1/4-QPSK-1/2", 7.6116071428571432, 4.9764705882352942, 3.5);
     expectMode(DvbSystem::T, "T-8MHz-8K-GI1/4-64-QAM-2/3", 7.608258929, 19.905882353, 16.7);
     expectMode(DvbSystem::T2, "T2-5MHz-1K-GI1/16-PP4-QPSK-1/2-N", 4.7600446428571432, 4.1872393401805166, 1.42);
-    expectMode(DvbSystem::T2, "T2-1.7MHz-1K-GI1/16-PP4-QPSK-1/2-N", 1.536958076584507, 1.3520065052625116, 1.42);
+    expectMode(DvbSystem::T2Narrow, "T2-1.7MHz-1K-GI1/16-PP4-QPSK-1/2-N", 1.536958076584507, 1.3520065052625116, 1.42);
     expectMode(DvbSystem::T2, "T2-8MHz-32KE-GI1/128-PP7-256-QAM-3/5-N", 7.768136161, 36.162504683, 16.43);
     expectMode(DvbSystem::S, "S-QPSK-1/2", 1.35, 0.92156862745098034, 4.145276818377809);
     expectMode(DvbSystem::S2, "S2-QPSK-1/4-N-POff-RO0.20", 1.2, 0.49024315173899663, -2.35);
@@ -112,9 +112,12 @@ static void testAvailable() {
     // DVB-S2, 2 Mbit/s in 3 MHz at 6 dB: the highest efficiency within 6 dB is 8PSK 3/5 (5.5 dB), at the smallest roll-off, no pilots
     std::vector<ModeChoice> s2 = availableModes(DvbSystem::S2, openFilter(), {2000, 3, 6});
     CHECK(!s2.empty() && modeName(*s2.front().mode) == "S2-8PSK-3/5-N-POff-RO0.20", "DVB-S2 best: %s", s2.empty() ? "(none)" : modeName(*s2.front().mode).c_str());
-    // the 1,7 MHz DVB-T2 channel is the only terrestrial one within 2 MHz
-    for (const ModeChoice& c : availableModes(DvbSystem::T2, openFilter(), {1000, 2, 30}))
-        CHECK(c.mode->value[0] == 0, "DVB-T2 in 2 MHz: %s is not a 1,7 MHz mode", modeName(*c.mode).c_str());
+    // the 1,7 MHz DVB-T2 channel is the only terrestrial one within 2 MHz, and it is its own system
+    CHECK(availableModes(DvbSystem::T2, openFilter(), {1000, 2, 30}).empty(), "DVB-T2: a 5-10 MHz mode fits in 2 MHz");
+    const std::vector<ModeChoice> nb = availableModes(DvbSystem::T2Narrow, openFilter(), {1000, 2, 30});
+    CHECK(!nb.empty() && nb.front().fit.bwMHz < 1.6, "DVB-T2 1.7 MHz: no mode for 1 Mbit/s in 2 MHz");
+    for (const DvbMode& m : dvbModes(DvbSystem::T2))
+        if (modeName(m).starts_with("T2-1.7MHz")) { fail("DVB-T2 has the 1,7 MHz mode %s", modeName(m).c_str()); break; }
 }
 
 int main() {

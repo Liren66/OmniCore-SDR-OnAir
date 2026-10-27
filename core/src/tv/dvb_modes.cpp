@@ -42,7 +42,7 @@ const double kTCn[3][5] = {{3.5, 5.3, 6.3, 7.3, 7.9}, {9.3, 11.4, 12.6, 13.8, 14
 
 // ---- DVB-T2: EN 302 755 V1.4.1, TS 102 831 V1.2.1 ----
 
-// Table 65: T (µs); 1,7 MHz is 71/131 µs, 10 MHz professional use only
+// Table 65: T (µs); 1,7 MHz is 71/131 µs (its own system, DvbSystem::T2Narrow, as the workbook's own sheet), 10 MHz professional use only
 const TBw kT2Bw[] = {{"1.7 MHz", 71.0 / 131}, {"5 MHz", 7.0 / 40}, {"6 MHz", 7.0 / 48}, {"7 MHz", 1.0 / 8}, {"8 MHz", 7.0 / 64}, {"10 MHz", 7.0 / 80}};
 const char* const kT2Fft[] = {"1K", "2K", "4K", "8K", "16K", "32K"};
 const int kT2Points[] = {1024, 2048, 4096, 8192, 16384, 32768};
@@ -186,16 +186,21 @@ int indexOf(const std::vector<std::string>& v, std::string_view s) {
     return -1;
 }
 
+// the channels of kT2Bw a DVB-T2 system has: the 1,7 MHz one for T2Narrow, the others for T2
+int t2FirstBw(DvbSystem s) { return s == DvbSystem::T2Narrow ? 0 : 1; }
+int t2NumBw(DvbSystem s) { return s == DvbSystem::T2Narrow ? 1 : 5; }
+
 std::vector<ModeParam> buildParams(DvbSystem s) {
     std::vector<std::string> tbw, t2bw;
     for (const TBw& b : kTBw) tbw.emplace_back(b.name);
-    for (const TBw& b : kT2Bw) t2bw.emplace_back(b.name);
+    for (int b = t2FirstBw(s); b < t2FirstBw(s) + t2NumBw(s); b++) t2bw.emplace_back(kT2Bw[b].name);
     std::vector<std::string> tfft;
     for (const TFft& f : kTFft) tfft.emplace_back(f.name);
     switch (s) {
     case DvbSystem::T:
         return {{"Channel", tbw}, {"FFT", tfft}, {"Guard interval", strings(kTGi)}, {"Modulation", strings(kTMod)}, {"Code rate", strings(kTCr)}};
     case DvbSystem::T2:
+    case DvbSystem::T2Narrow:
         return {{"Channel", t2bw}, {"FFT", strings(kT2Fft)}, {"Carriers", strings(kT2Carriers)}, {"Guard interval", strings(kT2Gi)},
                 {"Pilot pattern", strings(kT2Pp)}, {"Modulation", strings(kT2Mod)}, {"Code rate", strings(kT2Cr)}, {"FEC frame", strings(kT2Frame)}};
     case DvbSystem::S:
@@ -233,10 +238,10 @@ void buildT(std::vector<DvbMode>& out) {
                     }
 }
 
-void buildT2(std::vector<DvbMode>& out) {
+void buildT2(std::vector<DvbMode>& out, DvbSystem sys) {
     std::map<std::tuple<int, int, int>, const T2Pp*> ppTab;
     for (const T2Pp& p : kT2PpTab) ppTab[{p.fft, p.ext, p.pp}] = &p;
-    for (int b = 0; b < 6; b++)
+    for (int b = 0; b < t2NumBw(sys); b++)
         for (int f = 0; f < 6; f++)
             for (int e = 0; e < 2; e++) {
                 if (kT2K[f][e] == 0) continue;
@@ -245,11 +250,11 @@ void buildT2(std::vector<DvbMode>& out) {
                         if (!(kT2Allowed[f][g] & (1 << p))) continue;
                         const auto it = ppTab.find({f, e, p});
                         if (it == ppTab.end()) continue;
-                        const double tu = kT2Points[f] * kT2Bw[b].t, ts = tu * (1 + fraction(kT2Gi[g]));
+                        const double tu = kT2Points[f] * kT2Bw[t2FirstBw(sys) + b].t, ts = tu * (1 + fraction(kT2Gi[g]));
                         for (int mo = 0; mo < 4; mo++)
                             for (int c = 0; c < 6; c++)
                                 for (int fr = 0; fr < 2; fr++) {
-                                    DvbMode m = mode(DvbSystem::T2, {b, f, e, g, p, mo, c, fr});
+                                    DvbMode m = mode(sys, {b, f, e, g, p, mo, c, fr});
                                     m.bwMHz = kT2K[f][e] / tu;
                                     m.rateMbps = it->second->cdata * 2.0 * (mo + 1) * (kT2Kbch[fr][c] - 80) / kT2Nldpc[fr] / ts;
                                     m.cnDb = kT2Cn[fr][mo][c] + it->second->dbp;
@@ -307,7 +312,8 @@ struct Tables {
     Tables() {
         for (int i = 0; i < kNumDvbSystems; i++) params[i] = buildParams((DvbSystem)i);
         buildT(modes[(int)DvbSystem::T]);
-        buildT2(modes[(int)DvbSystem::T2]);
+        buildT2(modes[(int)DvbSystem::T2], DvbSystem::T2);
+        buildT2(modes[(int)DvbSystem::T2Narrow], DvbSystem::T2Narrow);
         buildS(modes[(int)DvbSystem::S]);
         buildS2(modes[(int)DvbSystem::S2]);
         buildS2X(modes[(int)DvbSystem::S2X], params[(int)DvbSystem::S2X]);
@@ -325,6 +331,7 @@ const char* dvbSystemName(DvbSystem s) {
     switch (s) {
     case DvbSystem::T: return "DVB-T";
     case DvbSystem::T2: return "DVB-T2";
+    case DvbSystem::T2Narrow: return "DVB-T2 1.7 MHz";
     case DvbSystem::S: return "DVB-S";
     case DvbSystem::S2: return "DVB-S2";
     case DvbSystem::S2X: return "DVB-S2X";
@@ -344,6 +351,7 @@ std::string modeName(const DvbMode& m) {
     switch (m.system) {
     case DvbSystem::T: return "T-" + mhz(0) + "-" + v(1) + "-GI" + v(2) + "-" + v(3) + "-" + v(4);
     case DvbSystem::T2:
+    case DvbSystem::T2Narrow:
         return "T2-" + mhz(0) + "-" + v(1) + (m.value[2] ? "E" : "") + "-GI" + v(3) + "-" + v(4) + "-" + v(5) + "-" + v(6) + (m.value[7] ? "-S" : "-N");
     case DvbSystem::S: return "S-QPSK-" + v(0);
     case DvbSystem::S2: return "S2-" + v(0) + "-" + v(1) + (m.value[2] ? "-S" : "-N") + (m.value[3] ? "-POn" : "-POff") + "-RO" + v(4);

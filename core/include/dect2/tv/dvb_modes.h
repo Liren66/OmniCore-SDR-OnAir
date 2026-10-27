@@ -1,6 +1,6 @@
-// Digital video generator, tab "Digital Television Mode Selector": every standard DVB-T, DVB-T2 (incl. 1,7 MHz), DVB-S, DVB-S2 and
-// DVB-S2X mode with its occupied bandwidth, net bitrate and minimum C/N on the AWGN channel, and which of them carry a given bitrate in a
-// given bandwidth at a given C/N. The modes and formulas are those of DVB_transmission_modes.xlsx (ETSI EN 300 744, EN 302 755 with
+// Digital video generator, tab "Digital Television Mode Selector": every standard DVB-T, DVB-T2, DVB-T2 narrow band (1,7 MHz), DVB-S,
+// DVB-S2 and DVB-S2X mode with its occupied bandwidth, net bitrate and minimum C/N on the AWGN channel, and which of them carry a given
+// bitrate in a given bandwidth at a given C/N. The modes and formulas are those of DVB_transmission_modes.xlsx (ETSI EN 300 744, EN 302 755 with
 // TS 102 831, EN 300 421, EN 302 307-1 and -2); the standard tables are transcribed in dvb_modes.cpp and the modes generated from them.
 // No interface here, so tests/tv/test_dvb_modes.cpp checks all of it.
 #pragma once
@@ -11,11 +11,11 @@
 
 namespace dect2::vgen {
 
-enum class DvbSystem { T, T2, S, S2, S2X, Count };
+enum class DvbSystem { T, T2, T2Narrow, S, S2, S2X, Count };   // T2: 5-10 MHz channels; T2Narrow: the 1,7 MHz channel
 constexpr int kNumDvbSystems = (int)DvbSystem::Count;
 constexpr int kMaxModeParams = 8;   // DVB-T2: bandwidth, FFT, carrier mode, guard interval, pilot pattern, modulation, code rate, FEC frame
 
-const char* dvbSystemName(DvbSystem s);   // "DVB-T" ...
+const char* dvbSystemName(DvbSystem s);   // "DVB-T", "DVB-T2 1.7 MHz" ...
 bool isSatellite(DvbSystem s);            // DVB-S / S2 / S2X: the symbol rate is free, bandwidth and bitrate scale with it
 
 // One parameter of a system's modes (a column of the workbook) and the values it takes, in the order the window lists them
@@ -33,7 +33,7 @@ struct DvbMode {
     double cnDb = 0;       // minimum C/N on the AWGN channel (satellite: noise bandwidth = symbol rate)
     bool hasCn = true;     // false where the standard gives no threshold (DVB-S2 short FECFRAME): never counted as available
 };
-// All modes of a system, built once (DVB-T 480, DVB-T2 34 272, DVB-S 5, DVB-S2 312, DVB-S2X 714 with every roll-off)
+// All modes of a system, built once (DVB-T 480, DVB-T2 28 560, DVB-T2 1,7 MHz 5 712, DVB-S 5, DVB-S2 312, DVB-S2X 714 with every roll-off)
 const std::vector<DvbMode>& dvbModes(DvbSystem s);
 std::string modeName(const DvbMode& m);   // "T-8MHz-8K-GI1/4-64-QAM-2/3", "S2-8PSK-3/4-N-POn-RO0.20" ...
 

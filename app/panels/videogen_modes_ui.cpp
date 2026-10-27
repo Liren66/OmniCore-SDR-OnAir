@@ -1,5 +1,5 @@
 // Tools > Digital video generator, tab "Digital Television Mode Selector" (videogen_modes_ui.h). Left: the link (bitrate, bandwidth,
-// C/N), and under it the most optimal mode. Right: a block per system (DVB-T, DVB-T2, DVB-S, DVB-S2, DVB-S2X), its parameters on the left - each left open ("Any") or set -
+// C/N), and under it the most optimal mode. Right: a block per system (DVB-T, DVB-T2, DVB-T2 1.7 MHz, DVB-S, DVB-S2, DVB-S2X), its parameters on the left - each left open ("Any") or set -
 // and on the right the modes that still work on the link with those parameters, the best first. The inputs and the parameters are
 // kept in <data dir>/videogen_modes.txt.
 #include "videogen_modes_ui.h"
