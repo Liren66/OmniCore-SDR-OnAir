@@ -108,7 +108,7 @@ const int kS2Kbch[2][11] = {{16008, 21408, 25728, 32208, 38688, 43040, 48408, 51
 // Table 13: ideal Es/N0 for QEF on AWGN, normal FECFRAME; NAN = no such MODCOD [modulation][code rate]
 const double kS2EsN0[4][11] = {
     {-2.35, -1.24, -0.30, 1.00, 2.23, 3.10, 4.03, 4.68, 5.18, 6.20, 6.42},
-    {NAN, NAN, NAN, NAN, 5.50, 6.62, 7.91, 9.35, 10.69, 10.98, NAN},
+    {NAN, NAN, NAN, NAN, 5.50, 6.62, 7.91, NAN, 9.35, 10.69, 10.98},
     {NAN, NAN, NAN, NAN, NAN, 8.97, 10.21, 11.03, 11.61, 12.89, 13.13},
     {NAN, NAN, NAN, NAN, NAN, NAN, 12.73, 13.64, 14.28, 15.69, 16.05},
 };
