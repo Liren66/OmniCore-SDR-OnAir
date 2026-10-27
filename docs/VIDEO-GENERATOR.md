@@ -11,8 +11,9 @@ The tool stands alone: it does not change the receiver, the transmitter or anyth
 - Engine: `core/include/dect2/tv/videogen.h`, `core/src/tv/videogen.cpp` (sources, encoders, muxer, output)
 - Settings and estimate: `core/include/dect2/tv/videogen_params.h`, `core/src/tv/videogen_params.cpp`
 - Overlay: `core/include/dect2/tv/videogen_overlay.h`, `core/src/tv/videogen_overlay.cpp` (text with stb_truetype, logo with OnAir's PNG decoder or FFmpeg, scaled with swscale)
-- Window: `app/panels/videogen_ui.cpp`
-- Test: `tests/tv/test_videogen.cpp`
+- Window: `app/panels/videogen_ui.cpp`; the mode selector tab `app/panels/videogen_modes_ui.cpp`
+- DVB modes for the mode selector: `core/include/dect2/tv/dvb_modes.h`, `core/src/tv/dvb_modes.cpp`
+- Tests: `tests/tv/test_videogen.cpp`, `tests/tv/test_dvb_modes.cpp`
 
 Every setting in the window has a (?) with a short version of what is written here.
 
@@ -21,7 +22,7 @@ Every setting in the window has a (?) with a short version of what is written he
 1. Open Tools > Digital video generator.
 2. On **Sources and encoding**, choose the input (Camera, Still picture or Video file) and the output (MPEG-TS file, UDP or RTP stream).
 3. Leave the encoding settings at their defaults, or change them: the **Estimated bitrate** panel on the right follows every change.
-4. Optionally place an overlay on the **Overlay** tab.
+4. Optionally place an overlay on the **Overlay** tab, and check on **Digital Television Mode Selector** which DVB modes carry the stream.
 5. Press **Start encoding** (file) or **Start streaming** (UDP / RTP). Stop ends a stream; a file stops by itself at its length.
 
 ## Sources
@@ -134,7 +135,7 @@ The net bitrate of an 8 MHz DVB-T channel, in Mbit/s (EN 300 744). Set the TS mu
 | 64-QAM | 2/3 | 19.91 | 22.12 | 24.13 |
 | 64-QAM | 3/4 | 22.39 | 24.88 | 27.14 |
 
-A 7 MHz channel carries 7/8 of these, a 6 MHz channel 6/8.
+A 7 MHz channel carries 7/8 of these, a 6 MHz channel 6/8. The **Digital Television Mode Selector** tab has every mode of every system.
 
 ## Codecs and FFmpeg
 
@@ -170,6 +171,46 @@ and changes to the overlay go out on the next frame.
 The overlay text uses the font of the OnAir interface (Inter). The layout is kept in `videogen_overlay.txt` and the other settings in
 `videogen.txt`, both in the OnAir data folder.
 
+## Digital Television Mode Selector
+
+The third tab answers: with this bitrate, this much room on the spectrum and this signal quality, which DVB modes will work, and which
+is the best? It knows every standard mode of DVB-T, DVB-T2 (with the 1,7 MHz channel), DVB-S, DVB-S2 and DVB-S2X.
+
+**Left, the link:**
+
+- **Bitrate**: what has to be carried. By default the TS mux rate of the first tab (*The generator's TS mux rate*); untick it to type
+  your own, in Mbit/s.
+- **Bandwidth**: the room you have on the spectrum, in MHz: a channel, or a segment of the band plan.
+- **C/N**: the carrier-to-noise ratio you see on the spectrum analyser, in dB, measured in the same bandwidth as the signal.
+- **Most optimal mode**: the mode with the smallest bandwidth that carries the bitrate at this C/N, over all systems and with the
+  parameters set in their blocks. Between modes of the same bandwidth it takes the one with the most C/N margin. Its parameters,
+  bandwidth, symbol rate (satellite), capacity, the C/N it needs and the margin are listed. Hover its name for the parameters in words.
+
+**Right, a block per system.** On the left of a block are the system's parameters (channel, FFT, guard interval, pilot pattern,
+modulation, code rate, FEC frame, pilots, roll-off ...), each on **Any** or set to the value you want; **All on Any** clears them. On the
+right are the modes that still work with those parameters, the best first: their bandwidth, symbol rate (satellite), bitrate, the C/N
+they need and the margin. When none is left the block says why: no such mode, none carries the bitrate in the bandwidth, or the C/N is
+too low (with the least the parameters need).
+
+How the modes are worked out (the formulas and standard tables of the workbook `DVB_transmission_modes.xlsx`):
+
+| System | Bandwidth | Bitrate | Minimum C/N (AWGN) |
+|---|---|---|---|
+| DVB-T (EN 300 744) | K / Tu of the channel | data carriers x bits x code rate x 188/204 / symbol time | Annex A Table A.1 |
+| DVB-T2 (EN 302 755) | Ktotal / Tu of the channel | data cells x bits x (Kbch - 80) / Nldpc / symbol time | TS 102 831 Tables 44/45 + pilot boost (Table 46) |
+| DVB-S (EN 300 421) | symbol rate x 1.35 | symbol rate x 2 x code rate x 188/204 | Eb/N0 of Table 3, as C/N |
+| DVB-S2 (EN 302 307-1) | symbol rate x (1 + roll-off) | symbol rate x (Kbch - 80) / PLFRAME | Es/N0 of Table 13 |
+| DVB-S2X (EN 302 307-2) | symbol rate x (1 + roll-off) | symbol rate x (Kbch - 80) / PLFRAME | Es/N0 of Tables 20a-20c |
+
+- A terrestrial mode has a fixed channel, so a fixed bandwidth and bitrate. A satellite mode has a free symbol rate: its bandwidth is
+  what the bitrate needs, and its capacity what the whole bandwidth would carry.
+- The thresholds are ideal: AWGN channel, no implementation margin, phase noise or multipath. Keep a few dB in hand; the margin column
+  shows how much there is.
+- The DVB-T2 bitrate is the ideal cell capacity: P1 and P2 symbols, signalling and padding are not deducted, so the real one is a few
+  percent lower. The DVB-T and DVB-T2 thresholds were simulated for 8 MHz and are used for the other channels as well.
+- DVB-S2 short frames have no threshold in the standard: they are listed in the counts but never as available.
+- The link inputs and the parameters are kept in `videogen_modes.txt` in the OnAir data folder.
+
 ## When something goes wrong
 
 | What you see | What to do |
@@ -179,4 +220,4 @@ The overlay text uses the font of the OnAir interface (Inter). The layout is kep
 | "frames late" while streaming | The encoder is too slow for real time: a faster preset, a lower resolution or frame rate, or a hardware encoder. |
 | VLC shows nothing | Check the address on the receiving PC (`rtp://@:5000`), the firewall, and that both sides use the same protocol (RTP or UDP). |
 | The mux bar has a red outline | The mux rate is lower than the streams need: raise it, or lower the video bitrate. |
-| The picture breaks up on the receiver | The stream is larger than the link: compare the mux rate with the table of DVB-T bitrates. |
+| The picture breaks up on the receiver | The stream is larger than the link: compare the mux rate with the table of DVB-T bitrates, or check the mode on the Digital Television Mode Selector tab. |
