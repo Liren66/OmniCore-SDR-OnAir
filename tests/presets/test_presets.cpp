@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <string>
 
 using namespace dect2::presets;
@@ -117,7 +118,7 @@ int main() {
         CHECK(s.recent.size() == Store::kMaxRecent);
         CHECK(!s.remove("builtin:fm-broadcast"));
         // file round trip
-        const std::string path = std::string(std::getenv("TMPDIR") ? std::getenv("TMPDIR") : "/tmp") + "/test_presets_store.json";
+        const std::string path = (std::filesystem::temp_directory_path() / "test_presets_store.json").string();
         std::string err;
         CHECK(saveStoreFile(path, s, err));
         Store t;
