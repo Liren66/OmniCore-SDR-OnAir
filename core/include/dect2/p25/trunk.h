@@ -240,6 +240,7 @@ private:
     double remoteBlockUntil_ = -1e9;   // the voice radio heard nothing on its last call: not before this time
     std::vector<std::pair<double, double>> noticed_;   // out-of-span frequencies already announced
     void note(const std::string& s) { Action a; a.text = s; out_.push_back(a); }
+    void follow(const Grant& g, const TalkgroupList::Decision& d, double now, CallLog& log, uint64_t id);
     void close(Slot& s, CallLog& log, double now, const char* why);
     void goHome(double now);
     double tunedHz() const;

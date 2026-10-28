@@ -177,7 +177,11 @@ void Follower::onGrant(const Grant& g, const TalkgroupList::Decision& d, double 
         r.lastSec = now;
         if (g.src >= 0 && r.src < 0) r.src = g.src;
         if (g.emergency) r.emergency = true;
-        for (Slot& s : slots_) if (s.used && s.callId == r.id && !s.leave && !s.remote) s.lastSec = now;   // the voice radio's call lives on what it hears, not on grant repeats
+        bool owned = false;
+        for (Slot& s : slots_) if (s.used && s.callId == r.id) { owned = true; if (!s.leave && !s.remote) s.lastSec = now; }   // the voice radio's call lives on what it hears, not on grant repeats
+        // a call that found every radio busy when it was granted and is still on the air: its repeat tries again (the call followed then may have
+        // ended, and the radio should go to the call that is still running rather than wait for a new grant)
+        if (!owned && r.missed && !r.followed && !r.encrypted) follow(g, d, now, log, r.id);
         return;
     }
     CallRecord rec;
@@ -187,11 +191,20 @@ void Follower::onGrant(const Grant& g, const TalkgroupList::Decision& d, double 
     rec.channel = g.channel; rec.freqHz = g.freqHz; rec.slot = g.slot; rec.emergency = g.emergency; rec.encrypted = g.encrypted;
     const uint64_t id = log.add(rec).id;
     log.trim(2000);
+    follow(g, d, now, log, id);
+}
+
+// Give a logged call a slice, the voice radio or the hopped radio, or log why not. Also a repeat of a call that was busy when it was granted.
+void Follower::follow(const Grant& g, const TalkgroupList::Decision& d, double now, CallLog& log, uint64_t id) {
     CallRecord* rp = log.byId(id);   // trim moves records: look it up again
     if (!rp) return;
     auto skip = [&](const std::string& why, bool missed) {
         rp->note = why;
-        if (missed) { rp->missed = true; missed_++; }
+        if (missed && !rp->missed) { rp->missed = true; missed_++; }   // a retry that is still busy is not missed twice
+    };
+    auto followed = [&]() {
+        rp->followed = true;
+        if (rp->missed) { rp->missed = false; if (missed_) missed_--; rp->note = "joined late: busy when it was granted"; }
     };
     if (g.encrypted) { skip("encrypted: not followed", false); return; }
     if (!d.follow) { skip(d.reason, false); return; }
@@ -247,7 +260,7 @@ void Follower::onGrant(const Grant& g, const TalkgroupList::Decision& d, double 
             rs.text = b;
             out_.push_back(rs);
         }
-        rp->followed = true;
+        followed();
         if (state_ == FollowState::ControlHold) setState(FollowState::Following, now);
         return;
     }
@@ -284,7 +297,7 @@ void Follower::onGrant(const Grant& g, const TalkgroupList::Decision& d, double 
             rs.text = b;
             out_.push_back(rs);
         }
-        rp->followed = true;
+        followed();
         if (state_ == FollowState::ControlHold) setState(FollowState::Following, now);
         return;
     }
@@ -325,7 +338,7 @@ void Follower::onGrant(const Grant& g, const TalkgroupList::Decision& d, double 
         rs.text = b;
         out_.push_back(rs);
     }
-    rp->followed = true;
+    followed();
     setState(FollowState::Hopped, now);
 }
 
