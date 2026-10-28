@@ -49,6 +49,20 @@ ImU32 srcColour(int s, int alpha) {
     return (o & 0x00FFFFFFu) | ((ImU32)alpha << 24);
 }
 
+void bandwidthLine(ImDrawList* dl, int src, float x0, float x1, float cx, float y, float thickness, bool fadeLeft, bool fadeRight, int alpha) {
+    if (x1 <= x0) return;
+    const float visible0 = std::max(x0, dl->GetClipRectMin().x), visible1 = std::min(x1, dl->GetClipRectMax().x);
+    const float centre = cx > visible0 && cx < visible1 ? cx : (visible0 + visible1) * 0.5f;   // anchor fades to the pointer when visible, otherwise the visible band's middle
+    const float maxFade = 48 * gUi;   // wide bands must not turn the whole line into a gradient
+    const float solid0 = x0 + (fadeLeft ? std::min(maxFade, (centre - x0) * 0.9f) : 0), solid1 = x1 - (fadeRight ? std::min(maxFade, (x1 - centre) * 0.9f) : 0);
+    const ImU32 c = srcColour(src, alpha), clear = srcColour(src, 0);
+    dl->AddRectFilled(ImVec2(solid0, y - thickness * 0.5f), ImVec2(solid1, y + thickness * 0.5f), c);
+    if (fadeLeft) dl->AddRectFilledMultiColor(ImVec2(x0, y - thickness * 0.5f), ImVec2(solid0, y + thickness * 0.5f), clear, c, c, clear);
+    else dl->AddLine(ImVec2(x0, y), ImVec2(x0, y + 3 * gUi), c, thickness);
+    if (fadeRight) dl->AddRectFilledMultiColor(ImVec2(solid1, y - thickness * 0.5f), ImVec2(x1, y + thickness * 0.5f), c, clear, clear, c);
+    else dl->AddLine(ImVec2(x1, y), ImVec2(x1, y + 3 * gUi), c, thickness);
+}
+
 std::string clip(const std::string& s, size_t n) {
     if (s.size() <= n) return s;
     size_t k = n;
@@ -92,7 +106,7 @@ uint64_t revision(const App& a) {
     for (const auto& r : a.dabScan.results) { h = mix(h, (uint64_t)std::llround(r.mhz * 1000)); h = mix(h, r.label); h = mix(h, r.name); }
     for (const auto& s : a.fmSaved) { h = mix(h, (uint64_t)std::llround(s.mhz * 1000)); h = mix(h, s.name); }
     for (const auto& r : a.scanner.results()) { h = mix(h, (uint64_t)std::llround(r.freqMHz * 1000)); h = mix(h, r.networkName); h = mix(h, (uint64_t)r.services.size()); }
-    for (const auto& m : memoryBank().all()) { h = mix(h, m.freqHz); h = mix(h, m.name); }
+    for (const auto& m : memoryBank().all()) { h = mix(h, m.freqHz); h = mix(h, m.name); h = mix(h, (uint64_t)std::llround(m.bandwidthHz)); }
     for (const auto& kv : gHeard) { h = mix(h, (uint64_t)kv.first.second); h = mix(h, kv.second.text); }
     h = mix(h, (uint64_t)dect2::builtinFrequencies().size());
     return h;
@@ -142,7 +156,7 @@ void rebuild(App& a) {
     for (const auto& kv : gHeard) gStore.add(kv.second);
     for (const auto& m : memoryBank().all()) {
         if (m.name.empty() || m.freqHz == 0) continue;
-        Label l; l.mhz = (double)m.freqHz / 1e6; l.text = m.name; l.detail = m.group; l.mode = m.mode; l.src = Memories;
+        Label l; l.mhz = (double)m.freqHz / 1e6; l.text = m.name; l.detail = m.group; l.mode = m.mode; l.src = Memories; l.bwMhz = m.bandwidthHz > 0 ? m.bandwidthHz / 1e6 : 0;
         gStore.add(l);
     }
     gStore.finish();
@@ -193,6 +207,7 @@ void popupBody(App& a) {
     ImGui::Separator();
     ImGui::PushTextWrapPos(280 * gUi);
     ImGui::TextDisabled("%s", tr("Names that do not fit are left out. Zoom in to see more of them."));
+    ImGui::TextDisabled("%s", tr("Bandwidth lines use the free space beside each name and fade at neighbouring labels. Hover a name for its full bandwidth."));
     ImGui::PopTextWrapPos();
     if (save) savePrefs(a);
 }
@@ -214,7 +229,7 @@ void autoLabelsDraw(App& a, int plotId, ImVec2 plotMin, ImVec2 plotSize, double 
     if (plotId == 0) refresh(a);
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImFont* font = ImGui::GetFont();
-    const float fs = ImGui::GetFontSize() * 0.86f, padX = 4 * gUi, rowH = fs + 4 * gUi, rowGap = 7 * gUi, triH = 5 * gUi, barH = 3 * gUi;   // rowGap holds the pointer triangle
+    const float fs = ImGui::GetFontSize() * 0.86f, padX = 4 * gUi, rowH = fs + 4 * gUi, rowGap = 7 * gUi, triH = 5 * gUi, barH = std::max(1.f, gUi);   // rowGap holds the pointer triangle and its thin bandwidth line
     // below the axis title and the corner buttons (one text line), and left of the Waterfall button on the waterfall
     const float top = ImGui::GetTextLineHeight() + 8 * gUi, rightKeep = plotId ? 96 * gUi : 0;
     const int rows = std::max(1, std::min(3, (int)((plotSize.y * 0.3f - top) / (rowH + rowGap))));
@@ -227,6 +242,7 @@ void autoLabelsDraw(App& a, int plotId, ImVec2 plotMin, ImVec2 plotSize, double 
                       sl.v.maxRows == v.maxRows && sl.v.mask == v.mask;
     if (!same) {
         sl.r = autolabel::layout(gStore, v, [&](const Label& l, bool detailed) { return font->CalcTextSizeA(fs, FLT_MAX, 0, shown(l, detailed).c_str()).x + 2 * padX + 3 * gUi; });
+        autolabel::layoutBandwidth(gStore, v, sl.r);
         sl.v = v; sl.rev = gStoreRev; sl.fs = fs; sl.valid = true;
     }
     const float y0 = plotMin.y + top;
@@ -248,20 +264,24 @@ void autoLabelsDraw(App& a, int plotId, ImVec2 plotMin, ImVec2 plotSize, double 
         const Label& l = gStore.at(p.idx);
         const float y = y0 + p.row * (rowH + rowGap);
         const bool h = (int)i == hot;
+        if (!h) bandwidthLine(dl, l.src, p.bar0, p.bar1, p.cx, y + rowH + 1, barH, p.fadeLeft, p.fadeRight, 210);
         // the pointer: a triangle under the name with its tip at the frequency; a name kept for its band only has a stub arrow at the edge
         if (p.centreIn) dl->AddTriangleFilled(ImVec2(p.cx - triH * 0.8f, y + rowH + 1), ImVec2(p.cx + triH * 0.8f, y + rowH + 1), ImVec2(p.cx, y + rowH + triH + 1), srcColour(l.src, 255));
         else {
             const float ex = p.side < 0 ? v.px0 - 2 * gUi : v.px1 + 2 * gUi, d = p.side < 0 ? 1.f : -1.f, ym = y + rowH + triH * 0.5f;
             dl->AddTriangleFilled(ImVec2(ex, ym), ImVec2(ex + d * triH, ym - triH * 0.7f), ImVec2(ex + d * triH, ym + triH * 0.7f), srcColour(l.src, 200));
         }
-        if (p.barLane >= 0) {   // the nominal band, on its own lane under the names
-            const float by = y0 + (float)sl.v.maxRows * (rowH + rowGap) + (float)p.barLane * (barH + 2 * gUi);
-            dl->AddRectFilled(ImVec2(p.bar0, by), ImVec2(p.bar1, by + barH), srcColour(l.src, 170));
-        }
         const int dim = l.src == autolabel::Band ? 175 : 235;
         dl->AddRectFilled(ImVec2(p.x0, y), ImVec2(p.x1, y + rowH), h ? IM_COL32(40, 46, 54, 245) : IM_COL32(14, 16, 20, 190), 3 * gUi);
         if (h) dl->AddRect(ImVec2(p.x0, y), ImVec2(p.x1, y + rowH), srcColour(l.src, 220), 3 * gUi);
         dl->AddText(font, fs, ImVec2(p.x0 + padX + 3 * gUi, y + (rowH - fs) * 0.5f), IM_COL32(236, 238, 240, dim), shown(l, sl.r.detailed).c_str());
+    }
+    if (hot >= 0) {   // the hovered band is drawn last, at full width over the other labels; only the plot clips it
+        const autolabel::Placed& p = sl.r.placed[(size_t)hot];
+        const Label& l = gStore.at(p.idx);
+        if (l.bwMhz > 0 && !l.allocation)
+            bandwidthLine(dl, l.src, autolabel::xOf(v, l.mhz - l.bwMhz * 0.5), autolabel::xOf(v, l.mhz + l.bwMhz * 0.5),
+                          p.cx, y0 + p.row * (rowH + rowGap) + rowH + 1, barH, false, false, 255);
     }
     dl->PopClipRect();
     if (hot >= 0) {
@@ -269,6 +289,7 @@ void autoLabelsDraw(App& a, int plotId, ImVec2 plotMin, ImVec2 plotSize, double 
         ImGui::BeginTooltip();
         ImGui::TextUnformatted(l.text.c_str());
         ImGui::TextDisabled("%s  -  %s", plt::formatFreqUnit(l.mhz).c_str(), srcName(l.src));
+        if (l.bwMhz > 0 && !l.allocation) ImGui::TextDisabled(tr("Bandwidth: %s"), plt::formatFreqUnit(l.bwMhz).c_str());
         if (!l.detail.empty()) { ImGui::PushTextWrapPos(320 * gUi); ImGui::TextUnformatted(clip(l.detail, 240).c_str()); ImGui::PopTextWrapPos(); }
         ImGui::TextDisabled("%s", l.mode.empty() ? tr("Click to tune here") : tr("Click to tune here and open its mode"));
         ImGui::EndTooltip();

@@ -84,7 +84,7 @@ void bandPlanLabelSource(const App& a, std::vector<autolabel::Label>& out) {
         if (n == 0) {
             if (b.endHz <= b.startHz || b.name.empty()) continue;
             autolabel::Label l;
-            l.mhz = (b.startHz + b.endHz) / 2e6; l.text = b.name; l.detail = b.note; l.src = autolabel::Band; l.prio = -0.5f; l.mode = modeKey(b); l.bwMhz = (b.endHz - b.startHz) / 1e6;
+            l.mhz = (b.startHz + b.endHz) / 2e6; l.text = b.name; l.detail = b.note; l.src = autolabel::Band; l.prio = -0.5f; l.mode = modeKey(b); l.bwMhz = (b.endHz - b.startHz) / 1e6; l.allocation = true;
             out.push_back(l);
             continue;
         }
