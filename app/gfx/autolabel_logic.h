@@ -195,9 +195,11 @@ inline void layoutBandwidth(const Store& s, const View& v, Result& r) {
         room[row.front()].lo = axis0; room[row.back()].hi = axis1;
         for (size_t k = 1; k < row.size(); k++) {
             Room& a = room[row[k - 1]]; Room& b = room[row[k]];
-            const float space = std::max(0.f, b.lo - a.hi - std::max(0.f, v.gap));
+            const float gap = std::max(0.f, b.lo - a.hi);
             const float needA = a.band ? std::max(0.f, a.band1 - a.hi) : 0.f;
             const float needB = b.band ? std::max(0.f, b.lo - b.band0) : 0.f;
+            // Preserve true endpoints when both bands fit; reserve separation only for overlapping requests.
+            const float space = needA + needB <= gap + 0.01f ? gap : std::max(0.f, gap - std::max(0.f, v.gap));
             // Equal shares when both need them; a smaller request returns its unused share to the other side.
             const float takeA = std::min(needA, std::max(space * 0.5f, space - needB));
             const float takeB = std::min(needB, std::max(space * 0.5f, space - needA));

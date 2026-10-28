@@ -242,6 +242,27 @@ int main() {
         CHECK(r.placed[0].bar1 == 400 && r.placed[1].bar0 == 500, "both full bands fit in their shared gap");
         for (const Placed& p : r.placed) CHECK(!p.fadeLeft && !p.fadeRight, "no fading when both fit");
     }
+    // adjacent marine channels meet at true endpoints despite different name widths
+    {
+        Store s;
+        Label a = mk(156.475, "Marine VHF channel 69", FreqDb); a.bwMhz = 0.025; s.add(a);
+        Label b = mk(156.500, "Marine VHF channel 10", FreqDb); b.bwMhz = 0.025; s.add(b);
+        Label c = mk(156.525, "DSC distress calling (VHF channel 70)", FreqDb); c.bwMhz = 0.025; s.add(c); s.finish();
+        View v = view(156.45, 156.55);
+        Result r = layout(s, v, width); layoutBandwidth(s, v, r);
+        CHECK(r.placed.size() == 3, "all three marine channels fit");
+        for (const Placed& p : r.placed) CHECK(p.row == 0 && !p.fadeLeft && !p.fadeRight, "touching bands have ticks rather than fades");
+        CHECK(std::fabs(r.placed[0].bar1 - r.placed[1].bar0) < 0.01f && std::fabs(r.placed[1].bar1 - r.placed[2].bar0) < 0.01f, "adjacent channels share their real borders");
+    }
+    // a real gap smaller than the name spacing must not be widened by clipping bandwidths
+    {
+        Store s;
+        Label a = mk(30, "LEFT", Band); a.bwMhz = 29.8; s.add(a);
+        Label b = mk(60, "RIGHT", Band); b.bwMhz = 29.8; s.add(b); s.finish();
+        Result r = bandLayout(s, view(0, 100));
+        CHECK(r.placed[0].bar1 == 449 && r.placed[1].bar0 == 451, "preserve the true two-pixel gap");
+        CHECK(!r.placed[0].fadeRight && !r.placed[1].fadeLeft, "separate bands keep their endpoint ticks");
+    }
     // competing wide bands split the gap equally, retaining the gap between them and independent endpoints
     {
         Store s;
