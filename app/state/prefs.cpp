@@ -267,7 +267,7 @@ void loadFmStations(plat::Prefs& d, App& a) {
         for (;;) { size_t bar = line.find('|', q); if (bar == std::string::npos) { f.push_back(line.substr(q)); break; } f.push_back(line.substr(q, bar - q)); q = bar + 1; }
         if (f.size() < 6) continue;
         App::FmScan::Res r;
-        r.mhz = atof(f[0].c_str()); r.name = f[1]; r.pty = f[2]; r.snr = (float)atof(f[3].c_str()); r.stereo = f[4] == "1"; r.rds = f[5] == "1"; r.found = r.mhz >= 87.5 && r.mhz <= 108.01;
+        r.mhz = atof(f[0].c_str()); r.name = f[1]; r.pty = f[2]; r.snr = (float)atof(f[3].c_str()); r.stereo = f[4] == "1"; r.rds = f[5] == "1"; r.found = r.mhz >= 76.0 && r.mhz <= 108.01;   // from 76 MHz, as the band scan reaches
         if (f.size() >= 10) { r.pi = (int)strtol(f[6].c_str(), nullptr, 16); r.tp = f[7] == "1"; r.rt = f[8]; r.psText = f[9]; }   // since full RDS
         if (r.found) a.fmScan.results.push_back(r);
     }

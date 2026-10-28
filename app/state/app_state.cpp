@@ -126,7 +126,11 @@ void setMode(App& a, int f, int sub) {
     if (f == 3 && !(a.freqMhz >= 170 && a.freqMhz <= 870)) a.freqMhz = 522.0;
     if (f == 2 && !(a.freqMhz >= 174 && a.freqMhz <= 240)) a.freqMhz = 218.640;
     if (f == 4 && !(a.freqMhz >= 170 && a.freqMhz <= 770)) a.freqMhz = 473.143;   // the centre of UHF channel 13/14 of the 6 MHz raster
-    if (f == 5 && !(a.freqMhz >= 87.5 && a.freqMhz <= 108)) a.freqMhz = 100.0;     // FM band, default to 100 MHz
+    if (f == 5) {   // FM band (with the plan's extended FM below 87.5 MHz), default to 100 MHz
+        double lo = 87.5, hi = 108;
+        fmBandRange(a, lo, hi);
+        if (!(a.freqMhz >= lo && a.freqMhz <= hi)) a.freqMhz = 100.0;
+    }
     nameSynth(a);
 }
 
