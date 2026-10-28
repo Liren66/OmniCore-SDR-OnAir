@@ -37,7 +37,9 @@ int main() {
                 s.done();
             }
         });
-        for (int i = 1; i <= 200; i++) { s.post(i); std::this_thread::sleep_for(milliseconds(1)); }
+        // 1 ms apart on the clock: sleep_for(1 ms) lasts a whole timer tick (about 15.6 ms) on Windows, as long as the 8 ms call, and nothing coalesced
+        const auto t0 = steady_clock::now();
+        for (int i = 1; i <= 200; i++) { s.post(i); while (steady_clock::now() < t0 + milliseconds(i)) std::this_thread::yield(); }
         check(s.waitIdle(seconds(2)), "the worker goes idle");
         stop = true; s.close(); w.join();
         check(!ran.empty() && ran.back() == 200, "the last request is the one the radio ends on");

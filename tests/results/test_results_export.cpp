@@ -46,6 +46,7 @@ int main() {
         CHECK(n == 1);   // the row without a call is skipped
         CHECK(resexp::fmtFromPath("x.ADI") == resexp::Fmt::Adif);
     }
+    setlocale(LC_ALL, "C");   // the program runs in the "C" locale (it never calls setlocale): with a decimal comma strtod stops at the '.' of "53.5"
     {   // KML / GPX
         resexp::Table g;
         g.cols = {"icao", "mode", "alt_ft", "lat", "lon"};
