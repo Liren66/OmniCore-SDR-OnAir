@@ -79,12 +79,15 @@ void FecDecoder::process(bool) {
     }
     mean /= (double)llrQueue_.size();
     llrScale_ = (float)(std::min(40.0, 22.0 / std::max(1e-6, mean)));
-    // The 8-bit Viterbi (NEON) takes soft values within +-31 scaled to a mean of 14 (at that scale its bit error rate is the 16-bit decoder's,
+    // The 8-bit Viterbi (NEON, AVX2) takes soft values within +-31 scaled to a mean of 14 (at that scale its bit error rate is the 16-bit decoder's,
     // tests/fec/test_viterbi8_ber.cpp); the exact decoder elsewhere keeps the mean of 22 within +-127.
-    // the GPU decodes with the exact decoder's arithmetic (its soft values: the 16-bit scaling); the CPU with the 8-bit one where it has it
+    // the GPU decodes with the exact decoder's arithmetic (its soft values: the 16-bit scaling); the CPU with the 8-bit one where it has it,
+    // except for 64-QAM: its soft values spread far wider (strong outer bits, weak inner ones, more so on a frequency-selective channel), many
+    // sit at +-31, and runs of them push every competing path onto the 8-bit floor, so the next weak stretch picks among paths whose order is
+    // lost (an echo at -6 dB: 64-QAM 1/2 to 5/6 failed at 32 dB SNR, tests/dvbt/test_dvbt_real.cpp). 64-QAM keeps the exact decoder (AVX2 / SSE2 / NEON).
     static const bool noGpu = getenv("DECT2_NOGPU") != nullptr;
     const bool gpu = computeMode_ == 1 && !noGpu && GpuViterbi::instance().available();   // experimental for DVB-T: only when GPU is chosen (Auto stays on the CPU)
-    const bool fast8 = !gpu && fecp::viterbi8x2Available();
+    const bool fast8 = !gpu && p_.mod != k64Qam && fecp::viterbi8x2Available();
     auto viterbi = [&](const std::vector<int8_t>& in, std::vector<uint8_t>& out, long* m) {
         if (gpu && GpuViterbi::instance().decode(in, out, m)) { st_.viterbiOnGpu = true; return; }
         st_.viterbiOnGpu = false;
