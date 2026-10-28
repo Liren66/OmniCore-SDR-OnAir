@@ -2,8 +2,10 @@
 // are still saved) and with a fake test decoder (mute / solo, mixing, WAV recording). The real AMBE codec is never part of the tests; the C-channel
 // demodulator that would feed the mixer does not exist yet: needs a user test with a real capture.
 #include "dect2/inmsat/inmsat_voice.h"
+#include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -25,8 +27,20 @@ long fileSize(const std::string& p) { struct stat st; return stat(p.c_str(), &st
 }
 
 int main() {
-    const std::string dir = std::string("/tmp/inmsat_voice_test_") + std::to_string((long)getpid());
-    mkdir(dir.c_str(), 0755);
+    // a folder of its own: create_directory is true only when it made a new one, so a leftover or another run's folder is never written to or
+    // removed (POSIX mkdir(path, mode) does not exist on MinGW)
+    std::filesystem::path own;
+    {
+        std::error_code ec;
+        const std::filesystem::path tmp = std::filesystem::temp_directory_path(ec);
+        const std::string stem = "inmsat_voice_test_" + std::to_string((long)getpid()) + "_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+        for (int k = 0; !ec && k < 100 && own.empty(); k++) {
+            const std::filesystem::path p = tmp / (stem + "_" + std::to_string(k));
+            if (std::filesystem::create_directory(p, ec)) own = p;
+        }
+        if (own.empty()) { printf("FAIL: no temporary folder of its own: %s\n", ec.message().c_str()); return 1; }
+    }
+    const std::string dir = own.generic_string();
     // 1. no codec: silence, the install message, calls counted, coded frames saved
     {
         VoiceMixer m;
@@ -107,7 +121,6 @@ int main() {
             CHECK(std::memcmp(h, "RIFF", 4) == 0 && std::memcmp(h + 8, "WAVEfmt ", 8) == 0 && dl == 1280, "WAV header");
         }
     }
-    std::string cmd = "rm -rf " + dir;
-    (void)!system(cmd.c_str());
+    { std::error_code ec; std::filesystem::remove_all(own, ec); CHECK(!ec, "remove the temporary folder: %s", ec.message().c_str()); }
     return testSummary("inmsat_voice");
 }
