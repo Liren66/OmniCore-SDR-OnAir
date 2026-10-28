@@ -1,6 +1,7 @@
 // Linux and Windows services. Linux: dialogs through zenity/kdialog, settings in ~/.config/onair/settings.conf.
 // Windows: the standard Open/Save dialogs, settings in %APPDATA%\\OnAir\\settings.conf.
 #include "platform.h"
+#include "prefs_text.h"
 #include "dect2/common/png.h"
 #include <algorithm>
 #include <atomic>
@@ -403,11 +404,14 @@ struct FilePrefs : Prefs {
         path = configDir() + "/settings.conf";
         std::ifstream f(fsPath(path));
         std::string line;
+        int format = 0;
         while (std::getline(f, line)) {
             const size_t eq = line.find('=');
             if (eq == std::string::npos) continue;
             const std::string key = line.substr(0, eq), val = line.substr(eq + 1);
-            if (key == "channel") {
+            if (key == prefstext::kFormatKey) {
+                format = atoi(val.c_str());
+            } else if (key == "channel") {
                 std::vector<std::string> p;
                 std::stringstream ss(val);
                 std::string t;
@@ -420,6 +424,7 @@ struct FilePrefs : Prefs {
                 }
             } else kv[key] = val;
         }
+        for (auto& e : kv) e.second = prefstext::fromFile(e.second, format);
     }
     bool has(const char* key) override { return kv.count(key) != 0; }
     double getD(const char* key, double def) override { auto i = kv.find(key); return i == kv.end() ? def : atof(i->second.c_str()); }
@@ -430,7 +435,7 @@ struct FilePrefs : Prefs {
     void setD(const char* key, double v) override { char b[64]; snprintf(b, sizeof b, "%.9g", v); put(key, b); }
     void setI(const char* key, long v) override { put(key, std::to_string(v)); }
     void setB(const char* key, bool v) override { put(key, v ? "1" : "0"); }
-    void setS(const char* key, const std::string& v) override { put(key, clean(v)); }
+    void setS(const char* key, const std::string& v) override { put(key, v); }   // kept whole: flush() escapes the line breaks
     std::vector<Channel> getChannels() override { return channels; }
     void setChannels(const std::vector<Channel>& c) override { channels = c; dirty = true; }
     void flush() override {
@@ -440,7 +445,8 @@ struct FilePrefs : Prefs {
         {
             std::ofstream f(fsPath(tmp));
             if (!f) { fprintf(stderr, "settings: cannot write %s (the changes are kept in memory and tried again)\n", tmp.c_str()); return; }
-            for (auto& e : kv) f << e.first << "=" << e.second << "\n";
+            f << prefstext::kFormatKey << "=" << prefstext::kFormat << "\n";
+            for (auto& e : kv) f << e.first << "=" << prefstext::escape(e.second) << "\n";
             for (auto& c : channels) f << "channel=" << c.freqMhz << "|" << c.bwMhz << "|" << clean(c.name) << "|" << clean(c.mode) << "|" << c.snrDb << "|" << c.nServices << "|" << (c.favourite ? 1 : 0) << "\n";
         }
         if (replaceFile(tmp, path)) dirty = false;
