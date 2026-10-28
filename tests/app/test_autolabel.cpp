@@ -254,6 +254,29 @@ int main() {
         for (const Placed& p : r.placed) CHECK(p.row == 0 && !p.fadeLeft && !p.fadeRight, "touching bands have ticks rather than fades");
         CHECK(std::fabs(r.placed[0].bar1 - r.placed[1].bar0) < 0.01f && std::fabs(r.placed[1].bar1 - r.placed[2].bar0) < 0.01f, "adjacent channels share their real borders");
     }
+    // a label wider than its own channel must not hide the neighbouring channel's true endpoint
+    {
+        Store s;
+        Label a = mk(156.825, "Long-range AIS 2 (channel 76)", FreqDb); a.bwMhz = 0.025; s.add(a);
+        Label b = mk(156.850, "Marine VHF channel 17", FreqDb); b.bwMhz = 0.025; s.add(b); s.finish();
+        View v = view(156.8055, 156.9255); v.px1 = 824;
+        Result r = layout(s, v, width); layoutBandwidth(s, v, r);
+        CHECK(r.placed.size() == 2 && r.placed[0].row == r.placed[1].row, "both channel names fit on one row");
+        CHECK(r.placed[0].x1 > r.placed[0].bar1, "AIS text extends past its own bandwidth");
+        CHECK(!r.placed[0].fadeRight && !r.placed[1].fadeLeft && std::fabs(r.placed[0].bar1 - r.placed[1].bar0) < 0.01f, "text overhang does not force a fade at the shared border");
+    }
+    // narrow and wide adjacent channels retain their real widths in either order, including a gap under the name overhang
+    {
+        for (bool narrowFirst : {false, true}) for (double gap : {0.0, 0.1}) {
+            Store s;
+            Label a = mk(narrowFirst ? 30 : 24, "LEFT", Band); a.bwMhz = narrowFirst ? 1 : 13; s.add(a);
+            Label b = mk((narrowFirst ? 37 : 31) + gap, "RIGHT", Band); b.bwMhz = narrowFirst ? 13 : 1; s.add(b); s.finish();
+            View v = view(0, 100);
+            Result r = layout(s, v, [](const Label&, bool) { return 60.f; }); layoutBandwidth(s, v, r);
+            for (const Placed& p : r.placed) CHECK(p.row == 0 && !p.fadeLeft && !p.fadeRight && std::fabs((p.bar1 - p.bar0) - s.at(p.idx).bwMhz * 10) < 0.01f, "preserve narrow/wide bandwidths without moving names");
+            CHECK(std::fabs((r.placed[1].bar0 - r.placed[0].bar1) - gap * 10) < 0.01f, "true endpoints meet or retain their real gap");
+        }
+    }
     // a real gap smaller than the name spacing must not be widened by clipping bandwidths
     {
         Store s;

@@ -195,6 +195,10 @@ inline void layoutBandwidth(const Store& s, const View& v, Result& r) {
         room[row.front()].lo = axis0; room[row.back()].hi = axis1;
         for (size_t k = 1; k < row.size(); k++) {
             Room& a = room[row[k - 1]]; Room& b = room[row[k]];
+            if (a.band && b.band && a.band1 <= b.band0 + 0.01f) {   // text can overhang a shared border without the bandwidth lines overlapping
+                a.hi = std::max(a.hi, a.band1); b.lo = std::min(b.lo, b.band0);
+                continue;
+            }
             const float gap = std::max(0.f, b.lo - a.hi);
             const float needA = a.band ? std::max(0.f, a.band1 - a.hi) : 0.f;
             const float needB = b.band ? std::max(0.f, b.lo - b.band0) : 0.f;
