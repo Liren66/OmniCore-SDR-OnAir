@@ -377,8 +377,9 @@ void applyBandwidth(App& a) {
         if (c.ok) { a.tune.sampleRate = want; a.chosenRateHz = want; }
     }
     // the rate was lowered to the radio's top: a filter meant for the faster rate lets everything up to its edge fold into the band (the
-    // 8-9 MHz filters of DTMB, analog TV, DVB-S and Iridium on a PlutoSDR's 4 Msps over USB); the radio's own choice for its rate (0) fits
-    if (a.tune.basebandFilterHz > a.tune.sampleRate) a.tune.basebandFilterHz = 0;
+    // 8-9 MHz filters of DTMB, analog TV, DVB-S and Iridium on a PlutoSDR's 4 Msps over USB); a rate the user raised: the mode's narrow filter
+    // would hide what the wider capture is for (P25 traffic channels away from the control channel). The radio's own choice for its rate (0)
+    a.tune.basebandFilterHz = basebandFilterFor(a.tune.basebandFilterHz, a.autoRateHz, a.tune.sampleRate);
 }
 
 std::string openFileDialog() { return plat::openFileDialog(); }
