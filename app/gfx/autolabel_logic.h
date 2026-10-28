@@ -26,6 +26,7 @@ struct Label {
     std::string detail;    // shown when there is room (and in the tooltip): services of a mux, the radio text of a station ...
     std::string mode;      // the mode a click opens ("" = only tune); a Memory / Scanner mode key
     double bwMhz = 0;      // the nominal bandwidth around mhz (0 = not known): a name whose band is in view stays, a bar shows the band
+    bool allocation = false;   // a broad frequency allocation: its extent keeps the name in view, but only the allocation strip shows its range
     int src = Band;
     float prio = 0;        // within a source: higher wins; the source's priority is added
 };
@@ -52,15 +53,14 @@ private:
 };
 
 // x0..x1: the box of the name; cx: the true x of the frequency (may be outside the plot); centreIn: cx is inside the plot (the pointer is drawn
-// there); otherwise side says which edge the band overlaps (-1 left, +1 right) and only a stub arrow is drawn. bar0..bar1 / barLane: the nominal
-// band under the names, on its own lane (-1: no bar).
-struct Placed { size_t idx = 0; float x0 = 0, x1 = 0, cx = 0; int row = 0; bool centreIn = true; int side = 0; float bar0 = 0, bar1 = 0; int barLane = -1; };
+// there); otherwise side says which edge the band overlaps (-1 left, +1 right) and only a stub arrow is drawn. bar0..bar1: the nominal band
+// directly under this name, clipped to its box (bar1 <= bar0: no band). A faded end means the band continues beyond the name.
+struct Placed { size_t idx = 0; float x0 = 0, x1 = 0, cx = 0; int row = 0; bool centreIn = true; int side = 0; float bar0 = 0, bar1 = 0; bool fadeLeft = false, fadeRight = false; };
 
 struct View {
     double loMhz = 0, hiMhz = 0;   // the frequency range of the plot
     float px0 = 0, px1 = 0;        // the part of it the names may use, in pixels (the plot minus the corner buttons, say)
     float ax0 = 0, ax1 = 0;        // the pixels the span loMhz..hiMhz is drawn over: the whole plot rectangle (0,0: the same as px0..px1)
-    int maxBarLanes = 2;
     int maxRows = 3;
     float gap = 4.f;               // the smallest space between two names in a row
     float padX = 4.f;              // space inside a name's box, each side
@@ -117,7 +117,6 @@ inline Result place(const Store& s, const std::vector<size_t>& order, const View
     r.candidates = order.size();
     r.detailed = detailed;
     std::vector<std::vector<std::pair<float, float>>> rows((size_t)std::max(1, v.maxRows));
-    std::vector<std::vector<std::pair<float, float>>> lanes((size_t)std::max(0, v.maxBarLanes));
     for (size_t k : order) {
         const Label& l = s.at(k);
         const float w = width(l, detailed);
@@ -137,14 +136,10 @@ inline Result place(const Store& s, const std::vector<size_t>& order, const View
         Placed p{k, x0, x1, cx, row};
         p.centreIn = in;
         p.side = in ? 0 : (l.mhz < v.loMhz ? -1 : 1);
-        if (l.bwMhz > 0) {
-            float b0 = std::max(v.px0, xOf(v, l.mhz - l.bwMhz * 0.5)), b1 = std::min(v.px1, xOf(v, l.mhz + l.bwMhz * 0.5));
-            if (b1 - b0 >= 3.f)
-                for (size_t li = 0; li < lanes.size() && p.barLane < 0; li++) {
-                    bool free = true;
-                    for (const auto& q : lanes[li]) if (b0 < q.second + 2.f && b1 + 2.f > q.first) { free = false; break; }
-                    if (free) { lanes[li].push_back({b0, b1}); p.barLane = (int)li; p.bar0 = b0; p.bar1 = b1; }
-                }
+        if (l.bwMhz > 0 && !l.allocation) {
+            const float b0 = xOf(v, l.mhz - l.bwMhz * 0.5), b1 = xOf(v, l.mhz + l.bwMhz * 0.5);
+            p.bar0 = std::max(x0, b0); p.bar1 = std::min(x1, b1);
+            p.fadeLeft = b0 < x0; p.fadeRight = b1 > x1;
         }
         r.placed.push_back(p);
     }
@@ -175,6 +170,50 @@ inline Result layout(const Store& s, const View& v, const WidthFn& width) {
         }
     }
     return r;
+}
+
+// After the names have their final positions, let their bandwidth lines use the gaps in each row. Name placement never changes.
+inline void layoutBandwidth(const Store& s, const View& v, Result& r) {
+    const float axis0 = v.ax1 > v.ax0 ? v.ax0 : v.px0, axis1 = v.ax1 > v.ax0 ? v.ax1 : v.px1;
+    if (!(axis1 > axis0)) return;
+    struct Room { float lo = 0, hi = 0, band0 = 0, band1 = 0; bool band = false; };
+    std::vector<Room> room(r.placed.size());
+    std::vector<std::vector<size_t>> rows((size_t)std::max(1, v.maxRows));
+    for (size_t i = 0; i < r.placed.size(); i++) {
+        Placed& p = r.placed[i];
+        const Label& l = s.at(p.idx);
+        Room& a = room[i];
+        a.lo = std::clamp(p.x0, axis0, axis1); a.hi = std::clamp(p.x1, axis0, axis1);
+        a.band = l.bwMhz > 0 && !l.allocation;
+        if (a.band) { a.band0 = xOf(v, l.mhz - l.bwMhz * 0.5); a.band1 = xOf(v, l.mhz + l.bwMhz * 0.5); }
+        p.bar0 = p.bar1 = 0; p.fadeLeft = p.fadeRight = false;
+        rows[(size_t)p.row].push_back(i);
+    }
+    for (auto& row : rows) {
+        if (row.empty()) continue;
+        std::sort(row.begin(), row.end(), [&](size_t a, size_t b) { return r.placed[a].x0 < r.placed[b].x0; });
+        room[row.front()].lo = axis0; room[row.back()].hi = axis1;
+        for (size_t k = 1; k < row.size(); k++) {
+            Room& a = room[row[k - 1]]; Room& b = room[row[k]];
+            const float space = std::max(0.f, b.lo - a.hi - std::max(0.f, v.gap));
+            const float needA = a.band ? std::max(0.f, a.band1 - a.hi) : 0.f;
+            const float needB = b.band ? std::max(0.f, b.lo - b.band0) : 0.f;
+            // Equal shares when both need them; a smaller request returns its unused share to the other side.
+            const float takeA = std::min(needA, std::max(space * 0.5f, space - needB));
+            const float takeB = std::min(needB, std::max(space * 0.5f, space - needA));
+            a.hi += takeA; b.lo -= takeB;
+        }
+    }
+    for (size_t i = 0; i < r.placed.size(); i++) {
+        const Room& a = room[i];
+        if (!a.band) continue;
+        Placed& p = r.placed[i];
+        p.bar0 = std::max(a.lo, a.band0); p.bar1 = std::min(a.hi, a.band1);
+        // Only neighbouring names cause fades. Keep true endpoints outside the plot so clipping cannot create false end ticks.
+        p.fadeLeft = a.lo > axis0 && a.band0 < p.bar0 - 0.01f; p.fadeRight = a.hi < axis1 && a.band1 > p.bar1 + 0.01f;
+        if (!p.fadeLeft) p.bar0 = a.band0;
+        if (!p.fadeRight) p.bar1 = a.band1;
+    }
 }
 
 // the label under a point (the rows are rowH high and start at y0, row 0 on top); -1: none

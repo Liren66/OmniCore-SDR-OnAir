@@ -18,6 +18,12 @@ static float width(const Label& l, bool d) { return 6.f * (float)(l.text.size() 
 static View view(double lo, double hi, int rows = 3) {
     View v; v.loMhz = lo; v.hiMhz = hi; v.px0 = 0; v.px1 = 1000; v.maxRows = rows; v.gap = 4; return v;
 }
+// Fixed-width names make the space available to bandwidth lines explicit: 0..100 MHz maps to 0..1000 pixels.
+static Result bandLayout(const Store& s, const View& v) {
+    Result r = layout(s, v, [](const Label&, bool) { return 100.f; });
+    layoutBandwidth(s, v, r);
+    return r;
+}
 static bool overlap(const Result& r) {
     for (size_t i = 0; i < r.placed.size(); i++)
         for (size_t j = i + 1; j < r.placed.size(); j++)
@@ -169,7 +175,7 @@ int main() {
         CHECK(r.placed.empty(), "band left the view: gone");
         r = layout(s, view(90, 110), width);
         CHECK(r.placed.size() == 2 && r.placed[0].centreIn && r.placed[1].centreIn, "both in view");
-        int bars = 0; for (const Placed& p : r.placed) bars += p.barLane >= 0;
+        int bars = 0; for (const Placed& p : r.placed) bars += p.bar1 > p.bar0;
         CHECK(bars == 1, "only the one with a known band has a bar");
         r = layout(s, view(110, 120), width);
         CHECK(r.placed.empty(), "wholly right of the view");
@@ -177,21 +183,130 @@ int main() {
         r = layout(t, view(100, 127), width);   // 126..134 overlaps, centre right of the view
         CHECK(r.placed.size() == 1 && r.placed[0].side == 1 && r.placed[0].x1 <= 1000, "stub on the right, box inside");
     }
-    // bars go on separate lanes where they overlap
+    // overlapping wide bands never lose a bar or consume space beyond their own name
+    {
+        Store s, withoutBands;
+        for (int i = 0; i < 3; i++) {
+            Label l = mk(100.0 + i * 0.5, ("B" + std::to_string(i)).c_str(), Band);
+            withoutBands.add(l); l.bwMhz = 8; s.add(l);
+        }
+        s.finish(); withoutBands.finish();
+        Result r = layout(s, view(90, 110), width), plain = layout(withoutBands, view(90, 110), width);
+        CHECK(r.placed.size() == 3 && plain.placed.size() == 3, "all three wide bands fit");
+        for (size_t i = 0; i < r.placed.size(); i++) {
+            const Placed& p = r.placed[i];
+            CHECK(p.bar1 > p.bar0 && p.bar0 >= p.x0 && p.bar1 <= p.x1, "every bandwidth line stays under its own name");
+            CHECK(p.fadeLeft && p.fadeRight, "wide bands fade at both edges of the name");
+            CHECK(i < plain.placed.size() && p.row == plain.placed[i].row && p.x0 == plain.placed[i].x0 && p.x1 == plain.placed[i].x1, "bandwidth does not change name placement");
+        }
+    }
+    // a narrow band has true endpoints, even below the old three-pixel cutoff; both panes use the same frequency scale
+    {
+        Store s; Label l = mk(109.0, "NARROW", FreqDb); l.bwMhz = 0.04; s.add(l); s.finish();
+        View a = view(90, 110), b = a;
+        a.ax0 = b.ax0 = 0; a.ax1 = b.ax1 = 1000; b.px1 = 904;
+        Result ra = layout(s, a, width), rb = layout(s, b, width);
+        CHECK(ra.placed.size() == 1 && rb.placed.size() == 1, "both panes keep the narrow band near the right edge");
+        layoutBandwidth(s, a, ra); layoutBandwidth(s, b, rb);
+        const Placed& p = ra.placed[0]; const Placed& q = rb.placed[0];
+        CHECK(std::fabs(p.bar0 - 949.f) < 0.01f && std::fabs(p.bar1 - 951.f) < 0.01f, "two-pixel bandwidth at its true frequency");
+        CHECK(!p.fadeLeft && !p.fadeRight, "true endpoints do not fade");
+        CHECK(p.bar0 == q.bar0 && p.bar1 == q.bar1, "same bandwidth endpoints despite the waterfall button margin");
+    }
+    // broad allocations keep their range for visibility, but do not duplicate the allocation strip with a bandwidth line
+    {
+        Store s; Label l = mk(100.0, "ALLOCATION", Band); l.bwMhz = 8; l.allocation = true; s.add(l); s.finish();
+        for (View v : {view(90, 110), view(103, 110)}) {
+            Result r = layout(s, v, width);
+            CHECK(r.placed.size() == 1, "allocation name remains while its range overlaps the view");
+            CHECK(r.placed[0].bar1 <= r.placed[0].bar0, "no bandwidth line for an allocation");
+        }
+    }
+    // a sparse channel can use the empty space beyond its name, including more than half of an unneeded gap
     {
         Store s;
-        for (int i = 0; i < 3; i++) { Label l = mk(100.0 + i * 0.5, ("B" + std::to_string(i)).c_str(), Band); l.bwMhz = 8; s.add(l); }
-        s.finish();
-        View v = view(90, 110); v.maxBarLanes = 2;
-        Result r = layout(s, v, width);
-        CHECK(r.placed.size() == 3, "three placed");
-        int lane[3] = {0, 0, 0}; int none = 0;
-        for (const Placed& p : r.placed) { if (p.barLane < 0) none++; else lane[p.barLane]++; }
-        CHECK(lane[0] == 1 && lane[1] == 1 && none == 1, "two lanes, one bar left out: %d %d %d", lane[0], lane[1], none);
-        for (size_t i = 0; i < r.placed.size(); i++) for (size_t j = i + 1; j < r.placed.size(); j++) {
-            const Placed &a = r.placed[i], &b = r.placed[j];
-            if (a.barLane >= 0 && a.barLane == b.barLane) CHECK(a.bar1 <= b.bar0 || b.bar1 <= a.bar0, "no bar overlap in a lane");
+        Label a = mk(30, "WIDE", Band); a.bwMhz = 48; s.add(a);
+        Label b = mk(60, "NARROW", Band); b.bwMhz = 5; s.add(b); s.finish();
+        Result r = bandLayout(s, view(0, 100));
+        const Placed& p = r.placed[0];
+        CHECK(p.x0 == 250 && p.x1 == 350 && p.bar0 == 60 && p.bar1 == 540, "wide band gets the unused gap, with its name unchanged");
+        CHECK(!p.fadeLeft && !p.fadeRight, "a full band beyond the text has true endpoints");
+        CHECK(r.placed[1].bar0 == 575 && r.placed[1].bar1 == 625, "the neighbour's narrow band stays unchanged");
+    }
+    // both wider bands are shown in full when their requests fit in the gap
+    {
+        Store s;
+        Label a = mk(30, "LEFT", Band); a.bwMhz = 20; s.add(a);
+        Label b = mk(60, "RIGHT", Band); b.bwMhz = 20; s.add(b); s.finish();
+        Result r = bandLayout(s, view(0, 100));
+        CHECK(r.placed[0].bar1 == 400 && r.placed[1].bar0 == 500, "both full bands fit in their shared gap");
+        for (const Placed& p : r.placed) CHECK(!p.fadeLeft && !p.fadeRight, "no fading when both fit");
+    }
+    // competing wide bands split the gap equally, retaining the gap between them and independent endpoints
+    {
+        Store s;
+        Label a = mk(30, "LEFT", Band); a.bwMhz = 60; s.add(a);
+        Label b = mk(60, "RIGHT", Band); b.bwMhz = 60; s.add(b); s.finish();
+        View v = view(0, 100);
+        Result r = bandLayout(s, v);
+        CHECK(r.placed[0].bar1 == 448 && r.placed[1].bar0 == 452, "equal shares with four pixels between the bands");
+        CHECK(!r.placed[0].fadeLeft && r.placed[0].fadeRight && r.placed[1].fadeLeft && !r.placed[1].fadeRight, "only the contested ends fade");
+        const auto before = r.placed;
+        std::reverse(r.placed.begin(), r.placed.end());
+        layoutBandwidth(s, v, r); layoutBandwidth(s, v, r);
+        for (const Placed& p : r.placed) {
+            const Placed& q = before[p.idx];
+            CHECK(p.bar0 == q.bar0 && p.bar1 == q.bar1 && p.fadeLeft == q.fadeLeft && p.fadeRight == q.fadeRight, "independent of processing order and repeat calls");
+            CHECK(p.x0 == q.x0 && p.x1 == q.x1 && p.row == q.row, "bandwidth sharing never moves a name");
         }
+    }
+    // a small request returns its unused share to a larger request
+    {
+        Store s;
+        Label a = mk(30, "SMALL", Band); a.bwMhz = 16; s.add(a);
+        Label b = mk(60, "LARGE", Band); b.bwMhz = 70; s.add(b); s.finish();
+        Result r = bandLayout(s, view(0, 100));
+        CHECK(r.placed[0].bar1 == 380 && !r.placed[0].fadeRight, "small extension is shown completely");
+        CHECK(r.placed[1].bar0 == 384 && r.placed[1].fadeLeft, "larger request gets the remainder of the gap");
+    }
+    // names without a bandwidth, including allocations, still reserve their space
+    {
+        for (bool allocation : {false, true}) {
+            Store s;
+            Label a = mk(30, "WIDE", Band); a.bwMhz = 80; s.add(a);
+            Label b = mk(60, "NAME", Band); b.allocation = allocation; b.bwMhz = allocation ? 80 : 0; s.add(b); s.finish();
+            Result r = bandLayout(s, view(0, 100));
+            CHECK(r.placed[0].bar1 == 546 && r.placed[0].fadeRight, "wide band stops before its neighbour's name");
+            CHECK(r.placed[1].bar1 <= r.placed[1].bar0, "no bandwidth line for an unknown bandwidth or allocation");
+        }
+    }
+    // labels on different rows do not constrain each other's bandwidth
+    {
+        Store s;
+        Label a = mk(50, "FIRST", Band); a.bwMhz = 30; s.add(a);
+        Label b = mk(51, "SECOND", Band); b.bwMhz = 30; s.add(b); s.finish();
+        Result r = bandLayout(s, view(0, 100));
+        CHECK(r.placed[0].row != r.placed[1].row, "names are on different rows");
+        for (const Placed& p : r.placed) CHECK(!p.fadeLeft && !p.fadeRight && p.bar1 - p.bar0 == 300, "both rows show their full bandwidth");
+    }
+    // the plot clips outer bands without fades or false endpoint ticks at the viewport boundary
+    {
+        Store s;
+        Label a = mk(5, "LEFT", Band); a.bwMhz = 20; s.add(a);
+        Label b = mk(95, "RIGHT", Band); b.bwMhz = 20; s.add(b); s.finish();
+        Result r = bandLayout(s, view(0, 100));
+        CHECK(r.placed[0].bar0 == -50 && r.placed[0].bar1 == 150 && !r.placed[0].fadeLeft && !r.placed[0].fadeRight, "left endpoint stays outside the plot without a fade");
+        CHECK(r.placed[1].bar0 == 850 && r.placed[1].bar1 == 1050 && !r.placed[1].fadeLeft && !r.placed[1].fadeRight, "right endpoint stays outside the plot without a fade");
+    }
+    // an offscreen centre keeps its band: the viewport clips one end, while a neighbour can still fade the other
+    {
+        Store s;
+        Label a = mk(866, "DTMB channel DS-57", FreqDb); a.bwMhz = 8; s.add(a);
+        Label b = mk(868.5, "NEIGHBOUR", FreqDb); b.bwMhz = 0.125; s.add(b); s.finish();
+        Result r = bandLayout(s, view(867, 869));
+        CHECK(r.placed.size() == 2 && !r.placed[0].centreIn, "offscreen DTMB centre stays as an edge label");
+        CHECK(r.placed[0].bar0 == -2500 && !r.placed[0].fadeLeft, "offscreen left endpoint does not fade");
+        CHECK(r.placed[0].bar1 == 696 && r.placed[0].fadeRight, "right endpoint fades before its neighbour");
     }
     // many candidates: capped, still fast and without overlap
     {
