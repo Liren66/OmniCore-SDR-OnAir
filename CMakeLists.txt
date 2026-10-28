@@ -229,7 +229,8 @@ target_sources(dect2core PRIVATE
   core/src/uat/uat_fec_bridge.c core/src/uat/uat_decode.c)
 target_include_directories(dect2core PRIVATE third_party/uat_fec)
 # Tools > Digital video generator (docs in videogen.h): encoder settings and estimate, overlay (stb_truetype from Dear ImGui), engine
-target_sources(dect2core PRIVATE core/src/tv/videogen_params.cpp core/src/tv/videogen_overlay.cpp core/src/tv/videogen.cpp)
+target_sources(dect2core PRIVATE core/src/tv/videogen_params.cpp core/src/tv/videogen_overlay.cpp core/src/tv/videogen.cpp
+                                 core/src/tv/dvb_modes.cpp)   # its tab "Digital Television Mode Selector" (dvb_modes.h)
 set_source_files_properties(core/src/tv/videogen_overlay.cpp PROPERTIES INCLUDE_DIRECTORIES "${ONAIR_ROOT}/third_party/imgui")
 set_source_files_properties(third_party/uat_fec/fec.c third_party/uat_fec/decode_rs_char.c third_party/uat_fec/init_rs_char.c
   core/src/uat/uat_fec_bridge.c core/src/uat/uat_decode.c PROPERTIES LANGUAGE C)
@@ -628,7 +629,7 @@ if(DECT2_BUILD_APP)
   endforeach()
   string(APPEND _i18n_out "    {\"\", \"\"}};\n")
   file(CONFIGURE OUTPUT ${_i18n_inc} CONTENT "${_i18n_out}" @ONLY)
-  list(APPEND APP_SOURCES app/i18n/i18n.cpp app/platform/remote_api_app.cpp app/panels/gain_opt_ui.cpp app/panels/agc_ui.cpp app/panels/autogain_ui.cpp app/panels/station_health_ui.cpp app/panels/photo_links_ui.cpp app/panels/tx_ui.cpp app/panels/tx_payload_ui.cpp app/panels/tx_params.cpp app/panels/tx_panel.cpp app/panels/tx_step_signal.cpp app/panels/tx_step_settings.cpp app/panels/tx_step_send.cpp app/panels/tx_preview.cpp app/panels/tx_studio.cpp app/panels/videogen_ui.cpp)
+  list(APPEND APP_SOURCES app/i18n/i18n.cpp app/platform/remote_api_app.cpp app/panels/gain_opt_ui.cpp app/panels/agc_ui.cpp app/panels/autogain_ui.cpp app/panels/station_health_ui.cpp app/panels/photo_links_ui.cpp app/panels/tx_ui.cpp app/panels/tx_payload_ui.cpp app/panels/tx_params.cpp app/panels/tx_panel.cpp app/panels/tx_step_signal.cpp app/panels/tx_step_settings.cpp app/panels/tx_step_send.cpp app/panels/tx_preview.cpp app/panels/tx_studio.cpp app/panels/videogen_ui.cpp app/panels/videogen_modes_ui.cpp)
   list(APPEND APP_SOURCES app/gfx/autolabel.cpp)   # names drawn on the spectrum and waterfall (logic: app/gfx/autolabel_logic.h)
   list(APPEND APP_SOURCES app/gfx/wf3d_plot.cpp)   # the 3D waterfall (logic: app/gfx/wf3d.h, tested in tests/app/test_wf3d.cpp)
   list(APPEND APP_SOURCES app/gfx/wf_export.cpp)   # waterfall export: PNG frames and a timelapse into a folder (no video encoder)
@@ -1951,6 +1952,9 @@ if(DECT2_BUILD_TESTS)
   add_executable(test_videogen tests/tv/test_videogen.cpp)   # Digital video generator: bitrate estimate, encoder settings, overlay, .ts file, UDP / RTP
   target_link_libraries(test_videogen PRIVATE dect2core)
   add_test(NAME videogen COMMAND test_videogen WORKING_DIRECTORY ${ONAIR_ROOT})
+  add_executable(test_dvb_modes tests/tv/test_dvb_modes.cpp)   # its mode selector: DVB modes against the workbook, link fit, best mode
+  target_link_libraries(test_dvb_modes PRIVATE dect2core)
+  add_test(NAME dvb_modes COMMAND test_dvb_modes)
 
   add_executable(test_text_charset tests/common/test_text_charset.cpp)
   target_link_libraries(test_text_charset PRIVATE dect2core)
