@@ -92,7 +92,7 @@ uint64_t revision(const App& a) {
     for (const auto& r : a.dabScan.results) { h = mix(h, (uint64_t)std::llround(r.mhz * 1000)); h = mix(h, r.label); h = mix(h, r.name); }
     for (const auto& s : a.fmSaved) { h = mix(h, (uint64_t)std::llround(s.mhz * 1000)); h = mix(h, s.name); }
     for (const auto& r : a.scanner.results()) { h = mix(h, (uint64_t)std::llround(r.freqMHz * 1000)); h = mix(h, r.networkName); h = mix(h, (uint64_t)r.services.size()); }
-    for (const auto& m : memoryBank().all()) { h = mix(h, m.freqHz); h = mix(h, m.name); }
+    for (const auto& m : memoryBank().all()) { h = mix(h, m.freqHz); h = mix(h, m.name); h = mix(h, (uint64_t)std::llround(m.bandwidthHz)); }
     for (const auto& kv : gHeard) { h = mix(h, (uint64_t)kv.first.second); h = mix(h, kv.second.text); }
     h = mix(h, (uint64_t)dect2::builtinFrequencies().size());
     return h;
@@ -142,7 +142,7 @@ void rebuild(App& a) {
     for (const auto& kv : gHeard) gStore.add(kv.second);
     for (const auto& m : memoryBank().all()) {
         if (m.name.empty() || m.freqHz == 0) continue;
-        Label l; l.mhz = (double)m.freqHz / 1e6; l.text = m.name; l.detail = m.group; l.mode = m.mode; l.src = Memories;
+        Label l; l.mhz = (double)m.freqHz / 1e6; l.text = m.name; l.detail = m.group; l.mode = m.mode; l.src = Memories; l.bwMhz = m.bandwidthHz > 0 ? m.bandwidthHz / 1e6 : 0;
         gStore.add(l);
     }
     gStore.finish();

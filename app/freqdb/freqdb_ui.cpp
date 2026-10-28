@@ -483,7 +483,7 @@ void freqdbLabelSource(std::vector<autolabel::Label>& out) {
     for (const FreqEntry& e : u.all) {
         if (e.name.empty() || e.hz == 0 || e.hz > 12000000000ull) continue;
         autolabel::Label l;
-        l.mhz = (double)e.hz / 1e6; l.text = e.name; l.mode = e.mode; l.src = autolabel::FreqDb;
+        l.mhz = (double)e.hz / 1e6; l.text = e.name; l.mode = e.mode; l.src = autolabel::FreqDb; l.bwMhz = e.bwHz > 0 ? e.bwHz / 1e6 : 0;
         l.detail = e.category + (e.region.empty() ? "" : "  " + e.region);
         l.prio = e.user ? 0.5f : 0.f;
         out.push_back(std::move(l));
