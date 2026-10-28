@@ -618,5 +618,79 @@ int main() {
         feed(d, gen::grpVGrant(0x00, 0x1010, 4001, 21), 1.0);
         CHECK(count(d.takeActions(), Action::OpenRemote) == 0 && d.log.records().back().missed, "voice radio off: unchanged");
     }
+    // ---- the followed call ends while another one is still on the air: its next grant repeat moves the follower to it
+    {   // a slice inside the capture
+        Controller c;
+        setupSite(c, 0);
+        c.setCapture(851.1e6, 2.4e6);
+        FollowConfig fc; fc.maxSlices = 1; fc.hangSec = 1.0;
+        c.follower.setConfig(fc);
+        feed(c, gen::grpVGrant(4, 0x1010, 6001, 1), 1.0);
+        const uint64_t a1 = c.log.records().back().id;
+        feed(c, gen::grpVGrant(4, 0x1011, 6002, 2), 1.1);
+        const uint64_t b1 = c.log.records().back().id;
+        CHECK(count(c.takeActions(), Action::OpenSlice) == 1 && c.log.byId(b1)->missed && c.follower.missedCalls() == 1, "second call busy");
+        feed(c, gen::grpVGrant(4, 0x1011, 6002, 2), 1.5);   // a repeat while still busy: not missed twice
+        CHECK(c.takeActions().empty() && c.follower.missedCalls() == 1 && c.log.records().size() == 2, "busy repeat: no action, counted once");
+        c.onTerminator(a1, 2.0);
+        c.tick(2.0);
+        CHECK(count(c.takeActions(), Action::CloseSlice) == 1 && c.follower.activeSlices() == 0, "first call ends");
+        feed(c, gen::grpVGrant(4, 0x1011, 6002, 2), 2.2);
+        auto a = c.takeActions();
+        const CallRecord* b = c.log.byId(b1);
+        CHECK(count(a, Action::OpenSlice) == 1 && a[0].callId == b1 && std::fabs(a[0].freqHz - chHz(0x1011)) < 1, "the ongoing call gets the slice");
+        CHECK(b->followed && !b->missed && b->active && c.follower.missedCalls() == 0 && c.follower.audibleCall() == b1 && c.log.records().size() == 2, "joined, same log record, not missed");
+    }
+    {   // the voice radio
+        Controller c;
+        setupSite(c, 0);
+        c.setCapture(chHz(0x1001), 0);
+        FollowConfig fc; fc.hangSec = 1.0; fc.voiceRadio = true;
+        c.follower.setConfig(fc);
+        feed(c, gen::grpVGrant(0x00, 0x1010, 6001, 1), 1.0);
+        const uint64_t a1 = c.log.records().back().id;
+        feed(c, gen::grpVGrant(0x00, 0x1012, 6002, 2), 1.1);
+        const uint64_t b1 = c.log.records().back().id;
+        CHECK(count(c.takeActions(), Action::OpenRemote) == 1 && c.log.byId(b1)->missed, "voice radio busy");
+        c.onVoice(a1, 1.5);
+        c.onTerminator(a1, 2.0);
+        c.tick(2.0);
+        CHECK(count(c.takeActions(), Action::CloseRemote) == 1, "first call ends");
+        feed(c, gen::grpVGrant(0x00, 0x1012, 6002, 2), 2.2);
+        auto a = c.takeActions();
+        CHECK(count(a, Action::OpenRemote) == 1 && c.follower.remoteCall() == b1 && c.log.byId(b1)->followed, "the voice radio goes to the ongoing call");
+    }
+    {   // one radio: a call inside the capture blocks a hop; when it ends the radio hops to the call still running outside
+        Controller c;
+        setupSite(c, 0);
+        FollowConfig fc; fc.allowRetune = true; fc.hangSec = 1.0;
+        c.follower.setConfig(fc);
+        c.setCapture(851.1e6, 1.0e6);
+        feed(c, gen::idenUp(5, 856000000, 12500, 0, 12500), 0);
+        feed(c, gen::grpVGrant(4, 0x1010, 6001, 1), 1.0);
+        const uint64_t a1 = c.log.records().back().id;
+        feed(c, gen::grpVGrant(4, 0x5010, 6002, 2), 1.1);
+        const uint64_t b1 = c.log.records().back().id;
+        CHECK(count(c.takeActions(), Action::Retune) == 0 && c.log.byId(b1)->missed, "no hop while a call runs");
+        c.onTerminator(a1, 2.0);
+        c.tick(2.0);
+        c.takeActions();
+        feed(c, gen::grpVGrant(4, 0x5010, 6002, 2), 2.2);
+        auto a = c.takeActions();
+        CHECK(count(a, Action::Retune) == 1 && a[0].callId == b1 && c.follower.state() == FollowState::Hopped, "hops to the ongoing call (%s)", followStateName(c.follower.state()));
+    }
+    // an encrypted or locked out call that is still running is not joined
+    {
+        Controller c;
+        setupSite(c, 0);
+        c.setCapture(851.1e6, 2.4e6);
+        c.tgs.upsert(6002).lockout = true;
+        feed(c, gen::grpVGrant(4, 0x1011, 6002, 2), 1.0);
+        feed(c, gen::grpVGrant(0x40, 0x1012, 6003, 3), 1.0);
+        c.takeActions();
+        feed(c, gen::grpVGrant(4, 0x1011, 6002, 2), 1.5);
+        feed(c, gen::grpVGrant(0x40, 0x1012, 6003, 3), 1.5);
+        CHECK(c.takeActions().empty() && c.follower.activeSlices() == 0, "not joined");
+    }
     return testSummary("p25 trunk");
 }
