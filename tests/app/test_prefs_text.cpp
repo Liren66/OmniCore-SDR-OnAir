@@ -5,7 +5,7 @@
 #include <string>
 
 static int failures = 0;
-#define CHECK(c, ...) do { if (!(c)) { failures++; std::printf("FAIL: " __VA_ARGS__); std::printf("\n"); } } while (0)
+#define CHECK(c, msg) do { if (!(c)) { failures++; std::printf("FAIL: %s\n", msg); } } while (0)
 
 // what one line of the file holds after a save and a read
 static std::string roundTrip(const std::string& v) { return prefstext::fromFile(prefstext::escape(v), prefstext::kFormat); }
@@ -32,6 +32,6 @@ int main() {
     CHECK(fromFile("a\\nb", 0) == "a\\nb", "an old file is not unescaped");
     // a hand edit with an escape that is not one of ours
     CHECK(unescape("tab\\there") == "tab\\there", "an unknown escape is kept");
-    std::printf(failures ? "FAILED\n" : "prefs_text ok\n");
+    std::puts(failures ? "FAILED" : "prefs_text ok");
     return failures ? 1 : 0;
 }
