@@ -4,6 +4,7 @@
 #include "dect2/inmsat/inmsat_voice.h"
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -25,8 +26,8 @@ long fileSize(const std::string& p) { struct stat st; return stat(p.c_str(), &st
 }
 
 int main() {
-    const std::string dir = std::string("/tmp/inmsat_voice_test_") + std::to_string((long)getpid());
-    mkdir(dir.c_str(), 0755);
+    const std::string dir = (std::filesystem::temp_directory_path() / ("inmsat_voice_test_" + std::to_string((long)getpid()))).generic_string();
+    { std::error_code ec; std::filesystem::create_directories(dir, ec); }   // POSIX mkdir(path, mode) does not exist on MinGW
     // 1. no codec: silence, the install message, calls counted, coded frames saved
     {
         VoiceMixer m;
@@ -107,7 +108,6 @@ int main() {
             CHECK(std::memcmp(h, "RIFF", 4) == 0 && std::memcmp(h + 8, "WAVEfmt ", 8) == 0 && dl == 1280, "WAV header");
         }
     }
-    std::string cmd = "rm -rf " + dir;
-    (void)!system(cmd.c_str());
+    { std::error_code ec; std::filesystem::remove_all(dir, ec); }
     return testSummary("inmsat_voice");
 }
