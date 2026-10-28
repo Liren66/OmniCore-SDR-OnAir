@@ -8,7 +8,6 @@
 
 bool freqStepArrow(const char* id, ImGuiDir dir);
 
-static constexpr double kFmLow = 87.0, kFmHigh = 108.0;
 
 // the dial steps and rounds to 0.1 MHz; the broadcast band is the slider's span only, a frequency outside it (typed, or stepped to) is kept
 static double fmRound(double mhz) { return std::round(std::max(0.0, mhz) * 10.0) / 10.0; }
@@ -63,7 +62,11 @@ bool fmFrequencyCombo(App& a) {
         if (!any) ImGui::TextDisabled("run the band scan to list stations");
         ImGui::EndCombo();
     }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stations found by the band scan (Scan tab).\nType a frequency in the box on the left to tune by hand: 87.5 - 108 MHz.");
+    if (ImGui::IsItemHovered()) {
+        double lo = 87.5, hi = 108.0;
+        fmBandRange(a, lo, hi);
+        ImGui::SetTooltip("Stations found by the band scan (Scan tab).\nType a frequency in the box on the left to tune by hand: %.1f - %.0f MHz.", lo, hi);
+    }
     if (changed) a.freqMhz = fmRound(a.freqMhz);
     return changed;
 }
@@ -584,7 +587,9 @@ void fmRadioTab(App& a) {
     {   // tuning dial and steps
         float f = (float)a.freqMhz;
         ImGui::SetNextItemWidth(std::max(200.f, ImGui::GetContentRegionAvail().x - 330 * gUi));
-        if (ImGui::SliderFloat("##fmdial", &f, (float)kFmLow, (float)kFmHigh, "%.1f MHz")) a.freqMhz = fmRound(f);
+        double lo = 87.5, hi = 108.0;
+        fmBandRange(a, lo, hi);   // 87 - 108 MHz, or from 76 MHz where the band plan has extended FM (Brazil) or Japan's band
+        if (ImGui::SliderFloat("##fmdial", &f, (float)std::min(lo, 87.0), (float)hi, "%.1f MHz")) a.freqMhz = fmRound(f);
         if (ImGui::IsItemDeactivatedAfterEdit()) fmTune(a, a.freqMhz);
         const double fs = fmStepMhz();
         char dn[8], up[8];

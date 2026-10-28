@@ -58,7 +58,7 @@ inline std::vector<FmSavedStation> fmSavedDecode(const std::string& st) {
         FmSavedStation r;
         r.mhz = atof(line.substr(0, us).c_str());
         r.name = line.substr(us + 1);
-        if (r.mhz >= 87.5 && r.mhz <= 108.01) out.push_back(r);
+        if (r.mhz >= 76.0 && r.mhz <= 108.01) out.push_back(r);   // 76 MHz: the band scan reaches down to extended FM (Brazil) and Japan's band
     }
     return out;
 }

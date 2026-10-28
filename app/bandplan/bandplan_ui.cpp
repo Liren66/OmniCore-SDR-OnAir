@@ -64,6 +64,13 @@ std::vector<TvRange> tvBandRanges(App& a) {
     return o;
 }
 
+void fmBandRange(const App& a, double& loMhz, double& hiMhz) {
+    loMhz = 87.5; hiMhz = 108.0;
+    if (const bp::Plan* p = activePlan(a))
+        for (const bp::Band& b : p->bands)
+            if (b.service == "fm" && b.startHz >= 30e6 && b.endHz <= 200e6) { loMhz = std::min(loMhz, b.startHz / 1e6); hiMhz = std::max(hiMhz, b.endHz / 1e6); }
+}
+
 // the active plan as labels on the spectrum: the numbered channels of the rasters (TV, DAB, FM ...) and the names of the plain ranges (ham, ISM ...)
 void bandPlanLabelSource(const App& a, std::vector<autolabel::Label>& out) {
     const bp::Plan* p = activePlan(a);
