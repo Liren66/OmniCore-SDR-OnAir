@@ -12,7 +12,7 @@ import sys
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
-VERSION = '3.3.0-omnicore.1'
+VERSION = '3.3.0-omnicore.2'
 
 
 def run(*args, cwd=ROOT):
@@ -28,6 +28,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--host-build', type=Path, required=True)
     parser.add_argument('--host-source', type=Path, required=True)
+    parser.add_argument('--skip-checks', action='store_true', help='Skip optional package audits; do not run any executable tests.')
     args = parser.parse_args()
     build = ROOT / 'build-release'
     host = args.host_build.resolve()
@@ -107,12 +108,12 @@ def main():
     (out / 'LICENSE-NOTICES-BINARIES.md').write_text(
         '# Binary source and licence notices\n\n'
         'OmniCore-SDR-OnAir: GPL-3.0-or-later; https://github.com/Liren66/OmniCore-SDR-OnAir.\n'
-        'Based on OnAir by Kristijonas Adomaitis and contributors. This modified Windows package does not embed the upstream logo.\n\n'
+        'Based on OnAir by Kristijonas Adomaitis and contributors. Includes the original OnAir icon; its separate copyright notice is preserved in THIRD_PARTY.md. This is an independent fork.\n\n'
         'FFmpeg 8.0: LGPL-2.1-or-later, statically linked without GPL/nonfree/version3 options. '
-        'Source: https://ffmpeg.org/releases/ffmpeg-8.0.tar.xz (also attached to this release). '
+        'Source: https://ffmpeg.org/releases/ffmpeg-8.0.tar.xz. '
         'See LICENSES/ffmpeg-configuration.txt and build_ffmpeg_static.sh. Rebuild this open-source application to relink.\n\n'
         'OmniCore Host 0.4.8: GPL-3.0; https://github.com/Liren66/OmniCore-SDR-Host. '
-        'Its source snapshot is attached to this release; commit and DLL hash are in BUILD-INFO.json.\n\n'
+        'Exact source: https://github.com/Liren66/OmniCore-SDR-Host/tree/' + run('git', 'rev-parse', 'HEAD', cwd=source).strip() + '. Commit and DLL hash are in BUILD-INFO.json.\n\n'
         'libusbK 3.1.0.0: bundled USB transport; notices are in LICENSES/libusbK, '
         'and corresponding sources are in the OmniCore Host source snapshot.\n\n'
         'Whisper, GGML and codec2 are built from third_party/ in the application source archive; '
@@ -135,9 +136,10 @@ def main():
     (out / 'BUILD-INFO.json').write_text(json.dumps(info, indent=2) + '\n', encoding='utf-8')
     bash = shutil.which('bash')
     out_posix = run('cygpath', '-u', out).strip()
-    for exe in binaries.values():
-        subprocess.check_call([bash, 'tools/package/check_lgpl_bundle.sh', f'{out_posix}/{exe}', out_posix], cwd=ROOT)
-    subprocess.check_call([bash, 'tools/package/check_win_dlls.sh', out_posix], cwd=ROOT)
+    if not args.skip_checks:
+        for exe in binaries.values():
+            subprocess.check_call([bash, 'tools/package/check_lgpl_bundle.sh', f'{out_posix}/{exe}', out_posix], cwd=ROOT)
+        subprocess.check_call([bash, 'tools/package/check_win_dlls.sh', out_posix], cwd=ROOT)
     archive = Path(str(out) + '.zip')
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as z:
         for path in sorted(out.rglob('*')):

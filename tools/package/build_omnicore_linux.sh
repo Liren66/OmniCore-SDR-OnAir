@@ -10,7 +10,7 @@ cmake -S . -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DDECT2_FFMPEG_PREFIX="$prefix" \
   -DONAIR_CARGO="${CARGO:-$(command -v cargo)}" -DONAIR_RUSTC="${RUSTC:-$(command -v rustc)}" \
   -DDECT2_HAVE_HAMLIB=OFF -DDECT2_WITH_SOAPY=OFF -DDECT2_WITH_RFNM=OFF \
-  -DONAIR_VERSION=3.3.0-omnicore.1
+  -DONAIR_VERSION=3.3.0-omnicore.2
 cmake --build "$build" --parallel "${BUILD_JOBS:-6}" --target \
   dect2 dect2cli dect2scan onair-server onair-plugin-host omnicore_probe \
   test_omnicore test_backup test_latest_slot test_gui_rules test_updater test_updater_mirror

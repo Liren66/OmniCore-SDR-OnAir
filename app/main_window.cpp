@@ -90,6 +90,10 @@ GLFWwindow* createMainWindow(int argc, char** argv) {
         gfx::setLevel(lvl);
         glfwDefaultWindowHints();
         gfx::windowHints();
+#ifdef __linux__
+        glfwWindowHintString(GLFW_X11_CLASS_NAME, "OmniCore-SDR-OnAir");
+        glfwWindowHintString(GLFW_X11_INSTANCE_NAME, "OmniCore-SDR-OnAir");
+#endif
         glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE);   // a fullscreen main window stays up when another window or monitor is clicked (#71)
         if (hidden) glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
         int winW = 1500, winH = 900;

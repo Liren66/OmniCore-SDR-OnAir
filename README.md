@@ -44,7 +44,7 @@ python tools/package/package_omnicore_windows.py --host-build build-release/omni
 
 ## Linux 构建
 
-Ubuntu 24.04 x86-64 用户可以直接解压 Linux 发布包，并在图形桌面中运行根目录的 `./OmniCore-SDR-OnAir`。启动脚本会加载包内的 OmniCore Host 库；系统依赖和 USB 权限配置见包内 `RUN-LINUX.txt`。使用普通用户运行即可，无需 `sudo`。
+Ubuntu 24.04 x86-64 用户可以直接解压 Linux 发布包，并在图形桌面中运行根目录的 `./OmniCore-SDR-OnAir`。运行 `./install-desktop.sh` 可将带图标的快捷方式加入当前用户的应用菜单；移动程序目录后请重新运行此脚本。启动脚本会加载包内的 OmniCore Host 库；系统依赖和 USB 权限配置见包内 `RUN-LINUX.txt`。使用普通用户运行即可，无需 `sudo`。
 
 Ubuntu 24.04 x86-64 依赖：`build-essential cmake ninja-build pkg-config cargo-1.89 rustc-1.89 nasm libhackrf-dev libusb-1.0-0-dev libglfw3-dev libasound2-dev`。推荐 Rust 1.89 或更新版；Ubuntu 默认的 1.75 无法编译当前上游。按上面的步骤准备静态 FFmpeg，然后运行 `CARGO=/usr/bin/cargo-1.89 RUSTC=/usr/bin/rustc-1.89 bash tools/package/build_omnicore_linux.sh`。生成的 GUI 为 `build-release/dect2`。
 
@@ -56,4 +56,4 @@ OmniCore Host 可以另行安装，或在同一构建树中从它的源码构建
 
 ## 许可证与来源
 
-代码按 [GPL-3.0-or-later](LICENSE) 发布。上游作者为 Kristijonas Adomaitis 与 OnAir contributors，第三方依赖见 [THIRD_PARTY.md](THIRD_PARTY.md)。本项目是独立分支，不代表上游背书；Windows 修改版不嵌入上游受限图标。源码内保留上游版权和历史记录。
+代码按 [GPL-3.0-or-later](LICENSE) 发布。上游作者为 Kristijonas Adomaitis 与 OnAir contributors，第三方依赖见 [THIRD_PARTY.md](THIRD_PARTY.md)。本项目是独立分支，不代表上游背书。`3.3.0-omnicore.2` 恢复使用上游 OnAir 图标；图标的独立版权声明保留在 THIRD_PARTY.md 中，不属于代码的 GPL 授权范围。源码内保留上游版权和历史记录。
