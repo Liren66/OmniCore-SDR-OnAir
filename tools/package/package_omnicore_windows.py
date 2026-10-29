@@ -91,11 +91,13 @@ def main():
 
     for filename in ['LICENSE', 'THIRD_PARTY.md', 'README.md', 'README.upstream.md', 'DEVICES.md']:
         shutil.copy2(ROOT / filename, out / filename)
+    shutil.copytree(ROOT / 'web/onair-web', out / 'web/onair-web')
     shutil.copy2(ROOT / 'LICENSE', out / 'LICENSE.txt')
     shutil.copytree(ROOT / 'LICENSES', out / 'LICENSES')
     licenses = out / 'licenses'
     licenses.mkdir()
     shutil.copy2(source / 'LICENSE', licenses / 'OmniCore-Host-LICENSE.txt')
+    shutil.copytree(source / 'third_party/driver/libusbK-3.1.0.0-src/license', licenses / 'libusbK')
     shutil.copy2(build / 'deps/ffmpeg/share/ffmpeg-configuration.txt', licenses / 'ffmpeg-configuration.txt')
     shutil.copy2(ROOT / 'tools/package/build_ffmpeg_static.sh', licenses / 'build_ffmpeg_static.sh')
     msys_licenses = ucrt.parent / 'share/licenses'
@@ -111,6 +113,8 @@ def main():
         'See licenses/ffmpeg-configuration.txt and build_ffmpeg_static.sh. Rebuild this open-source application to relink.\n\n'
         'OmniCore Host 0.4.8: GPL-3.0; https://github.com/Liren66/OmniCore-SDR-Host. '
         'Its source snapshot is attached to this release; commit and DLL hash are in BUILD-INFO.json.\n\n'
+        'libusbK 3.1.0.0: bundled USB transport; notices are in licenses/libusbK, '
+        'and corresponding sources are in the OmniCore Host source snapshot.\n\n'
         'Whisper, GGML and codec2 are built from third_party/ in the application source archive; '
         'their notices are in THIRD_PARTY.md and LICENSES/. MSYS2 runtime dependency notices are in licenses/msys2/. '
         'MSYS2 source recipes: https://github.com/msys2/MINGW-packages; '

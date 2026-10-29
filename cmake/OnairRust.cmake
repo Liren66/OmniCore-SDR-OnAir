@@ -149,7 +149,7 @@ file(GLOB _ws_toml CONFIGURE_DEPENDS "${_ws_dir}/Cargo.toml" "${_ws_dir}/*/Cargo
 # `--features bare`: the archive is no_std and carries the panic handler (see rust/onair/src/lib.rs)
 add_custom_command(
   OUTPUT "${_lib}"
-  COMMAND ${CMAKE_COMMAND} -E env --unset=MAKEFLAGS --unset=MFLAGS --unset=CARGO_MAKEFLAGS CARGO_TARGET_DIR=${_cargo_target} ${ONAIR_CARGO} build ${_prof_flag} --offline ${_cross_flag}
+  COMMAND ${CMAKE_COMMAND} -E env --unset=MAKEFLAGS --unset=MFLAGS --unset=CARGO_MAKEFLAGS RUSTC=${ONAIR_RUSTC} CARGO_TARGET_DIR=${_cargo_target} ${ONAIR_CARGO} build ${_prof_flag} --offline ${_cross_flag}
           --manifest-path ${_ws_dir}/Cargo.toml -p onair --features bare
   DEPENDS ${_ws_src} ${_ws_toml}
   COMMENT "cargo build onair_rs (${_want}, ${_prof_dir})"

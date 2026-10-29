@@ -5,6 +5,7 @@
 // connect a dummy load or an attenuator, and use a frequency you may transmit on. Close och.exe and other programs using the radio first.
 #include "../core/src/source/native_common.h"
 #include "dect2/source/omnicore.h"
+#include <algorithm>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -104,17 +105,18 @@ static bool transmit(TxSink& tx, double seconds) {
 
 int main(int argc, char** argv) {
     std::cout << std::unitbuf;
-    double seconds = 3; bool matrix = false, txOn = false;
+    double seconds = 3, txRetuneStep = 1e6; bool matrix = false, txOn = false;
     TuneSettings t; t.centerHz = 100e6; t.sampleRate = 4e6; t.bandwidthMhz = 0.2; t.gainDb = 40;
     TxTune tt; tt.centerHz = 433.92e6; tt.gainDb = -70;
-    std::string capturePath;
+    std::string capturePath, serial;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--help" || a == "-h") {
             std::cout << "OmniCore-SDR-OnAir hardware probe\n"
-                      << "Usage: omnicore_probe [--rate Hz] [--freq Hz] [--gain dB] [--secs N]\n"
+                      << "Usage: omnicore_probe [--serial ID] [--rate Hz] [--freq Hz] [--gain dB] [--secs N]\n"
                       << "       [--capture file] [--radio key=value] [--matrix]\n"
                       << "       [--tx --txfreq Hz --txgain dB --txch N]\n"
+                      << "       [--tx-retune-step Hz] (default 1000000; use 0 to keep TX frequency)\n"
                       << "Without --help this opens the first OmniCore device. --matrix retunes it.\n"
                       << "TX is disabled unless --tx is explicitly supplied.\n";
             return 0;
@@ -128,8 +130,10 @@ int main(int argc, char** argv) {
         else if (a == "--gain") t.gainDb = std::stod(v);
         else if (a == "--secs") seconds = std::stod(v);
         else if (a == "--capture") capturePath = v;
+        else if (a == "--serial") serial = v;
         else if (a == "--txfreq") tt.centerHz = std::stod(v);
         else if (a == "--txgain") tt.gainDb = std::stod(v);
+        else if (a == "--tx-retune-step") txRetuneStep = std::stod(v);
         else if (a == "--txch") tt.channel = std::stoi(v);
         else if (a == "--radio") { const size_t eq = v.find('='); if (eq != std::string::npos) t.radio[v.substr(0, eq)] = v.substr(eq + 1); }   // a radio setting, e.g. --radio rssi=0
         else { std::cerr << "unknown option " << a << '\n'; return 2; }
@@ -139,7 +143,10 @@ int main(int argc, char** argv) {
     native::listOmnicore(devices);
     for (size_t i = 0; i < devices.size(); ++i) std::cout << i << ": " << devices[i].name << '\n';
     if (devices.empty()) { std::cerr << "no OmniCoreSDR: install OmniCore Host, check the driver (och-driver check) and close och.exe\n"; return 1; }
-    const DeviceInfo& dev = devices.front();
+    const auto selected = serial.empty() ? devices.begin() : std::find_if(devices.begin(), devices.end(), [&](const DeviceInfo& d) { return d.serial == serial; });
+    if (selected == devices.end()) { std::cerr << "OmniCoreSDR serial not found: " << serial << '\n'; return 2; }
+    if (serial.empty() && devices.size() != 1) { std::cerr << "multiple OmniCoreSDR devices: select one with --serial\n"; return 2; }
+    const DeviceInfo& dev = *selected;
     gSerial = dev.serial;
     std::ofstream capture;
     if (!capturePath.empty()) { capture.open(capturePath, std::ios::binary); if (!capture) return 2; }
@@ -207,10 +214,10 @@ int main(int argc, char** argv) {
             std::thread rxCheck([&] { if (!receive(*source, ring, seconds, nullptr, nullptr, &toneOn)) ++failures; });
             if (!transmit(*tx, seconds + 1)) ++failures;
             rxCheck.join();
-            TxTune t2 = tt; t2.gainDb = tt.gainDb - 10; t2.centerHz = tt.centerHz + 1e6;
+            TxTune t2 = tt; t2.gainDb = tt.gainDb - 10; t2.centerHz = tt.centerHz + txRetuneStep;
             std::string e;
             const bool rt = tx->retune(t2, e);
-            std::cout << "tx retune +1 MHz, -10 dB: " << (rt ? "ok" : "REFUSED " + e) << '\n';
+            std::cout << "tx retune " << txRetuneStep << " Hz, -10 dB: " << (rt ? "ok" : "REFUSED " + e) << '\n';
             if (!rt || !transmit(*tx, 2)) ++failures;
             tx->close();
             std::cout << "tx closed\n";

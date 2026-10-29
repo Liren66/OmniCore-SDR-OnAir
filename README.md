@@ -22,7 +22,7 @@
 
 命令行工具为 `onair-cli.exe`、`onair-scan.exe`；`omnicore_probe.exe` 用于手动硬件诊断。探测工具可能接入真实设备，请先阅读 `--help`。程序沿用上游 OnAir 的配置目录，以兼容现有设置。
 
-本次发行平台为 Windows x64。发布包使用静态 LGPL FFmpeg，不包含系统 FFmpeg 的摄像头采集组件，也不捆绑可选的 Hamlib、SoapySDR、RFNM。未连接硬件时的测试不能代替真实射频验收。
+Windows 发布包使用静态 LGPL FFmpeg，不包含系统 FFmpeg 的摄像头采集组件，也不捆绑可选的 Hamlib、SoapySDR、RFNM。未连接硬件时的测试不能代替真实射频验收。
 
 ## 从源码构建与打包
 
@@ -39,6 +39,14 @@ python tools/package/package_omnicore_windows.py --host-build build-release/omni
 ```
 
 打包脚本使用真实 OmniCore Host 库，拒绝测试替身；依赖及导入符号检查成功后才生成 ZIP。构建缓存统一放在 `build-release/`，发布产物放在 `release/`，均不提交 Git。`voice_listen/` 是上游测试样本，不是临时文件。
+
+## Linux 构建
+
+Ubuntu 24.04 x86-64 依赖：`build-essential cmake ninja-build pkg-config cargo-1.89 rustc-1.89 nasm libhackrf-dev libusb-1.0-0-dev libglfw3-dev libasound2-dev`。推荐 Rust 1.89 或更新版；Ubuntu 默认的 1.75 无法编译当前上游。按上面的步骤准备静态 FFmpeg，然后运行 `CARGO=/usr/bin/cargo-1.89 RUSTC=/usr/bin/rustc-1.89 bash tools/package/build_omnicore_linux.sh`。生成的 GUI 为 `build-release/dect2`。
+
+OmniCore Host 可以另行安装，或在同一构建树中从它的源码构建 `libomnicore.so`；运行程序时将其目录加入 `LD_LIBRARY_PATH`。USB 权限规则见 `packaging/linux/60-onair-sdr.rules`。
+
+真实硬件诊断需要先关闭其他占用设备的程序。多个设备连接时必须传 `--serial`。`omnicore_probe --help` 本身不会打开设备；`--tx` 会实际发射，其单音位于 `--txfreq` 之上 100 kHz。使用 `--tx-retune-step 0` 可在后续衰减调整测试中保持发射频率不变。
 
 ## 许可证与来源
 
