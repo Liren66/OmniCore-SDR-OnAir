@@ -36,7 +36,7 @@ def main():
         raise SystemExit('A real OmniCore Host source and build tree are required.')
     host_dll = host / 'omnicore.dll'
     exports = run('objdump', '-p', host_dll)
-    if 'fake_get' in exports or 'och_test_' in exports or 'och_open' not in exports:
+    if 'fake_get' in exports or 'fake_set' in exports or 'och_open' not in exports:
         raise SystemExit('The OmniCore library is not a production Host library.')
     release = ROOT / 'release'
     release.mkdir(exist_ok=True)
@@ -94,8 +94,8 @@ def main():
     shutil.copytree(ROOT / 'web/onair-web', out / 'web/onair-web')
     shutil.copy2(ROOT / 'LICENSE', out / 'LICENSE.txt')
     shutil.copytree(ROOT / 'LICENSES', out / 'LICENSES')
-    licenses = out / 'licenses'
-    licenses.mkdir()
+    licenses = out / 'LICENSES'
+    licenses.mkdir(exist_ok=True)
     shutil.copy2(source / 'LICENSE', licenses / 'OmniCore-Host-LICENSE.txt')
     shutil.copytree(source / 'third_party/driver/libusbK-3.1.0.0-src/license', licenses / 'libusbK')
     shutil.copy2(build / 'deps/ffmpeg/share/ffmpeg-configuration.txt', licenses / 'ffmpeg-configuration.txt')
@@ -110,13 +110,13 @@ def main():
         'Based on OnAir by Kristijonas Adomaitis and contributors. This modified Windows package does not embed the upstream logo.\n\n'
         'FFmpeg 8.0: LGPL-2.1-or-later, statically linked without GPL/nonfree/version3 options. '
         'Source: https://ffmpeg.org/releases/ffmpeg-8.0.tar.xz (also attached to this release). '
-        'See licenses/ffmpeg-configuration.txt and build_ffmpeg_static.sh. Rebuild this open-source application to relink.\n\n'
+        'See LICENSES/ffmpeg-configuration.txt and build_ffmpeg_static.sh. Rebuild this open-source application to relink.\n\n'
         'OmniCore Host 0.4.8: GPL-3.0; https://github.com/Liren66/OmniCore-SDR-Host. '
         'Its source snapshot is attached to this release; commit and DLL hash are in BUILD-INFO.json.\n\n'
-        'libusbK 3.1.0.0: bundled USB transport; notices are in licenses/libusbK, '
+        'libusbK 3.1.0.0: bundled USB transport; notices are in LICENSES/libusbK, '
         'and corresponding sources are in the OmniCore Host source snapshot.\n\n'
         'Whisper, GGML and codec2 are built from third_party/ in the application source archive; '
-        'their notices are in THIRD_PARTY.md and LICENSES/. MSYS2 runtime dependency notices are in licenses/msys2/. '
+        'their notices are in THIRD_PARTY.md and LICENSES/. MSYS2 runtime dependency notices are in LICENSES/msys2/. '
         'MSYS2 source recipes: https://github.com/msys2/MINGW-packages; '
         'corresponding package versions are recorded in BUILD-INFO.json.\n', encoding='utf-8')
     subprocess.check_call([sys.executable, 'tools/package/scrub_paths.py', str(out)], cwd=ROOT)
