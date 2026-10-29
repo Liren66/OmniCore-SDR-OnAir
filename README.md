@@ -52,6 +52,8 @@ OmniCore Host 可以另行安装，或在同一构建树中从它的源码构建
 
 真实硬件诊断需要先关闭其他占用设备的程序。多个设备连接时必须传 `--serial`。`omnicore_probe --help` 本身不会打开设备；`--tx` 会实际发射，其单音位于 `--txfreq` 之上 100 kHz。使用 `--tx-retune-step 0` 可在后续衰减调整测试中保持发射频率不变。
 
+排查启动溢出时，可以增加 `--steady-secs 30`：在首次接收后保持同一个 RX 流连续运行，并逐秒输出接收结果和累计溢出计数，便于区分启动阶段与稳定运行阶段的故障。该检查本身不会打开 TX。
+
 ## 许可证与来源
 
 代码按 [GPL-3.0-or-later](LICENSE) 发布。上游作者为 Kristijonas Adomaitis 与 OnAir contributors，第三方依赖见 [THIRD_PARTY.md](THIRD_PARTY.md)。本项目是独立分支，不代表上游背书；Windows 修改版不嵌入上游受限图标。源码内保留上游版权和历史记录。

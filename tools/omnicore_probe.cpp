@@ -106,6 +106,7 @@ static bool transmit(TxSink& tx, double seconds) {
 int main(int argc, char** argv) {
     std::cout << std::unitbuf;
     double seconds = 3, txRetuneStep = 1e6; bool matrix = false, txOn = false;
+    int steadySeconds = 0;
     TuneSettings t; t.centerHz = 100e6; t.sampleRate = 4e6; t.bandwidthMhz = 0.2; t.gainDb = 40;
     TxTune tt; tt.centerHz = 433.92e6; tt.gainDb = -70;
     std::string capturePath, serial;
@@ -115,9 +116,10 @@ int main(int argc, char** argv) {
             std::cout << "OmniCore-SDR-OnAir hardware probe\n"
                       << "Usage: omnicore_probe [--serial ID] [--rate Hz] [--freq Hz] [--gain dB] [--secs N]\n"
                       << "       [--capture file] [--radio key=value] [--matrix]\n"
+                      << "       [--steady-secs N] (extra RX-only windows before TX/matrix, without reopening)\n"
                       << "       [--tx --txfreq Hz --txgain dB --txch N]\n"
                       << "       [--tx-retune-step Hz] (default 1000000; use 0 to keep TX frequency)\n"
-                      << "Without --help this opens the first OmniCore device. --matrix retunes it.\n"
+                      << "Without --help this opens the selected OmniCore device; multiple devices require --serial.\n"
                       << "TX is disabled unless --tx is explicitly supplied.\n";
             return 0;
         }
@@ -129,6 +131,7 @@ int main(int argc, char** argv) {
         else if (a == "--freq") t.centerHz = std::stod(v);
         else if (a == "--gain") t.gainDb = std::stod(v);
         else if (a == "--secs") seconds = std::stod(v);
+        else if (a == "--steady-secs") steadySeconds = std::stoi(v);
         else if (a == "--capture") capturePath = v;
         else if (a == "--serial") serial = v;
         else if (a == "--txfreq") tt.centerHz = std::stod(v);
@@ -138,7 +141,7 @@ int main(int argc, char** argv) {
         else if (a == "--radio") { const size_t eq = v.find('='); if (eq != std::string::npos) t.radio[v.substr(0, eq)] = v.substr(eq + 1); }   // a radio setting, e.g. --radio rssi=0
         else { std::cerr << "unknown option " << a << '\n'; return 2; }
     }
-    if (seconds < 1 || seconds > 3600) return 2;
+    if (seconds < 1 || seconds > 3600 || steadySeconds < 0 || steadySeconds > 3600) return 2;
     std::vector<DeviceInfo> devices;
     native::listOmnicore(devices);
     for (size_t i = 0; i < devices.size(); ++i) std::cout << i << ": " << devices[i].name << '\n';
@@ -157,6 +160,15 @@ int main(int argc, char** argv) {
     if (!source->start(t, ring, err)) { std::cerr << err << '\n'; return 1; }
     if (!err.empty()) std::cerr << err << '\n';
     if (!receive(*source, ring, seconds, capture.is_open() ? &capture : nullptr)) ++failures;
+    // Keep one stream open and expose cumulative driver counters in successive windows.
+    // This distinguishes startup faults from faults that continue during steady reception.
+    const auto steadyStart = std::chrono::steady_clock::now();
+    for (int i = 0; i < steadySeconds; ++i) {
+        std::cout << "steady window " << i + 1 << " begin="
+                  << std::chrono::duration<double>(std::chrono::steady_clock::now() - steadyStart).count()
+                  << " s after initial RX: ";
+        if (!receive(*source, ring, 1, nullptr)) ++failures;
+    }
     if (matrix) {
         for (double rate : {2.084e6, 2.5e6, 5e6, 10e6, 11.2e6, 20e6, 30.72e6}) {
             t.sampleRate = rate;
