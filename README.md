@@ -1,8 +1,10 @@
 # OmniCore-SDR-OnAir
 
-面向 OmniCore-SDR / AD9361 的 OnAir 分支，基于 [adswill/OnAir](https://github.com/adswill/OnAir)，保留上游电视、广播和数字信号解码功能，并集成 OmniCore Host 原生设备接口。
+**本项目是从 [adswill/OnAir](https://github.com/adswill/OnAir) fork 的独立项目，已接入 OmniCore SDR（AD9361）。** 通过 OmniCore Host 原生设备接口，支持 OmniCore SDR 的接收（RX）、发射（TX）和全双工收发，并保留上游电视、广播和数字信号解码功能。
 
-- [下载 Windows x64 便携包](https://github.com/Liren66/OmniCore-SDR-OnAir/releases/latest)
+This is an independent fork of OnAir with native OmniCore SDR integration, including RX, TX and full-duplex operation.
+
+- [下载 Windows x64 / Linux x86-64 发布包](https://github.com/Liren66/OmniCore-SDR-OnAir/releases/latest)
 - [OmniCore Host 驱动库](https://github.com/Liren66/OmniCore-SDR-Host)
 - [OmniCore 设备使用说明](DEVICES.md#omnicoresdr-omnicore-host)
 - [上游完整说明与致谢](README.upstream.md)
@@ -41,6 +43,8 @@ python tools/package/package_omnicore_windows.py --host-build build-release/omni
 打包脚本使用真实 OmniCore Host 库，拒绝测试替身；依赖及导入符号检查成功后才生成 ZIP。构建缓存统一放在 `build-release/`，发布产物放在 `release/`，均不提交 Git。`voice_listen/` 是上游测试样本，不是临时文件。
 
 ## Linux 构建
+
+Ubuntu 24.04 x86-64 用户可以直接解压 Linux 发布包，并在图形桌面中运行根目录的 `./OmniCore-SDR-OnAir`。启动脚本会加载包内的 OmniCore Host 库；系统依赖和 USB 权限配置见包内 `RUN-LINUX.txt`。使用普通用户运行即可，无需 `sudo`。
 
 Ubuntu 24.04 x86-64 依赖：`build-essential cmake ninja-build pkg-config cargo-1.89 rustc-1.89 nasm libhackrf-dev libusb-1.0-0-dev libglfw3-dev libasound2-dev`。推荐 Rust 1.89 或更新版；Ubuntu 默认的 1.75 无法编译当前上游。按上面的步骤准备静态 FFmpeg，然后运行 `CARGO=/usr/bin/cargo-1.89 RUSTC=/usr/bin/rustc-1.89 bash tools/package/build_omnicore_linux.sh`。生成的 GUI 为 `build-release/dect2`。
 
