@@ -110,6 +110,15 @@ int main(int argc, char** argv) {
     std::string capturePath;
     for (int i = 1; i < argc; ++i) {
         const std::string a = argv[i];
+        if (a == "--help" || a == "-h") {
+            std::cout << "OmniCore-SDR-OnAir hardware probe\n"
+                      << "Usage: omnicore_probe [--rate Hz] [--freq Hz] [--gain dB] [--secs N]\n"
+                      << "       [--capture file] [--radio key=value] [--matrix]\n"
+                      << "       [--tx --txfreq Hz --txgain dB --txch N]\n"
+                      << "Without --help this opens the first OmniCore device. --matrix retunes it.\n"
+                      << "TX is disabled unless --tx is explicitly supplied.\n";
+            return 0;
+        }
         if (a == "--matrix") { matrix = true; continue; }
         if (a == "--tx") { txOn = true; continue; }
         if (i + 1 == argc) { std::cerr << "missing value for " << a << '\n'; return 2; }

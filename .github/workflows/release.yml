@@ -25,6 +25,9 @@ permissions:
 jobs:
   version:
     name: Version
+    # This fork publishes verified native Windows packages with the OmniCore scripts.
+    # The upstream multi-platform pipeline depends on the upstream maintainer's assets.
+    if: github.repository == 'adswill/OnAir'
     runs-on: ubuntu-24.04
     outputs:
       beta: ${{ steps.v.outputs.beta }}

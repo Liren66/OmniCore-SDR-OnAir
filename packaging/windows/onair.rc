@@ -1,5 +1,4 @@
 #include <winver.h>
-1 ICON "OnAir.ico"
 VS_VERSION_INFO VERSIONINFO
 FILEVERSION 3,3,0,0
 PRODUCTVERSION 3,3,0,0
@@ -8,10 +7,10 @@ BEGIN
   BEGIN
     BLOCK "040904B0"
     BEGIN
-      VALUE "FileDescription", "OnAir DVB-T2 / DVB-T / ATSC / DAB receiver"
-      VALUE "ProductName", "OnAir"
-      VALUE "ProductVersion", "3.3.0"
-      VALUE "LegalCopyright", "Code: GPL-3.0-or-later. OnAir name and logo (c) 2026 Kristijonas Adomaitis, all rights reserved; the logo is not covered by the GPL."
+      VALUE "FileDescription", "OmniCore-SDR-OnAir receiver"
+      VALUE "ProductName", "OmniCore-SDR-OnAir"
+      VALUE "ProductVersion", "3.3.0-omnicore.1"
+      VALUE "LegalCopyright", "GPL-3.0-or-later. Based on OnAir, copyright 2026 Kristijonas Adomaitis and contributors. OmniCore integration by Liren66."
     END
   END
   BLOCK "VarFileInfo"

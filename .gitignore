@@ -41,3 +41,8 @@ rust/Cargo.lock
 rust/target/
 sdk/rust/**/target/
 sdk/rust/**/Cargo.lock
+
+# Local release staging and disposable experiments.
+/dist/
+/scratchpad/
+/release/

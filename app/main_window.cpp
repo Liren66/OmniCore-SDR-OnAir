@@ -94,13 +94,13 @@ GLFWwindow* createMainWindow(int argc, char** argv) {
         if (hidden) glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
         int winW = 1500, winH = 900;
         if (const char* ws = getenv("ONAIR_WINSIZE")) sscanf(ws, "%dx%d", &winW, &winH);   // dev: the size of a --shot window, e.g. 1000x700
-        window = glfwCreateWindow(winW, winH, "OnAir", nullptr, nullptr);
+        window = glfwCreateWindow(winW, winH, "OmniCore-SDR-OnAir", nullptr, nullptr);
         if (!window && gfx::levelCount() > 1) fprintf(stderr, "no %s context; trying the next lower version\n", gfx::levelName());
     }
     if (!window) {
         const std::string why = gGlfwError.empty() ? std::string("no reason given") : gGlfwError;
         fprintf(stderr, "OnAir: could not open a window or graphics context (%s)\n", why.c_str());
-        plat::showFatalError("OnAir", ("OnAir could not open its window: " + why + "\n\nThe graphics driver needs to offer at least OpenGL 3.0. "
+        plat::showFatalError("OmniCore-SDR-OnAir", ("OnAir could not open its window: " + why + "\n\nThe graphics driver needs to offer at least OpenGL 3.0. "
             "On a Raspberry Pi or another board with a Mesa driver that offers only an old version, start OnAir with:\n"
             "MESA_GL_VERSION_OVERRIDE=3.3 MESA_GLSL_VERSION_OVERRIDE=330 onair\n"
             "(over SSH or without a display there is no window; set DISPLAY or use a local session).").c_str());
