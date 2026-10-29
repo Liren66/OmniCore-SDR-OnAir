@@ -5,6 +5,7 @@
 #include <unistd.h>
 #endif
 #include "app.h"
+#include "imgui_internal.h"
 #include "ui/kit/kit.h"
 #include "adsb/adsb_map.h"
 #include "ui/contrast.h"
@@ -109,8 +110,21 @@ static void mainTabsInner(App& a, bool unified);
 #include "main_tabs_unified.inc"
 
 void mainTabs(App& a) {
-    if (a.layoutUnified && pal::dev()) { unifiedCentre(a, [&a] { mainTabsInner(a, true); }); return; }
-    mainTabsInner(a, false);
+    // several receivers share this one tab bar, so ImGui kept whichever tab was open and fell back to the first one when the new receiver
+    // had none of that name; each receiver now remembers its own tab and gets it back when its chip is selected again (#342)
+    static int lastRx = 0;
+    std::string mine;
+    if (a.rxId != lastRx) {
+        lastRx = a.rxId;
+        if (!a.mainTabName.empty() && a.mainTabName != "Overview" && gForceTab.empty()) gForceTab = mine = a.mainTabName;
+    }
+    gTabOwner = &a;
+    gMainTabBar = nullptr;
+    if (a.layoutUnified && pal::dev()) unifiedCentre(a, [&a] { mainTabsInner(a, true); });
+    else mainTabsInner(a, false);
+    if (!mine.empty() && gForceTab == mine) gForceTab.clear();   // this receiver's mode has no such tab: do not jump to it later
+    gTabOwner = nullptr;
+    gMainTabBar = nullptr;
 }
 
 static void mainTabsInner(App& a, bool unified) {
@@ -122,6 +136,7 @@ static void mainTabsInner(App& a, bool unified) {
     const bool bar = pal::dev() ? kit::beginTabs("tabs") : ImGui::BeginTabBar("tabs", 0);
     if (gTightTabs) ImGui::PopStyleVar();
     if (bar) {
+        gMainTabBar = ImGui::GetCurrentTabBar();
         if (!unified && tabItem(N_("Overview"), Ic::Grid)) { adsbmap::FullScope fs(&a, [&a]{ overviewTab(a); }); overviewTab(a); ImGui::EndTabItem(); }
         if (const ModeUi* mu = modeUi(a.family)) {   // a mode added after FM: its own tabs
             if (mu->tab && tabItem(mu->tabName ? mu->tabName : "Mode", mu->tabIcon)) { adsbmap::FullScope fs(&a, [&a, mu]{ mu->tab(a); }); mu->tab(a); ImGui::EndTabItem(); }

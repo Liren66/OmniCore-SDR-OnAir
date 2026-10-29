@@ -25,6 +25,7 @@ struct State {
     bool mapFollow = true;           // the map fits the stations until the user drags it
     int sortCol = 4, sortDir = 1;    // table: the column and the direction (1 ascending); starts on "heard"
     bool nmeaScroll = true;
+    int labels = 0;                  // map labels: 0 from zoom 10 on (and the selected one), 1 off (only the selected and the hovered vessel), 2 always
     RangeView range;                 // the receiver-range plot (Range view)
     uint64_t rangeSeq = 0;
 };
@@ -37,6 +38,7 @@ void loadState() {
     S.loaded = true;
     plat::Prefs& d = plat::prefs();
     S.map.zoom = (int)d.getI("aisZoom", 9);
+    S.labels = std::max(0, std::min(2, (int)d.getI("aisLabels", 0)));
 }
 
 std::string mmsiText(uint32_t m) { char b[16]; snprintf(b, sizeof b, "%09u", m); return b; }
@@ -237,6 +239,8 @@ void mapView(App& a, ImVec2 size) {
     if (S.map.lat != lat0 || S.map.lon != lon0) S.mapFollow = false;
     ImDrawList* dl = ImGui::GetWindowDrawList();
     dl->PushClipRect(p0, ImVec2(p0.x + size.x, p0.y + size.y), true);
+    const ImVec2 mouse = ImGui::GetMousePos();
+    const bool mouseIn = ImGui::IsMouseHoveringRect(p0, ImVec2(p0.x + size.x, p0.y + size.y));
     const AisVessel* hit = nullptr; float best = 16 * gUi;
     ImVec2 click; const bool clicked = adsbmap::clickedAt(click);
     if (on) {
@@ -260,7 +264,8 @@ void mapView(App& a, ImVec2 size) {
                 const float rr = 11.f * gUi;
                 for (int k = 0; k < 12; k += 2) { dl->PathArcTo(q, rr, k * (float)M_PI / 6, (k + 1) * (float)M_PI / 6, 4); dl->PathStroke(IM_COL32(245, 150, 60, 230), 0, 1.6f); }
             }
-            if (S.map.zoom >= 10 || sel) {
+            const bool hovered = S.labels == 1 && mouseIn && std::hypot(q.x - mouse.x, q.y - mouse.y) < 14 * gUi;   // labels off: the vessel under the pointer still names itself
+            if (sel || hovered || S.labels == 2 || (S.labels == 0 && S.map.zoom >= 10)) {
                 const std::string s = nameOf(v);
                 const ImVec2 ts = ImGui::CalcTextSize(s.c_str());
                 const ImVec2 lp(q.x + 12 * gUi, q.y - ts.y * 0.5f - 2 * gUi);
@@ -281,6 +286,12 @@ void mapView(App& a, ImVec2 size) {
     if (ImGui::Button("-", ImVec2(26 * gUi, 0))) { S.map.zoom = std::max(adsbmap::kMinZoom, S.map.zoom - 1); S.mapFollow = false; } if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Zoom out"));
     ImGui::SameLine(0, 6 * gUi);
     if (ImGui::Button("fit")) S.mapFollow = true;
+    ImGui::SameLine(0, 6 * gUi);
+    {   // the name / MMSI boxes beside the vessels: crowded harbours want them off
+        static const char* kLab[] = {"labels: zoomed in", "labels: off", "labels: all"};
+        if (ImGui::Button(tr(kLab[S.labels]))) { S.labels = (S.labels + 1) % 3; plat::prefs().setI("aisLabels", S.labels); plat::prefs().flush(); }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Name or MMSI boxes on the map. Zoomed in: from zoom 10 on. Off: only the selected vessel and the one under the pointer. All: every vessel. Click to change."));
+    }
     ImGui::PopStyleColor();
     ImGui::SameLine(0, 6 * gUi);
     adsbmap::tileControls("never the position itself");

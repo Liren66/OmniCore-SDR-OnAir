@@ -626,6 +626,15 @@ static SynthConfig cleanSynth(const SynthConfig& c, int stdMode) {
     return s;
 }
 
+double txModeTuneOffsetHz(const TxModeSpec& m) {
+    switch (m.stdMode) {   // their own generators: the frequency plan is theirs (KAAL, KAVB, KAPP, KAFT, KAWS, KAIT, NFC, Flipper Sub-GHz)
+    case 124: case 125: case 126: case 127: case 135: case 133: case 150: case 206: return 0;
+    default: break;
+    }
+    const ModeTuning* mt = modeTuning(m.stdMode);
+    return mt ? mt->tuneOffsetHz : 0;
+}
+
 std::unique_ptr<TxGenerator> makeTxGenerator(const TxModeSpec& m, const TxRequest& r, double rateHz, std::string& err) {
     if (m.stdMode == 125) return makeKavbTxGenerator(r, rateHz > 0 ? rateHz : m.nominalRateHz, err);   // KAVB: its own video-container transmitter at the radio's rate
     if (m.stdMode == 126) return makeKappTxGenerator(r, rateHz > 0 ? rateHz : m.nominalRateHz, err);   // KAPP: its own burst transmitter at the radio's rate
@@ -1003,6 +1012,7 @@ bool TxSession::start(std::unique_ptr<TxSink> sink, const TxRequest& r, const Tx
     if (!rateProblem.empty()) { err = rateProblem; note("could not start: " + err); sink_.reset(); return false; }
     TxTune t = r.tune;
     t.sampleRate = txRequestRate(*mode, r, lim);
+    if (sink_->takesIq()) t.offsetHz += txModeTuneOffsetHz(*mode);   // the signal sits tuneOffsetHz below the radio's centre: the dial frequency (#351)
     if (!sink_->open(t, err)) { note("could not start: " + err); sink_.reset(); return false; }
     rate_ = sink_->sampleRate() > 0 ? sink_->sampleRate() : t.sampleRate;
     // Allow small hardware rounding, but never silently replace a manual Fs with
@@ -1241,6 +1251,7 @@ bool TxSession::retune(const TxTune& t, std::string& err) {
     if (!started_ || !running_ || senderDone_) { err = "nothing is being sent"; return false; }
     std::unique_lock<std::mutex> lk(rtMu_);
     rtTune_ = t; rtTune_.sampleRate = rate_;
+    if (const TxModeSpec* md = txModeById(req_.modeId); md && sink_ && sink_->takesIq()) rtTune_.offsetHz += txModeTuneOffsetHz(*md);   // as at start (#351)
     rtPending_ = true; rtDone_ = false;
     if (!rtCv_.wait_for(lk, std::chrono::seconds(3), [&] { return rtDone_; })) { rtPending_ = false; err = "the radio did not answer the change in time"; return false; }
     err = rtErr_;

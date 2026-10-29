@@ -112,6 +112,41 @@ struct FakeServer {
     void stop() { run = false; if (th.joinable()) th.join(); if (ls != kBadSock) sockClose(ls); }
 };
 
+// The OnAir server's web port answers HTTP, never an rtl_tcp greeting: the probe must say so
+static void testHttpPortHint() {
+    netInit();
+    sock_t ls = socket(AF_INET, SOCK_STREAM, 0);
+    CHECK(ls != kBadSock);
+    sockaddr_in a{};
+    a.sin_family = AF_INET; a.sin_addr.s_addr = htonl(INADDR_LOOPBACK); a.sin_port = 0;
+    int one = 1;
+    setsockopt(ls, SOL_SOCKET, SO_REUSEADDR, (const char*)&one, sizeof one);
+    CHECK(bind(ls, (sockaddr*)&a, sizeof a) == 0 && listen(ls, 4) == 0);
+    socklen_t len = sizeof a;
+    getsockname(ls, (sockaddr*)&a, &len);
+    const int port = ntohs(a.sin_port);
+    std::atomic<bool> run{true};
+    std::thread th([&] {
+        while (run) {
+            fd_set f; FD_ZERO(&f); FD_SET(ls, &f);
+            timeval tv{0, 100000};
+            if (select((int)ls + 1, &f, nullptr, nullptr, &tv) <= 0) continue;
+            sock_t c = accept(ls, nullptr, nullptr);
+            if (c == kBadSock) continue;
+            sockRecvTimeout(c, 300);
+            char b[64];
+            if (sockRecv(c, b, sizeof b) > 0) { static const char r[] = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"; sockSendAll(c, r, sizeof r - 1); }
+            sockShutdown(c); sockClose(c);
+        }
+    });
+    NetRadio nr; nr.type = NetRadio::RtlTcp; nr.host = "127.0.0.1"; nr.port = port;
+    std::string err;
+    CHECK(!probeNetRadio(nr, 400, err));
+    CHECK(err.find("--share-rtltcp") != std::string::npos);
+    CHECK(err.find("not the rtl_tcp share") != std::string::npos);
+    run = false; th.join(); sockClose(ls);
+}
+
 static void testRtlTcp() {
     FakeServer srv;
     CHECK(srv.start());
@@ -1168,6 +1203,7 @@ int main() {
     testPrefs();
     testSoapyRemote();
     testPluto();
+    testHttpPortHint();
     testRtlTcp();
     testEngineRadioBack();
     testRtlTcpReconnectNoBlock();

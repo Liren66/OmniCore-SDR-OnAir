@@ -15,6 +15,7 @@
 #include "dect2/engine/mode_tuning.h"
 #include "dect2/engine/modes.h"
 #include "dect2/engine/mode_synth.h"
+#include "dect2/packet/packet_rx.h"
 #include "dect2/pager/pager_gen.h"
 #include "dect2/pager/pager_rx.h"
 #include "dect2/hfdig/hfdig_ftx.h"
@@ -833,6 +834,19 @@ static void soapyChecks(const std::string& moduleDir) {
         CHECK(getenv("ONAIR_TEST_TXCH") && std::string(getenv("ONAIR_TEST_TXCH")) == "0", "offset does not change the channel: %s", getenv("ONAIR_TEST_TXCH") ? getenv("ONAIR_TEST_TXCH") : "-");
         CHECK(getenv("ONAIR_TEST_TXGAIN") && std::fabs(atof(getenv("ONAIR_TEST_TXGAIN")) - 60) < 1e-9, "offset does not change the gain: %s", getenv("ONAIR_TEST_TXGAIN") ? getenv("ONAIR_TEST_TXGAIN") : "-");
         so.stop();
+    }
+    {   // APRS / packet: the receiver listens 50 kHz above the dial and the generator puts the signal 50 kHz below the radio's centre, so the radio is
+        // told 50 kHz above the dial (#351); with the user's own offset on top. A mode with its own plan (KAAL) is left alone
+        setenv("ONAIR_TEST_TX_FILE", "/dev/null", 1);
+        TxRequest rp = r; rp.modeId = "packet"; rp.callsign = "N0CALL"; rp.tune.centerHz = 144.8e6; rp.tune.offsetHz = 0; rp.loop = true;
+        const TxModeSpec* pm = txModeById("packet");
+        CHECK(pm && txModeTuneOffsetHz(*pm) == packetTuning().tuneOffsetHz && packetTuning().tuneOffsetHz > 0, "packet has a tuning offset");
+        TxSession sp;
+        CHECK(sp.start(makeTxSink(radio), rp, {}, err), "packet start: %s", err.c_str());
+        CHECK(getenv("ONAIR_TEST_TXFREQ") && std::fabs(atof(getenv("ONAIR_TEST_TXFREQ")) - (144.8e6 + packetTuning().tuneOffsetHz)) < 1e-6, "packet: the radio is told the dial plus the mode offset: %s", getenv("ONAIR_TEST_TXFREQ") ? getenv("ONAIR_TEST_TXFREQ") : "-");
+        sp.stop();
+        const TxModeSpec* km = txModeById("kaal");
+        CHECK(km && txModeTuneOffsetHz(*km) == 0, "KAAL keeps its own frequency plan");
     }
     {   // a radio that takes no samples: the session fails with words instead of hanging
         setenv("ONAIR_TEST_TX_STALL", "1", 1);

@@ -310,6 +310,7 @@ void receiversInit(App& first) {
 bool receiverModeBusy(const App& a, std::string* why) {
     for (App* b : receiversAll()) {
         if (b == &a || !b->engine.running() || b->family != a.family || b->sub != a.sub) continue;
+        if (a.family == 50 || a.family == 180) continue;   // P25: the follower belongs to one receiver, the other is its voice radio (p25_ui.cpp keeps per-receiver state)
         if (why) *why = "RX " + std::to_string(b->rxId) + " already uses this mode: per-receiver state for this mode is not separated yet";
         return true;
     }

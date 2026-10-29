@@ -48,6 +48,19 @@ int main() {
         pace::State old = a; old.occluded = false; old.onBattery = false;
         CHECK(pace::interval(a) >= pace::interval(old) - 1e-12, "combination %d redraws faster than without occlusion/battery", m);
     }
+    {   // the fast waterfall (CW preset): a focused window with a live waterfall draws 60 a second, nothing else changes
+        pace::State f;
+        f.running = true; f.liveWaterfall = true; f.focused = true;
+        CHECK(near(pace::interval(f), 1.0 / 30), "live waterfall, focused: 30 fps");
+        f.fastWaterfall = true;
+        CHECK(near(pace::interval(f), 1.0 / 60), "fast waterfall, focused: 60 fps");
+        f.focused = false;
+        CHECK(near(pace::interval(f), 1.0 / 30), "fast waterfall, background: 30 fps as before");
+        f.focused = true; f.onBattery = true;
+        CHECK(near(pace::interval(f), 1.0 / 30), "fast waterfall on battery with the saver: 30 fps");
+        f.onBattery = false; f.liveWaterfall = false;
+        CHECK(near(pace::interval(f), 1.0 / 30), "paused: the usual 30 fps");
+    }
     std::printf(failures ? "frame pace: %d failure(s)\n" : "frame pace: ok\n", failures);
     return failures ? 1 : 0;
 }

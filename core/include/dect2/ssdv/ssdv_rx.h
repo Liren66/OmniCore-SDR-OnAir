@@ -5,7 +5,8 @@
 // Both frequency polarities are tried. A 0x55 0x66 / 0x55 0x67 sync word (one bit error allowed) starts a packet of 256 bytes; the CRC-32 and the
 // Reed-Solomon code of SSDV (third_party/ssdv) decide. Good packets are collected per picture (callsign and image id); the JPEG is rebuilt as
 // packets arrive and written to the save folder when it is complete (or after 20 s of silence).
-// Not handled: scrambled / AX.25 / IL2P framing, LDPC (Wenet) and the 4FSK Horus layers, LoRa. See docs/ssdv.md.
+// Wenet (115.2 kbaud with LDPC, or 96 kbaud raw scrambled; wenet.h) has its own wide front end and is tried at the same time at 700 kHz and above.
+// Not handled: scrambled / AX.25 / IL2P framing and the 4FSK Horus layers, LoRa. See docs/ssdv.md.
 //
 // Written to the engine's contract: configure() once the sample rate is known, feed() from the analysis thread (never blocks),
 // telemetry() and the setters from the interface thread.
@@ -34,7 +35,7 @@ public:
     void feed(const cf32* x, size_t n);
     bool telemetry(SsdvTelemetry& out, uint64_t lastSeq);
     void setLogCallback(std::function<void(const std::string&)> cb);
-    void setBaud(int baud);              // 0: all speeds at once (default), or one of 300 .. 19200
+    void setBaud(int baud);              // 0: all speeds at once (default), or one of 300 .. 19200, 115200 (Wenet) or 96000 (Wenet, raw scrambled)
     void setSaveDir(const std::string& dir);   // "" (default): nothing is written
     void flush();                        // tests: write what is pending (the end of a recording)
 private:

@@ -656,6 +656,15 @@ void recipesPopup() {
     }
 }
 
+// Removes the selected rule or script and its file (#334: the button was only on the Manage tab, which people did not find)
+void deleteSelected() {
+    if (S.sel < 0 || S.sel >= (int)S.items.size()) return;
+    std::error_code ec;
+    fs::remove(pth(dirPath() + "/" + idOf(S.items[(size_t)S.sel]) + ".json"), ec);
+    S.items.erase(S.items.begin() + S.sel);
+    S.sel = -1; S.deleteAsk = -1; S.dirty = true;
+}
+
 void windowPanel(App& a) {
     firstWindowSize(980 * gUi, 640 * gUi);
     if (!ImGui::Begin(trw("Automations"), &a.automationOpen)) { ImGui::End(); return; }
@@ -687,6 +696,14 @@ void windowPanel(App& a) {
             if (copy.kind == Recipe::KindRule) copy.rule.enabled = true; else copy.script.enabled = true;
             if (f) { f << au::recipeToText(copy); S.msg = std::string(tr("Saved to")) + " " + p; } else S.msg = tr("Cannot write the file.");
         }
+    }
+    ImGui::SameLine();
+    if (S.deleteAsk != S.sel || S.sel < 0) {
+        if (ImGui::Button(tr("Delete..."))) S.deleteAsk = S.sel;
+    } else {
+        if (ImGui::Button(tr("Really delete"))) deleteSelected();
+        ImGui::SameLine();
+        if (ImGui::Button(tr("Keep"))) S.deleteAsk = -1;
     }
     ImGui::EndDisabled();
     ImGui::SameLine();
@@ -730,12 +747,7 @@ void windowPanel(App& a) {
                 ImGui::SameLine();
                 if (S.deleteAsk != S.sel) { if (ImGui::Button(tr("Delete..."))) S.deleteAsk = S.sel; }
                 else {
-                    if (ImGui::Button(tr("Really delete"))) {
-                        std::error_code ec;
-                        fs::remove(pth(dirPath() + "/" + idOf(it) + ".json"), ec);
-                        S.items.erase(S.items.begin() + S.sel);
-                        S.sel = -1; S.deleteAsk = -1; S.dirty = true;
-                    }
+                    if (ImGui::Button(tr("Really delete"))) deleteSelected();
                     ImGui::SameLine();
                     if (ImGui::Button(tr("Keep"))) S.deleteAsk = -1;
                 }

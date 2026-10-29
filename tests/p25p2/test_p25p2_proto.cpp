@@ -2,6 +2,7 @@
 // places, the ESS (RS(44,16)), and the MAC PDU codewords (Reed-Solomon + CRC) with errors and their builders. The burst layer follows the on-air layout
 // (p25p2_proto.h); the MAC PDU codewords are this program's own: for them the test proves the encoder and the decoder agree, nothing more.
 #include "dect2/p25p2/p25p2_proto.h"
+#include "dect2/p25/p25_proto.h"
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -155,6 +156,63 @@ int main() {
         CHECK(badAccepted == 0, "%s: %d damaged PDUs accepted with wrong content", facch ? "FACCH" : "SACCH", badAccepted);
         CHECK(rejected > 190, "%s: only %d of 200 hopeless PDUs rejected", facch ? "FACCH" : "SACCH", rejected);
     }
+    // MAC PDU codewords as on the air: RS(63,35) shortened and punctured, CRC-12 (our own encoder: this checks the arithmetic, not the standard)
+    for (int facch = 0; facch < 2; facch++) {
+        const int nb = facch ? p25p2::kFacchAirBytes : p25p2::kSacchAirBytes;
+        const int t = facch ? 9 : 11;   // hexbit errors the punctured code corrects (28 roots, 6 or 9 of them spent on the punctured parity)
+        const int nSent = facch ? 45 : 52;
+        int okClean = 0, okErr = 0, rejected = 0, badAccepted = 0, tooMany = 0;
+        for (int it = 0; it < 200; it++) {
+            std::vector<uint8_t> mac((size_t)nb);
+            for (auto& b : mac) b = (uint8_t)rng();
+            uint8_t pay[p25p2::kPayloadDibits];
+            p25p2::macEncodeAir(facch, mac.data(), pay);
+            std::vector<uint8_t> out((size_t)nb);
+            int fixed = -1;
+            if (p25p2::macDecodeAir(facch, pay, out.data(), &fixed) && out == mac && fixed == 0) okClean++;
+            auto dmg = [&](int errsWanted) {
+                std::vector<uint8_t> bad(pay, pay + p25p2::kPayloadDibits);
+                std::vector<int> pos;
+                while ((int)pos.size() < errsWanted) { const int q = (int)(rng() % (unsigned)nSent); bool dup = false; for (int z : pos) dup |= z == q; if (!dup) pos.push_back(q); }
+                for (int q : pos) {
+                    const int k = q * 3 + (int)(rng() % 3);
+                    bad[(size_t)(facch && k >= 67 ? k + 21 : k)] ^= (uint8_t)(1 + rng() % 3);
+                }
+                return bad;
+            };
+            std::vector<uint8_t> bad = dmg(t);
+            if (p25p2::macDecodeAir(facch, bad.data(), out.data(), &fixed) && out == mac && fixed == t) okErr++;
+            std::vector<uint8_t> hopeless = dmg(nSent - 6);
+            if (p25p2::macDecodeAir(facch, hopeless.data(), out.data())) { if (out != mac) badAccepted++; } else rejected++;
+            bad = dmg(t + 3);
+            if (p25p2::macDecodeAir(facch, bad.data(), out.data()) && out == mac) tooMany++;
+        }
+        CHECK(okClean == 200, "air %s clean %d/200", facch ? "FACCH" : "SACCH", okClean);
+        CHECK(okErr == 200, "air %s with %d hexbit errors %d/200", facch ? "FACCH" : "SACCH", t, okErr);
+        CHECK(badAccepted == 0 && rejected > 190, "air %s: %d wrong PDUs accepted, %d of 200 hopeless ones rejected", facch ? "FACCH" : "SACCH", badAccepted, rejected);
+        CHECK(tooMany == 0, "air %s: %d decoded beyond the code's reach", facch ? "FACCH" : "SACCH", tooMany);
+    }
+    // the FACCH codeword leaves 21 payload dibits alone; CRC-12 is not all zero for zero data (it is complemented)
+    {
+        uint8_t mac[18] = {}, pay[156];
+        p25p2::macEncodeAir(true, mac, pay);
+        bool zero = true;
+        for (int i = 67; i < 88; i++) zero &= pay[i] == 0;
+        CHECK(zero, "FACCH: the dibits between the segments stay out of the codeword");
+        uint8_t z[8] = {};
+        CHECK(p25p2::crc12(z, 8) != 0, "crc12 of zeros is complemented");
+        // known-answer sanity of the erasure decoder: a codeword with only its punctured symbols erased and 5 errors
+        uint8_t sym[63] = {};
+        for (int i = 5; i < 35; i++) sym[i] = (uint8_t)(rng() & 63);
+        p25::rsEncode(sym, 63, 35);
+        uint8_t w[63];
+        std::memcpy(w, sym, 63);
+        const int era[6] = {57, 58, 59, 60, 61, 62};
+        for (int e : era) w[e] = 33;
+        for (int q : {7, 20, 31, 40, 52}) w[q] ^= 21;
+        int errs = -1;
+        CHECK(p25p2::rs63Decode(w, era, 6, &errs) && std::memcmp(w, sym, 63) == 0 && errs == 5, "erasure decoder: %d errors found", errs);
+    }
     // the codeword in the burst: around the DUID dibits
     {
         uint8_t b[180] = {}, cw[156], back[156];
@@ -177,7 +235,7 @@ int main() {
         const uint64_t a = p25p2::be64(&g[1]);
         CHECK(((a >> 24) & 0xFFFF) == 777 && (a & 0xFFFFFF) == 424242 && ((a >> 40) & 0xFFFF) == 0x1005 && (a >> 56) == 0xC0, "grant fields");
         for (int op : {0x01, 0x02, 0x40, 0x42, 0x44, 0x74, 0x7A, 0x7B, 0x7C, 0x7D}) CHECK(p25p2::macMsgLen(op) > 0 && std::strcmp(p25p2::macMsgName(op), "unknown") != 0, "message 0x%02X", op);
-        CHECK(p25p2::macMsgLen(0x55) == 0, "unknown message has a length");
+        CHECK(p25p2::macMsgLen(0x56) == 0, "unknown message has a length");
     }
     return testSummary("test_p25p2_proto");
 }

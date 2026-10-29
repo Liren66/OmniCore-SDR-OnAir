@@ -5324,6 +5324,9 @@ static void SetupDrawListSharedData()
     g.DrawListSharedData.InitialFringeScale = 1.0f; // FIXME-DPI: Change this for some DPI scaling experiments.
 }
 
+// OnAir: defined in imgui_widgets.cpp (the text-copy menu, #344)
+extern ImGuiID gOnAirCopyId;
+extern bool gOnAirCopySeen;
 void ImGui::NewFrame()
 {
     IM_ASSERT(GImGui != NULL && "No current context. Did you call ImGui::CreateContext() and ImGui::SetCurrentContext() ?");
@@ -5395,6 +5398,16 @@ void ImGui::NewFrame()
         g.HoveredIdTimer += g.IO.DeltaTime;
     if (g.HoveredId && g.ActiveId != g.HoveredId)
         g.HoveredIdNotActiveTimer += g.IO.DeltaTime;
+    // OnAir: the text-copy menu (imgui_widgets.cpp, #344) that was not drawn last frame is closed, or it would sit open and invisible and block the hover of everything
+    {
+        if (gOnAirCopyId != 0 && !gOnAirCopySeen)
+        {
+            for (int i = 0; i < g.OpenPopupStack.Size; i++)
+                if (g.OpenPopupStack[i].PopupId == gOnAirCopyId) { ClosePopupToLevel(i, false); break; }
+            gOnAirCopyId = 0;
+        }
+        gOnAirCopySeen = false;
+    }
     g.HoveredIdPreviousFrame = g.HoveredId;
     g.HoveredIdPreviousFrameItemCount = 0;
     g.HoveredId = 0;

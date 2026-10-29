@@ -827,6 +827,13 @@ void Link::finishMessage(Track& t) {
         const uint32_t calc = crc32Msg(m.bytes.data(), body);
         const uint32_t rx = (uint32_t)m.bytes[body] | (uint32_t)m.bytes[body + 1] << 8 | (uint32_t)m.bytes[body + 2] << 16 | (uint32_t)m.bytes[body + 3] << 24;
         crcOk = calc == rx && m.crcAllOk;
+        if (!crcOk && m.crcAllOk && total >= 28) {   // #335: other CRC-32 conventions (plain octet order, complemented, byte-swapped): a position report from another make of radio is not dropped for it
+            auto swap32 = [](uint32_t v) { return (v >> 24) | ((v >> 8) & 0xFF00u) | ((v << 8) & 0xFF0000u) | (v << 24); };
+            std::vector<uint8_t> straight(m.bytes.begin(), m.bytes.begin() + (ptrdiff_t)body);   // octets of each word swapped back: the plain byte order
+            for (size_t i = 0; i + 1 < straight.size(); i += 2) std::swap(straight[i], straight[i + 1]);
+            const uint32_t c2 = crc32Msg(straight.data(), straight.size());
+            for (uint32_t c : {calc, c2, ~calc, ~c2}) if (c == rx || c == swap32(rx)) { crcOk = true; break; }
+        }
         size_t padBytes = 0;
         if (m.hdr.dpf == kDpfShortDefined || (m.hdr.dpf == kDpfShortRaw && m.hdr.blocks > 0)) padBytes = (size_t)m.hdr.pad / 8;
         else padBytes = (size_t)m.hdr.pad;
@@ -857,7 +864,7 @@ void Link::finishMessage(Track& t) {
         break;
     }
     }
-    if (crcOk) {
+    if (crcOk || (m.crcAllOk && total >= 32 && dmrIpv4HeaderOk(data.data(), data.size()))) {   // a wrong packet CRC but a right IPv4 header checksum (#335)
         DmrLocation loc;
         bool have = parseDmrLrrp(data.data(), data.size(), loc);
         bool nmea = false;

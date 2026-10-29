@@ -121,3 +121,10 @@ Mikki / YRPÄ	-	bug report	LTE band 31	Cell towers	discord
 Arclamp (CasualArclamp)	https://github.com/CasualArclamp	idea	DecSAT, a satellite receiver: its published description of PCM/PSK/PM satellite beacons (bi-phase data on a subcarrier, IRIG 106 and CCSDS sync words, the minor frame counter) identified the format of the recorded beacon, and its table of published Ku-band beacons is used to estimate the satellite; reference for the DVB-S work	TV sat beacon decoder	commit:cc7a56e1, commit:e235347b
 Arclamp (CasualArclamp)	https://github.com/CasualArclamp	pull request	DecSAT's GSE and IP crates and its MPE extractor (GSE variants and their automatic choice, vendor CRC trailer, IP validation, fragments, flow statistics, PCAP, MPE) ported to C++ for IP data over DVB-S/S2; allowed by the author	DVB-S/S2	commit:a38b6ecd
 Topol (Pawel Topolski), in collaboration with AI	-	pull request	Icom IC-R8600 I/Q: a working macOS SoapySDR module and FX2 loader (MIT), the base of the native OnAir driver	area:Radios	email
+peterdewitte	https://github.com/peterdewitte	pull request	Digital video generator tool	area:Tools	#343
+peterdewitte	https://github.com/peterdewitte	pull request	Windows cameras opened by name and listed through DirectShow	area:Video input	#346
+peterdewitte	https://github.com/peterdewitte	pull request	CI: Node 24 actions, pinned docker and setup-gradle actions, LF line endings	area:Interface	#353, #354, #355
+drfruct	https://github.com/drfruct	pull request	DMR Whole span: the sound goes to a voice call, not to a carrier only locked	DMR	#352
+frank-1225	https://github.com/frank-1225	pull request	HFDL: ICAO octet bit order matches dumphfdl	HFDL	#327
+F5OEO	https://github.com/F5OEO	pull request	Pluto: the native driver scans the network and asks boards for their firmware	area:Network radios	#345
+drelectro	https://github.com/drelectro	pull request	P25 follower keeps decoding the control channel in follow-only mode; first call heard	P25	#347

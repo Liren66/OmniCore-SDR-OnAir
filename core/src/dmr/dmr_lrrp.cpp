@@ -66,6 +66,16 @@ bool decodePoint(const uint8_t*& p, const uint8_t* end, DmrLocation& out, bool w
 
 } // namespace
 
+bool dmrIpv4HeaderOk(const uint8_t* data, size_t size) {
+    if (size < 20 || (data[0] >> 4) != 4) return false;
+    const size_t ihl = (size_t)(data[0] & 0x0F) * 4;
+    if (ihl < 20 || ihl > size) return false;
+    uint32_t sum = 0;
+    for (size_t i = 0; i + 1 < ihl; i += 2) sum += be16(data + i);
+    while (sum >> 16) sum = (sum & 0xFFFF) + (sum >> 16);
+    return sum == 0xFFFF;
+}
+
 bool parseDmrLrrp(const uint8_t* data, size_t size, DmrLocation& out) {
     out = DmrLocation();
     if (size < 28) return false;                    // IPv4 (20 bytes) + UDP (8 bytes)

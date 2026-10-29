@@ -85,7 +85,7 @@ struct BankBase {
     virtual std::string startRecording(int id, const std::string& dir) = 0;
     virtual void stopRecording(int id) = 0;
     virtual void setLoadOverride(double v) = 0;
-    double rate = 0;
+    double rate = 0, origin = 0;
 };
 
 template <class Rx, class Tel> struct Bank : BankBase {
@@ -181,6 +181,13 @@ struct WideModes::Impl {
             }
             bk->setPriorsAbs(std::move(v), tuning.usePriors && tuning.priorsOnly);
         }
+    }
+    CarrierCfg cfgTuned(int m, double origin) const {
+        CarrierCfg c = cfgFor(m);
+        if (tuning.rasterKhz > 0.5) c.stepHz = tuning.rasterKhz * 1000.0;
+        c.snapReported = tuning.snapFreq;
+        c.gridOriginHz = origin;
+        return c;
     }
     void applyTuning(int m, BankBase& bk) {
         const CarrierCfg c = cfgFor(m);
@@ -406,7 +413,8 @@ CarrierCfg WideModes::cfgFor(int m) {
 void WideModes::configure(int m, double rate, double origin) {
     BankBase* b = p_->bank(m);
     if (!b) return;
-    CarrierCfg c = cfgFor(m); c.gridOriginHz = origin;
+    const CarrierCfg c = p_->cfgTuned(m, origin);
+    b->origin = origin;
     b->configure(rate, c);
     p_->applyTuning(m, *b);
     p_->priors();
@@ -440,7 +448,9 @@ void WideModes::setCenterHz(double hz) {
 }
 
 void WideModes::setTuning(const WideTuning& t) {
+    const bool regrid = std::fabs(t.rasterKhz - p_->tuning.rasterKhz) > 1e-9 || t.snapFreq != p_->tuning.snapFreq;
     p_->tuning = t;
+    if (regrid) for (auto& [m, b] : p_->banks) if (b->rate > 0) b->configure(b->rate, p_->cfgTuned(m, b->origin));   // a new raster: the finder starts over
     for (auto& [m, b] : p_->banks) p_->applyTuning(m, *b);
     p_->priors();
 }

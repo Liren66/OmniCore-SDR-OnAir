@@ -310,7 +310,13 @@ struct P25Receiver::Impl {
         tel.log.insert(tel.log.begin(), c);
         if (tel.log.size() > kP25LogMax) tel.log.pop_back();
     }
-    double freqOf(int ch) const { const P25IdenRow& i = tel.idens[(ch >> 12) & 15]; return i.valid ? i.baseHz + (ch & 0xFFF) * i.spacingHz : 0; }
+    double freqOf(int ch) const {
+        const P25IdenRow& i = tel.idens[(ch >> 12) & 15];
+        if (!i.valid) return 0;
+        int n = ch & 0xFFF;
+        if (i.tdma) { if (i.slots <= 0) return 0; n /= i.slots; }   // a TDMA identifier: the channel number counts slots
+        return i.baseHz + n * i.spacingHz;
+    }
     void touchTg(int tg, int src, double freq, bool enc, bool emerg, bool grant, bool call) {
         if (tg <= 0) return;
         auto it = std::find_if(tel.talkgroups.begin(), tel.talkgroups.end(), [&](const P25Talkgroup& t) { return t.tg == tg; });
@@ -627,13 +633,19 @@ struct P25Receiver::Impl {
             if (g2 != g1) touchTg(g2, -1, freqOf(ch2), false, false, false, false);
             break;
         }
-        case p25::kIdenUp: case p25::kIdenUpVu: {
+        case p25::kIdenUp: case p25::kIdenUpVu: case 0x33: {   // 0x33: IDEN_UP_TDMA, laid out like the VU one (channel type where the VU one has the bandwidth)
             const int id = (int)(a >> 60) & 15;
             P25IdenRow r;
+            const bool tdmaId = t.opcode == 0x33;
             r.valid = true; r.vu = t.opcode == p25::kIdenUpVu;
             r.baseHz = (double)(a & 0xFFFFFFFFULL) * 5;
             r.spacingHz = (double)((a >> 32) & 0x3FF) * 125;
-            if (r.vu) {
+            if (tdmaId) {
+                const int type = (int)(a >> 56) & 15, toff = (int)((a >> 42) & 0x3FFF);
+                r.tdma = type >= 3; r.slots = type == 3 ? 2 : type >= 3 ? 0 : 1;   // type 3: 12.5 kHz, 2 slots; the others are not placed here (as in the follower)
+                r.bwHz = 12500;
+                r.txOffsetHz = ((toff >> 13) & 1 ? 1 : -1) * (double)(toff & 0x1FFF) * r.spacingHz;
+            } else if (r.vu) {
                 const int bw = (int)(a >> 56) & 15, toff = (int)((a >> 42) & 0x3FFF);
                 r.bwHz = bw == 4 ? 6250 : bw == 5 ? 12500 : 0;
                 r.txOffsetHz = ((toff >> 13) & 1 ? 1 : -1) * (double)(toff & 0x1FFF) * r.spacingHz;

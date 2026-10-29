@@ -102,6 +102,9 @@ void languageButton(App& a) {
     if (ImGui::BeginPopup("##langpop")) { languageMenuItems(a); ImGui::EndPopup(); }
 }
 
+App* gTabOwner = nullptr;            // the receiver whose main tab bar is being drawn (mainTabs)
+void* gMainTabBar = nullptr;         // that bar (ImGuiTabBar*), so that tabs of bars inside a tab are not mistaken for main tabs
+
 bool tabItem(const char* name, Ic icon) {
     ImGuiTabItemFlags fl = 0;
     if (!gForceTab.empty() && gForceTab == name) { fl = ImGuiTabItemFlags_SetSelected; gForceTab.clear(); }
@@ -113,6 +116,7 @@ bool tabItem(const char* name, Ic icon) {
     if (gTightTabs) ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(3 * gUi, ImGui::GetStyle().FramePadding.y));
     const bool open = typo::beginTabItem(label.c_str(), nullptr, fl);
     if (touch::on()) touch::noteTab(name, open);   // swipe between tabs
+    if (open && gTabOwner && gMainTabBar && (void*)ImGui::GetCurrentTabBar() == gMainTabBar) gTabOwner->mainTabName = name;   // per receiver (#342)
     paletteNoteTab(name);                          // the command palette lists the tabs of this frame
     if (gTightTabs) ImGui::PopStyleVar();
     const ImVec2 r0 = ImGui::GetItemRectMin(), r1 = ImGui::GetItemRectMax();

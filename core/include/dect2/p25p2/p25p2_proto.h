@@ -101,6 +101,22 @@ constexpr int kSacchDibits = 138, kFacchDibits = 156;
 void macEncode(bool facch, const uint8_t* mac, uint8_t* dibits);        // mac: kSacchMacBytes or kFacchMacBytes bytes
 bool macDecode(bool facch, const uint8_t* dibits, uint8_t* mac, int* corrected = nullptr);   // RS and CRC must pass
 
+// ---- MAC PDU codewords as on the air (TIA-102.BBAC-A, as read from the public behaviour of OP25's p25p2_tdma.cc; see docs/trunking.md).
+// The payload dibits are those after the ISCH that the DUID leaves free (payloadGet order, 156). The bits are the hexbits of a Reed-Solomon (63,35,29)
+// codeword over GF(64) (x^6 + x + 1, roots alpha^1..alpha^28, the Phase 1 codes' field) that is shortened at the front and punctured at the back:
+//   SACCH  all 156 payload dibits = 52 hexbits at codeword positions 5..56 (positions 0..4 shortened, 57..62 punctured); 30 data hexbits = 168 MAC bits
+//          + CRC-12 (21 bytes), 22 parity hexbits.
+//   FACCH  135 payload dibits (payload indices 0..66 and 88..155) = 45 hexbits at positions 9..53 (0..8 shortened, 54..62 punctured); 26 data hexbits =
+//          144 MAC bits + CRC-12 (18 bytes), 19 parity hexbits. The 21 payload dibits between are not part of the codeword.
+// CRC-12: x^12 + x^11 + x^7 + x^4 + x^2 + x + 1, remainder of the bits followed by 12 zeros, complemented, sent most significant bit first.
+constexpr int kSacchAirBytes = 21, kFacchAirBytes = 18;
+uint16_t crc12(const uint8_t* bits, int n);
+// Reed-Solomon (63,35) decode with erasures: sym[0] is the highest power; the erased positions are given (their contents are ignored). errs: the
+// symbols corrected that were not erased. False when it cannot be decoded.
+bool rs63Decode(uint8_t sym[63], const int* erasures, int ne, int* errs = nullptr);
+void macEncodeAir(bool facch, const uint8_t* mac, uint8_t payload[kPayloadDibits]);   // mac: kSacchAirBytes or kFacchAirBytes bytes
+bool macDecodeAir(bool facch, const uint8_t payload[kPayloadDibits], uint8_t* mac, int* corrected = nullptr);
+
 // ---- MAC PDU
 enum MacOp { kMacSignal = 0, kMacPtt = 1, kMacEndPtt = 2, kMacIdle = 3, kMacActive = 4, kMacHangtime = 6 };
 const char* macOpName(int op);
@@ -119,8 +135,8 @@ inline MacHeader macHeader(uint8_t b) { return {(b >> 5) & 7, (b >> 2) & 7}; }
 
 // PTT fields (after the header byte): message indicator 9 bytes (skipped, never read), algorithm ID 1, key ID 2 (skipped), source 3, group 2
 constexpr int kPttMiOff = 1, kPttAlgOff = 10, kPttKeyOff = 11, kPttSrcOff = 13, kPttGrpOff = 16, kPttLen = 18;
-// END_PTT fields: colour code (12 bits) + 4 reserved bits 2 bytes, source 3, group 2
-constexpr int kEndColorOff = 1, kEndSrcOff = 3, kEndGrpOff = 6, kEndLen = 8;
+// END_PTT fields: 4 reserved bits + colour code (12 bits), source 3, group 2 (the layout of the PTT's address fields)
+constexpr int kEndColorOff = 1, kEndSrcOff = 13, kEndGrpOff = 16, kEndLen = 18;   // colour code: the low 12 bits of the two bytes at kEndColorOff
 constexpr int kAlgClear = 0x80;
 
 inline uint32_t be24(const uint8_t* p) { return ((uint32_t)p[0] << 16) | ((uint32_t)p[1] << 8) | p[2]; }

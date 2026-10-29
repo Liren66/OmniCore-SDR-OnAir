@@ -70,9 +70,11 @@ struct Ctx {
     bool noXLabel = false;   // too short for the x axis label: it is left out
     bool noYTicks = false;   // too narrow for the y tick labels: left out
     Look look;               // SetNextPlotLook (off: the usual look)
+    int wheelAxes = -1;      // SetNextWheelAxes (-1: the usual rule)
     bool lookStrip = false;  // the x labels are on the look's strip
 };
 Look gNextLook;
+int gNextWheel = -1;
 Ctx C;
 Subplots S;
 Style gStyle;
@@ -254,14 +256,14 @@ void finishSetup() {
             if (C.st->hasTgt[a] && (std::fabs(C.st->lim[a][0] - C.st->last[a][0]) > 1e-12 || std::fabs(C.st->lim[a][1] - C.st->last[a][1]) > 1e-12)) C.st->hasTgt[a] = false;
         gPanOverflowX = 0;
         double intendedLo = 0; bool draggedX = false;
-        if (held && (io.MouseDelta.x != 0 || io.MouseDelta.y != 0)) {
+        if (held && !(C.flags & Flags_NoDrag) && (io.MouseDelta.x != 0 || io.MouseDelta.y != 0)) {
             if (movable[0] && C.ax[0].scale == Scale_Linear) { const double d = -io.MouseDelta.x / C.plot.GetWidth() * (C.hi[0] - C.lo[0]); C.st->lim[0][0] += d; C.st->lim[0][1] += d; intendedLo = C.st->lim[0][0]; draggedX = true; }
             if (movable[1] && C.ax[1].scale == Scale_Linear) { const double d = io.MouseDelta.y / C.plot.GetHeight() * (C.hi[1] - C.lo[1]); C.st->lim[1][0] += d; C.st->lim[1][1] += d; }
         }
         // wheel: both axes; Ctrl = frequency (x) only; Shift = amplitude (y) only (macOS turns Shift+wheel into a sideways wheel)
         const float wheel = io.MouseWheel != 0 ? io.MouseWheel : (io.KeyShift ? io.MouseWheelH : 0.f);
-        const bool zx = !io.KeyShift || io.KeyCtrl, zy = !io.KeyCtrl || io.KeyShift;
-        if (hov && wheel != 0) {
+        const bool zx = C.wheelAxes >= 0 ? (C.wheelAxes & 1) != 0 : (!io.KeyShift || io.KeyCtrl), zy = C.wheelAxes >= 0 ? (C.wheelAxes & 2) != 0 : (!io.KeyCtrl || io.KeyShift);
+        if (hov && wheel != 0 && (zx || zy) && !((C.flags & Flags_NoDrag) && C.wheelAxes < 0)) {
             ImGui::SetItemKeyOwner(ImGuiKey_MouseWheelY); ImGui::SetItemKeyOwner(ImGuiKey_MouseWheelX);
             const double f = std::pow(0.9, wheel);
             const double mx = (io.MousePos.x - C.plot.Min.x) / C.plot.GetWidth(), my = 1.0 - (io.MousePos.y - C.plot.Min.y) / C.plot.GetHeight();
@@ -392,17 +394,19 @@ struct PlotStats {
 Style& GetStyle() { return gStyle; }
 
 void SetNextPlotLook(const Look& l) { gNextLook = l; }
+void SetNextWheelAxes(int mask) { gNextWheel = mask; }
 float LookStripHeight(const Look& l) {
     const float fs = l.fontSize > 0 ? l.fontSize : ImGui::GetFontSize();
     return std::ceil(fs * 1.75f);
 }
 
 bool BeginPlot(const char* id, ImVec2 size, int flags) {
-    if (C.active) { gNextLook.on = false; return false; }
+    if (C.active) { gNextLook.on = false; gNextWheel = -1; return false; }
     ImGuiWindow* w = ImGui::GetCurrentWindow();
-    if (w->SkipItems) { gNextLook.on = false; return false; }
+    if (w->SkipItems) { gNextLook.on = false; gNextWheel = -1; return false; }
     C = Ctx();
     C.look = gNextLook; gNextLook.on = false;
+    C.wheelAxes = gNextWheel; gNextWheel = -1;
     C.id = ImGui::GetID(id);
     C.flags = flags;
     C.dl = ImGui::GetWindowDrawList();

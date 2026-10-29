@@ -55,14 +55,14 @@ int main() {
     for (int k = 0; k < 3; k++) {
         int n = 0, wrong = 0;
         for (const auto& f : t.packet.frames) {
-            if (f.from == car[k].call) { n++; if (f.carrierId <= 0 || std::fabs(f.carrierHz - car[k].hz) > 1500) wrong++; }
-            else if (f.carrierId > 0 && std::fabs(f.carrierHz - car[k].hz) < 1500) wrong++;   // somebody else's frame on this channel
+            if (f.from == car[k].call) { n++; if (f.carrierId <= 0 || std::fabs(f.carrierHz - car[k].hz) > 2000) wrong++; }
+            else if (f.carrierId > 0 && std::fabs(f.carrierHz - car[k].hz) < 2000) wrong++;   // somebody else's frame on this channel
         }
         printf("  %s: %d frames, %d at a wrong frequency\n", car[k].call, n, wrong);
         CHECK(n > 0, "%s: no frame", car[k].call);
         CHECK(wrong == 0, "%s: %d frames at a wrong frequency", car[k].call, wrong);
         bool st = false;
-        for (const auto& s : t.packet.stations) if (s.call == car[k].call) st = s.carrierId > 0 && std::fabs(s.carrierHz - car[k].hz) < 1500;
+        for (const auto& s : t.packet.stations) if (s.call == car[k].call) st = s.carrierId > 0 && std::fabs(s.carrierHz - car[k].hz) < 2000;
         CHECK(st, "%s: not in the stations table at its frequency", car[k].call);
     }
     // retune by +500 kHz: the same stations at the same absolute frequencies
@@ -70,7 +70,7 @@ int main() {
     for (int i = 0; i < 5; i++) { std::fill(sum.begin(), sum.end(), cf32(0, 0)); wm.feed(25, sum.data(), blk); }
     wm.telemetry(25, t, seq);
     int ok = 0;
-    for (const auto& f : t.packet.frames) for (int k = 0; k < 3; k++) if (f.from == car[k].call && std::fabs(f.carrierHz - (car[k].hz - 500000.0)) < 1500) { ok++; break; }
+    for (const auto& f : t.packet.frames) for (int k = 0; k < 3; k++) if (f.from == car[k].call && std::fabs(f.carrierHz - (car[k].hz - 500000.0)) < 2000) { ok++; break; }
     CHECK(ok == (int)t.packet.frames.size() && ok > 0, "%d of %zu frames kept their absolute frequency over the retune", ok, t.packet.frames.size());
     {   // the single receiver, no whole span: all frames of its channel, no stamp
         auto syn = makePacketSynthFrame([] { SynthConfig c; c.snrDb = 25; return c; }(), kFs, frameOf("N0ZZZ", ">solo"), 1200);

@@ -85,3 +85,4 @@ fail_none_330|none,generic,lock,fail330|open sr=2048000 cf=100000000 gm=1 g=200 
 fail_none_400|none,generic,lock,fail400|open sr=2048000 cf=100000000 gm=1 g=200 bias=1 cf=7000000 cf=900000000 close
 fail_none_520|none,generic,lock,fail520|open sr=2048000 cf=100000000 gm=1 g=200 bias=1 cf=7000000 cf=900000000 close
 fail_none_700|none,generic,lock,fail700|open sr=2048000 cf=100000000 gm=1 g=200 bias=1 cf=7000000 cf=900000000 close
+r820t_v4lite|r820t,blogv4l,lock|open sr=2048000 cf=7000000 cf=28800000 cf=28800001 cf=100000000 cf=1000000000 cf=7000000 close

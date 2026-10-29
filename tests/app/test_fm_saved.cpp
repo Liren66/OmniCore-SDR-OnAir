@@ -53,7 +53,8 @@ int main() {
     CHECK(fmSavedDecode(scan).empty(), "a scan list was loaded as saved stations");
     CHECK(scanRows(scan) == 2, "scan fixture");
     CHECK(scanRows(blob) == 0, "saved stations counted as scan rows");
-    CHECK(fmSavedDecode("87.4\x1f" "low\x1e" "108.2\x1f" "high\x1e" "108.0\x1f" "edge\x1e").size() == 1, "band limits");
+    CHECK(fmSavedDecode("75.9\x1f" "low\x1e" "108.2\x1f" "high\x1e" "108.0\x1f" "edge\x1e").size() == 1, "band limits");
+    CHECK(fmSavedDecode("76.1\x1f" "eFM\x1e" "87.1\x1f" "eFM 196\x1e").size() == 2, "extended FM (76 - 87.4 MHz) is kept, as the band scan reaches it");
     CHECK(fmSavedDecode("not-a-record").empty() && fmSavedDecode("").empty(), "junk and empty");
 
     CHECK(fmSavedMatches(lib[0], ""), "empty filter");

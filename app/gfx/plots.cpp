@@ -5,6 +5,7 @@
 #include "file_vfo.h"
 #include "spec_axis.h"
 #include "spec_paint.h"
+#include "../ui/input_map.h"
 #include "tuner_style.h"
 #include "../state/tune_worker.h"
 #include "dect2/specan/specan_dsp.h"
@@ -117,16 +118,23 @@ static bool bandEdgeDrag(App& a, int plotId) {
     return true;
 }
 
-double clickTuneMhz(const App& a, double mhz) {
-    double lo = 0.001, hi = dect2::kMaxTuneMhz;
+// the mode's own tuning step in MHz (what a click rounds to)
+static double ownTuneGridMhz(const App& a) {
     double grid = 0.001;
     if (a.fmMode) grid = 0.1;
     else if (a.family == 9) grid = 0.0125;
     if (a.specSnapHz > 0) grid = a.specSnapHz / 1e6;   // the user's snap step (the Spectrum menu)
+    return grid;
+}
+
+double clickTuneMhz(const App& a, double mhz, bool snap) {
+    double lo = 0.001, hi = dect2::kMaxTuneMhz;
+    const double grid = ownTuneGridMhz(a);
     const bool rec = fileSourceSelected(a);   // a recording: any frequency of the recorded span, whatever the mode's own range or raster
     if (!rec && a.family >= 6) if (const ModeTuning* mt = modeTuning(a.family + 2)) { lo = mt->minMhz; hi = mt->maxMhz; }
     if (!rec && (a.family == 4 || a.family == 1 || a.family == 3)) return NAN;   // ATSC and ISDB-T channels sit on a fixed raster: use the frequency field
-    return std::round(std::min(hi, std::max(lo, mhz)) / grid) * grid;
+    const double c = std::min(hi, std::max(lo, mhz));
+    return snap ? std::round(c / grid) * grid : c;
 }
 
 static void clickToTune(App& a, int plotId) {
@@ -163,8 +171,22 @@ static void clickToTune(App& a, int plotId) {
         const double lx[2] = {mhz, mhz}, ly[2] = {lim.Y.Min, lim.Y.Max};
         plt::Spec ls; ls.LineColor = ImVec4(0.95f, 0.25f, 0.25f, 0.9f); ls.LineWeight = 1.2f;
         plt::PlotLine("##tunehere", lx, ly, 2, ls);
-        if (a.tuningMode == 1) ImGui::SetTooltip(tr("click to decode %.4f MHz (radio centre stays)"), mhz);
-        else ImGui::SetTooltip(a.centreTuning ? tr("click to centre the radio on %.4f MHz") : tr("click to tune to %.4f MHz"), mhz);
+        std::string when;   // on the waterfall: how long ago the row under the pointer came (the rows are evenly spaced, rowDt apart)
+        if (plotId == 1 && a.wf.filled > 0 && a.wf.rowDt > 0) {
+            const double secs = std::max(0.0, -plt::GetPlotMousePos().y) * a.wf.rowDt;
+            char b[40];
+            if (a.wf.clockLabels) { const time_t t = (time_t)std::llround((double)std::time(nullptr) - secs); struct tm tmv {};
+#ifdef _WIN32
+                localtime_s(&tmv, &t);
+#else
+                localtime_r(&t, &tmv);
+#endif
+                strftime(b, sizeof b, "%H:%M:%S", &tmv); }
+            else snprintf(b, sizeof b, secs < 10 ? "%.2f s" : "%.1f s", secs);
+            when = std::string("\n") + (a.wf.clockLabels ? "" : tr("row from ")) + b + (a.wf.clockLabels ? "" : tr(" ago"));
+        }
+        const std::string tip = std::string(a.tuningMode == 1 ? tr("click to decode %.4f MHz (radio centre stays)") : a.centreTuning ? tr("click to centre the radio on %.4f MHz") : tr("click to tune to %.4f MHz")) + when;
+        ImGui::SetTooltip(tip.c_str(), mhz);
     }
 }
 
@@ -688,33 +710,30 @@ static void dbRangeSliders(App& a, ImVec2 colMin, float colW, float h) {
 
 // Ctrl+Up / Ctrl+Down move the dB range of the spectrum by 5 dB, Ctrl+Shift+Up / Down widen or narrow it, Ctrl+Home puts it back
 // to the default. Only while the spectrum is hovered, like the frequency keys below (#91).
-static bool dbRangeKeys(App& a) {
-    ImGuiIO& io = ImGui::GetIO();
-    if (!io.KeyCtrl || io.WantTextInput) return false;
+// The key actions of the range (View > Controls rebinds them): the new lo / hi, false when no key fired
+static bool dbKeyStep(float& lo, float& hi) {
     const float step = 5;
-    float lo = a.yMin, hi = a.yMax;
-    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) { if (io.KeyShift) { lo -= step; hi += step; } else { lo += step; hi += step; } }
-    else if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) { if (io.KeyShift) { lo += step; hi -= step; } else { lo -= step; hi -= step; } }
-    else if (ImGui::IsKeyPressed(ImGuiKey_Home)) { lo = -110; hi = -30; }
+    using inputmap::Action; using inputmap::pressed;
+    if (pressed(Action::DbWider, true)) { lo -= step; hi += step; }
+    else if (pressed(Action::DbNarrower, true)) { lo += step; hi -= step; }
+    else if (pressed(Action::DbUp, true)) { lo += step; hi += step; }
+    else if (pressed(Action::DbDown, true)) { lo -= step; hi -= step; }
+    else if (pressed(Action::DbReset)) { lo = -110; hi = -30; }
     else return false;
     lo = std::max(-160.f, std::min(20.f, lo)); hi = std::max(-160.f, std::min(20.f, hi));
-    if (hi - lo < 10) return false;
+    return hi - lo >= 10;
+}
+static bool dbRangeKeys(App& a) {
+    float lo = a.yMin, hi = a.yMax;
+    if (!dbKeyStep(lo, hi)) return false;
     setLinkedDbRange(a, lo, hi);
     return true;
 }
 } // namespace
 
 bool specDbRangeKeys(App& a) {
-    ImGuiIO& io = ImGui::GetIO();
-    if (!io.KeyCtrl || io.WantTextInput) return false;
-    const float step = 5;
     float lo = a.yMin, hi = a.yMax;
-    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true)) { if (io.KeyShift) { lo -= step; hi += step; } else { lo += step; hi += step; } }
-    else if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true)) { if (io.KeyShift) { lo += step; hi -= step; } else { lo -= step; hi -= step; } }
-    else if (ImGui::IsKeyPressed(ImGuiKey_Home)) { lo = -110; hi = -30; }
-    else return false;
-    lo = std::max(-160.f, std::min(20.f, lo)); hi = std::max(-160.f, std::min(20.f, hi));
-    if (hi - lo < 10) return false;
+    if (!dbKeyStep(lo, hi)) return false;
     a.yMin = lo;
     a.yMax = hi;
     a.wf.autoTrack = a.specAutoDb = false;
@@ -725,11 +744,10 @@ bool specDbRangeKeys(App& a) {
 
 // Ctrl+PageUp / Ctrl+PageDown: the view steps up or down in frequency by its own width
 static void freqPageKeys() {
-    ImGuiIO& io = ImGui::GetIO();
-    if (!io.KeyCtrl || io.WantTextInput || !(gXHi > gXLo)) return;
+    if (!(gXHi > gXLo)) return;
     const double span = gXHi - gXLo;
-    if (ImGui::IsKeyPressed(ImGuiKey_PageUp, true)) { gXLo += span; gXHi += span; }
-    if (ImGui::IsKeyPressed(ImGuiKey_PageDown, true)) { gXLo -= span; gXHi -= span; }
+    if (inputmap::pressed(inputmap::Action::PageUp, true)) { gXLo += span; gXHi += span; }
+    if (inputmap::pressed(inputmap::Action::PageDown, true)) { gXLo -= span; gXHi -= span; }
 }
 
 // A small button in a corner of a plot that opens a popup (body draws it). rightUsed: the width of the buttons already at the right edge.
@@ -1034,6 +1052,19 @@ void wfDisplayPopup(App& a) {
         if (ImGui::RadioButton(lb, std::fabs(a.wf.rowsPerSec - rates[i]) < 1e-4f)) { a.wf.setRate(rates[i]); savePrefs(a); }
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Slow rows for long watches: one row a minute keeps about 8.5 hours in the picture"));
+    {   // fast rows: more rows a second than the 30 frames, for Morse (CW) and other short signals
+        ImGui::TextDisabled("%s", tr("Fast (Morse / CW)"));
+        static const float fr[] = {50, 100, 200, 500};
+        for (int i = 0; i < 4; i++) {
+            if (i) ImGui::SameLine(0, 4 * gUi);
+            char lb[16]; snprintf(lb, sizeof lb, "%g##fast", fr[i]);
+            if (ImGui::RadioButton(lb, std::fabs(a.wf.rowsPerSec - fr[i]) < 1e-4f)) { a.wf.setRate(fr[i]); savePrefs(a); }
+        }
+        ImGui::SameLine(0, 8 * gUi);
+        if (ImGui::Button(tr("CW / fast"))) { a.wf.setRate(100); savePrefs(a); }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("100 rows a second, each from a short transform (about 20 ms of signal), whatever the frame rate: dots and dashes of Morse get several rows each. The picture then holds about 5 seconds. Costs a little CPU for the extra transforms."));
+        if (a.wf.fast()) ImGui::TextDisabled(tr("%g rows a second: a row every %.1f ms."), a.wf.rowsPerSec, 1e3 / a.wf.rowsPerSec);
+    }
     {
         const double secs = Waterfall::H * (a.wf.timeKnown() || a.wf.nStamps > 8 ? a.wf.rowDt : 1.0 / 30);
         if (secs >= 2 * 3600) ImGui::TextDisabled(tr("The picture holds the last %.1f hours."), secs / 3600);
@@ -1399,6 +1430,107 @@ static void specLookTip(const App& a, double mhz, double db, bool dbm, ImVec2 po
     dl->AddText(font, fs, ImVec2(p0.x + pad, p0.y + pad), ImGui::ColorConvertFloat4ToU32(v4(L.tipText)), lb);
 }
 
+// ---- View > Controls: the wheel and the extra key actions over the spectrum and waterfall (ui/input_map.h) ----
+static bool mouseOnScaleBar();   // the colour scale of the waterfall has its own wheel (wfScaleBarInput)
+static struct { std::string text; double until = 0; } gToast;   // a short note in the corner (the tuning step)
+static double gWfScrollLo = 0, gWfScrollHi = 0; static bool gWfScrollPending = false;   // the time view the wheel asks for (paused waterfall)
+
+// The tuning step in Hz: the setting, or the mode's own
+static double wheelStepHz(const App& a) { return inputmap::stepHzFor(inputmap::settings(), ownTuneGridMhz(a) * 1e6); }
+
+static void tuneBySteps(App& a, int n) {
+    if (!n || a.fmScan.running || a.family == 55) return;
+    const double step = wheelStepHz(a) * 1e-6;
+    const double mhz = clickTuneMhz(a, a.freqMhz + n * step, inputmap::settings().stepHz == 0);
+    if (!std::isnan(mhz) && std::fabs(mhz - a.freqMhz) > 1e-9) spectrumTune(a, mhz);
+}
+
+static void toast(const std::string& t) { gToast.text = t; gToast.until = glfwGetTime() + 1.4; }
+
+static std::string stepText(int hz) {
+    char b[48];
+    if (hz <= 0) snprintf(b, sizeof b, "%s", tr("the mode's own step"));
+    else if (hz >= 1000000) snprintf(b, sizeof b, "%g MHz", hz / 1e6);
+    else if (hz >= 1000) snprintf(b, sizeof b, "%g kHz", hz / 1e3);
+    else snprintf(b, sizeof b, "%d Hz", hz);
+    return b;
+}
+
+// Before BeginPlot of the spectrum or the waterfall: what the wheel does there. The zoom kinds tell the plot which axes to move; the
+// others (tune, pan, scroll, nothing) are done here and take the wheel away from the plot. With the default settings: nothing is changed.
+static void wheelPolicy(App& a, inputmap::Area area, ImVec2 size) {
+    const inputmap::Settings& st = inputmap::settings();
+    if (st.wheelIsDefault()) return;
+    ImGuiIO& io = ImGui::GetIO();
+    const inputmap::Wheel w = st.wheelFor(area, inputmap::comboOf(io.KeyShift, io.KeyCtrl, io.KeyAlt));
+    plt::SetNextWheelAxes(inputmap::zoomAxes(w));
+    const float wheel = io.MouseWheel != 0 ? io.MouseWheel : (io.KeyShift ? io.MouseWheelH : 0.f);
+    if (wheel == 0 || inputmap::zoomAxes(w) != 0) return;
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    if (!ImGui::IsMouseHoveringRect(p0, ImVec2(p0.x + size.x, p0.y + size.y), false) || !ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem)
+        || ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId) || ImGui::IsAnyItemActive() || mouseOnScaleBar()) return;
+    using inputmap::Wheel;
+    switch (w) {
+        case Wheel::Tune: {
+            static float acc = 0;
+            tuneBySteps(a, inputmap::wheelSteps(acc, wheel, st.wheelNotch));
+            break;
+        }
+        case Wheel::PanFreq:
+            if (gXHi > gXLo) {
+                const double d = (gXHi - gXLo) * 0.1 * wheel;
+                gXLo += d; gXHi += d;
+                clampFreqViewToBand(a);
+            }
+            break;
+        case Wheel::ScrollTime:
+            if (area == inputmap::Area::Waterfall) {
+                if (!a.wf.paused) { a.wf.paused = true; toast(tr("Waterfall paused: scroll back through the rows")); }
+                const double H = Waterfall::H, span = gWfScrollHi > gWfScrollLo ? gWfScrollHi - gWfScrollLo : H;
+                double lo = gWfScrollHi > gWfScrollLo ? gWfScrollLo : -H, hi = lo + span;
+                const double d = span * 0.12 * wheel;   // wheel up: look back (older rows are further down)
+                lo -= d; hi -= d;
+                if (hi > 0) { lo -= hi; hi = 0; }
+                if (lo < -H) { hi -= lo + H; lo = -H; }
+                gWfScrollLo = lo; gWfScrollHi = hi; gWfScrollPending = true;
+            }
+            break;
+        default: break;
+    }
+    io.MouseWheel = 0; io.MouseWheelH = 0;
+}
+
+// The key and button actions that are not tied to one place in the code. hov: the mouse is over the plots (the plot-only ones need it).
+static void extraInputActions(App& a, bool hov) {
+    using namespace inputmap;
+    Settings& st = settings();
+    if (hov) {
+        if (pressed(Action::TuneUp, true)) tuneBySteps(a, 1);
+        if (pressed(Action::TuneDown, true)) tuneBySteps(a, -1);
+        if (gXHi > gXLo) {
+            const double c = (gXLo + gXHi) * 0.5, sp = gXHi - gXLo;
+            if (pressed(Action::ZoomIn, true)) { gXLo = c - sp * 0.4; gXHi = c + sp * 0.4; clampFreqViewToBand(a); }
+            if (pressed(Action::ZoomOut, true)) { gXLo = c - sp * 0.625; gXHi = c + sp * 0.625; clampFreqViewToBand(a); }
+            if (pressed(Action::PanLeft, true)) { gXLo -= sp * 0.25; gXHi -= sp * 0.25; clampFreqViewToBand(a); }
+            if (pressed(Action::PanRight, true)) { gXLo += sp * 0.25; gXHi += sp * 0.25; clampFreqViewToBand(a); }
+        }
+        if (pressed(Action::ZoomReset)) { const double fs = sampleRateMhz(a), rc = radioCenterMhz(a); gXLo = rc - fs / 2; gXHi = rc + fs / 2; }
+        if (pressed(Action::StepNext)) { st.stepHz = stepShift(st.stepHz, 1); save(); toast(std::string(tr("Tuning step")) + ": " + stepText(st.stepHz)); }
+        if (pressed(Action::StepPrev)) { st.stepHz = stepShift(st.stepHz, -1); save(); toast(std::string(tr("Tuning step")) + ": " + stepText(st.stepHz)); }
+        if (pressed(Action::WfPause)) a.wf.paused = !a.wf.paused;
+    }
+}
+
+static void drawToast(ImVec2 p) {
+    if (gToast.text.empty() || glfwGetTime() > gToast.until) return;
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    const ImVec2 ts = ImGui::CalcTextSize(gToast.text.c_str());
+    const float pad = 6 * gUi;
+    const ImVec2 q(p.x + 12 * gUi, p.y + 12 * gUi);
+    dl->AddRectFilled(q, ImVec2(q.x + ts.x + 2 * pad, q.y + ts.y + 2 * pad), IM_COL32(15, 17, 20, 220), 4 * gUi);
+    dl->AddText(ImVec2(q.x + pad, q.y + pad), IM_COL32(230, 232, 236, 255), gToast.text.c_str());
+}
+
 static double gBinsPerPx = 1;   // FFT bins per pixel column of the spectrum as last drawn
 double specBinsPerPixel() { return gBinsPerPx; }
 
@@ -1414,7 +1546,8 @@ static void spectrumPlot(App& a, ImVec2 size, int extraFlags) {
     const bool look = lookOn(a);
     const slook::LookSet& L = curLook(a);
     plt::SetNextPlotLook(plotLook(a, true));
-    if (plt::BeginPlot("##spec", size, plt::Flags_NoLegend | plt::Flags_NoTitle | plt::Flags_Overlay | (a.specSmoothZoom ? plt::Flags_SmoothZoom : 0) | extraFlags | ((a.family == 55 && generalDragging(0)) || bandEdgeDragging(0) || fileBoxDragging(0) ? plt::Flags_NoPan : 0) | (a.identifyTool || ImGui::GetIO().KeyShift ? plt::Flags_NoPan : 0))) {
+    wheelPolicy(a, inputmap::Area::Spectrum, size);
+    if (plt::BeginPlot("##spec", size, plt::Flags_NoLegend | plt::Flags_NoTitle | plt::Flags_Overlay | (a.specSmoothZoom ? plt::Flags_SmoothZoom : 0) | extraFlags | ((a.family == 55 && generalDragging(0)) || bandEdgeDragging(0) || fileBoxDragging(0) ? plt::Flags_NoPan : 0) | (a.identifyTool ? plt::Flags_NoPan : 0) | (ImGui::GetIO().KeyShift ? plt::Flags_NoDrag : 0))) {
         drawn = true;
         plt::SetupAxes(nullptr, kYLabel, (a.specGrid ? 0 : plt::AxisFlags_NoGridLines), plt::AxisFlags_Inside | (a.specGrid ? 0 : plt::AxisFlags_NoGridLines));   // the frequencies along the bottom edge, inside, as in SDR++
         setupFreqAxis(a);
@@ -1607,6 +1740,7 @@ static void spectrumPlot(App& a, ImVec2 size, int extraFlags) {
 // never overlap at any size or interface scale. It is also the range control: drag it up or down to move the colours, the wheel over it to
 // widen or narrow them, a double click puts the automatic range back (wfScaleBarInput, after the plot).
 static struct { ImVec2 p0, p1; bool shown = false; } gScale;
+static bool mouseOnScaleBar() { return gScale.shown && ImGui::IsMouseHoveringRect(gScale.p0, gScale.p1, false); }
 static float wfButtonBottom(ImVec2 plotMin) { return plotMin.y + 4 * gUi + (ImGui::GetTextLineHeight() + 6 * gUi) + ImGui::GetFontSize(); }
 static void wfScaleBar(const App& a, ImVec2 plotMin, ImVec2 plotSize) {
     const float u = gUi;
@@ -1676,7 +1810,7 @@ static void waterfallPlot(App& a, ImVec2 size, int extraFlags) {
     const bool measured = a.wf.timeKnown();
     // clock labels (#237): the positions stay, the texts are the time of day of those rows, made again when the newest row moves on a second
     const long long clockSec = a.wf.clockLabels ? (long long)std::time(nullptr) : 0;
-    if (avail.x != sc.avail.x || avail.y != sc.avail.y || measured != sc.measured || (a.wf.slow() && std::fabs(a.wf.rowDt - sc.dt) > 1e-9) ||
+    if (avail.x != sc.avail.x || avail.y != sc.avail.y || measured != sc.measured || ((a.wf.slow() || a.wf.fast()) && std::fabs(a.wf.rowDt - sc.dt) > 1e-9) ||
         a.wf.clockLabels != sc.clock || clockSec != sc.clockSec) {
         sc.clock = a.wf.clockLabels; sc.clockSec = clockSec;
         sc.avail = avail; sc.measured = measured; sc.dt = a.wf.rowDt > 0 ? a.wf.rowDt : 1.0 / 30;   // a zero would make the label step zero: an endless loop
@@ -1706,28 +1840,31 @@ static void waterfallPlot(App& a, ImVec2 size, int extraFlags) {
     bool drawn = false;
     const bool look = lookOn(a);
     plt::SetNextPlotLook(plotLook(a, false));
-    if (plt::BeginPlot("##wf", size, plt::Flags_NoLegend | plt::Flags_NoTitle | plt::Flags_Overlay | (a.specSmoothZoom ? plt::Flags_SmoothZoom : 0) | extraFlags | ((a.family == 55 && generalDragging(1)) || bandEdgeDragging(1) || fileBoxDragging(1) ? plt::Flags_NoPan : 0) | (a.identifyTool || ImGui::GetIO().KeyShift ? plt::Flags_NoPan : 0))) {
+    wheelPolicy(a, inputmap::Area::Waterfall, size);
+    if (plt::BeginPlot("##wf", size, plt::Flags_NoLegend | plt::Flags_NoTitle | plt::Flags_Overlay | (a.specSmoothZoom ? plt::Flags_SmoothZoom : 0) | extraFlags | ((a.family == 55 && generalDragging(1)) || bandEdgeDragging(1) || fileBoxDragging(1) ? plt::Flags_NoPan : 0) | (a.identifyTool ? plt::Flags_NoPan : 0) | (ImGui::GetIO().KeyShift ? plt::Flags_NoDrag : 0))) {
         drawn = true;
         plt::SetupAxes(nullptr, a.wf.clockLabels ? tr("time of day") : tr("seconds ago"), plt::AxisFlags_NoTickLabels | (a.specGrid ? 0 : plt::AxisFlags_NoGridLines), plt::AxisFlags_Inside | (a.specGrid ? 0 : plt::AxisFlags_NoGridLines));   // the spectrum above shows the frequencies
         double fs = (a.engine.sampleRate() > 0 ? a.engine.sampleRate() : a.tune.sampleRate) / 1e6;
         const double rc = radioCenterMhz(a);
         // the picture starts half a bin left of the band edge, so each bin's colour sits under the trace point of that bin (#270)
-        const double x0 = specaxis::imageLo(rc, fs, a.smooth.empty() ? (size_t)a.wf.cols : a.smooth.size()), x1 = x0 + fs;
+        const double x0 = specaxis::imageLo(rc, fs, a.wf.fast() && a.wf.fastBins ? a.wf.fastBins : a.smooth.empty() ? (size_t)a.wf.cols : a.smooth.size()), x1 = x0 + fs;
         setupFreqAxis(a);
         // y is in rows, so the picture keeps its size while the measured row time wanders; the labels are the fixed scale above.
         // Paused, the view is free to scroll and zoom back through the rows (but not past the oldest or the newest), with ordinary tick labels.
-        plt::SetupAxisLimits(plt::Y1, -H, 0, a.wf.paused ? plt::Cond_Once : plt::Cond_Always);
+        if (gWfScrollPending && a.wf.paused) { plt::SetupAxisLimits(plt::Y1, gWfScrollLo, gWfScrollHi, plt::Cond_Always); gWfScrollPending = false; }   // the wheel scrolled the rows (View > Controls)
+        else plt::SetupAxisLimits(plt::Y1, -H, 0, a.wf.paused ? plt::Cond_Once : plt::Cond_Always);
         if (a.wf.paused) plt::SetupAxisConstraints(plt::Y1, -H, 0);
         plt::SetupAxisUnit(plt::Y1, sc.dt);
         if (!a.wf.paused) plt::SetupAxisTicks(plt::Y1, sc.pos.data(), (int)sc.pos.size(), sc.cstr.data());
         // rows arrive at the engine's ~30 Hz, the screen draws faster: slide down by the part of a row that is due since the last one,
         // so the picture moves at an even speed instead of jumping a row at a time
-        const double frac = a.wf.pushT > 0 && !a.wf.paused ? std::min(1.0, std::max(0.0, (glfwGetTime() - a.wf.pushT) / a.wf.rowDt)) : 0;
+        const double frac = a.wf.pushT > 0 && !a.wf.paused && !a.wf.fast() ? std::min(1.0, std::max(0.0, (glfwGetTime() - a.wf.pushT) / a.wf.rowDt)) : 0;
         // Drawn from the history made to the size of the plot (wf_view.h): the visible columns onto the pixel columns, the rows in groups
         // at least a pixel tall, so nothing is skipped by the texture sampling and the picture does not blink as it slides.
         const ImVec2 psz = plt::GetPlotSize();   // first: it finishes the setup, after which the limits are this frame's
         const plt::Rect vis = plt::GetPlotLimits();
         const ImVec2 fbs = ImGui::GetIO().DisplayFramebufferScale;
+        if (a.wf.paused) { gWfScrollLo = vis.Y.Min; gWfScrollHi = vis.Y.Max; } else { gWfScrollLo = gWfScrollHi = 0; }
         // the history (8192 or finer) and the view texture (at most a pixel a column; no wider than the GPU takes: 4096 on a Pi, #284)
         const int W = a.wf.cols, texW = gGfx ? std::min(Waterfall::W, gGfx->maxImageSize()) : Waterfall::W;
         int c0 = 0, c1 = W;
@@ -1752,7 +1889,7 @@ static void waterfallPlot(App& a, ImVec2 size, int extraFlags) {
             if (a.specReadout && curLook(a).tooltipBox && plt::IsPlotHovered() && !ImGui::IsMouseDown(0) && a.wf.rows > 0) {
                 // the level under the cursor from the history: the row (rows ago) and the column of that frequency
                 const plt::Point mp = plt::GetPlotMousePos();
-                const double fracNow = a.wf.pushT > 0 && !a.wf.paused ? std::min(1.0, std::max(0.0, (glfwGetTime() - a.wf.pushT) / a.wf.rowDt)) : 0;
+                const double fracNow = a.wf.pushT > 0 && !a.wf.paused && !a.wf.fast() ? std::min(1.0, std::max(0.0, (glfwGetTime() - a.wf.pushT) / a.wf.rowDt)) : 0;
                 const long long ago = (long long)std::floor(-mp.y - fracNow);
                 const int col = (int)std::floor((mp.x - x0) / fs * a.wf.cols);
                 double db = NAN;
@@ -1795,6 +1932,7 @@ void spectrumWaterfall(App& a, float& frac, bool drag) {
         ImGui::SetCursorScreenPos(p);
     }
     freqPageKeys();
+    extraInputActions(a, ImGui::IsMouseHoveringRect(p, ImVec2(p.x + w, p.y + h), false) && ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem));
     specFreqZoomBeforePlots(a);
     {   // the ranges are kept when the mouse has let go of them (a drag or a wheel zoom changes them all the time)
         static float sMin = 1e9f, sMax = 1e9f, wMin = 1e9f, wMax = 1e9f; static double sT = 0;
@@ -1828,6 +1966,33 @@ void spectrumWaterfall(App& a, float& frac, bool drag) {
     }
     ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x, y), ImVec2(p.x + w, y), hot ? IM_COL32(200, 200, 200, 160) : IM_COL32(110, 110, 110, 110), hot ? 2.f : 1.f);
     if (sliderCol > 0) dbRangeSliders(a, ImVec2(p.x + w, p.y + stripH), sliderCol, std::max(40.f, h - stripH));
+    drawToast(p);
+    // DECT2_WHEELTEST=1 (dev): scripted wheel events over the spectrum, to check the View > Controls rules in a hidden run; prints what changed on stderr
+    static const bool wheelTest = getenv("DECT2_WHEELTEST") != nullptr;
+    if (wheelTest) {
+        static int fr = 0; static double f0 = 0, lo0 = 0, hi0 = 0, y0 = 0, y1 = 0;
+        ImGuiIO& io = ImGui::GetIO();
+#ifdef __APPLE__
+        const ImGuiKey kCtrlMod = ImGuiMod_Super;   // (ImGui swaps Command and Control on a Mac: this arrives as Ctrl)
+#else
+        const ImGuiKey kCtrlMod = ImGuiMod_Ctrl;
+#endif
+        const ImVec2 mid(p.x + w * 0.5f, p.y + hs * 0.5f);
+        auto snap = [&] { f0 = a.freqMhz; lo0 = gXLo; hi0 = gXHi; y0 = a.yMin; y1 = a.yMax; };
+        auto report = [&](const char* what) { fprintf(stderr, "wheeltest %s: freq %+.4f MHz, view span x%.3f, centre %+.4f MHz, dB range %+.1f / %+.1f\n", what, a.freqMhz - f0, (gXHi - gXLo) / std::max(1e-9, hi0 - lo0), (gXLo + gXHi) / 2 - (lo0 + hi0) / 2, a.yMin - y0, a.yMax - y1); };
+        fr++;
+        if (fr == 30) { io.AddMousePosEvent(mid.x, mid.y); snap(); }
+        if (fr == 40 || fr == 42 || fr == 44) io.AddMouseWheelEvent(0, 1.f);
+        if (fr == 60) { report("wheel x3"); io.AddKeyEvent(ImGuiMod_Shift, true); snap(); }
+        if (fr == 70 || fr == 72 || fr == 74) io.AddMouseWheelEvent(0, 1.f);
+        if (fr == 90) { report("shift+wheel x3"); io.AddKeyEvent(ImGuiMod_Shift, false); io.AddKeyEvent(kCtrlMod, true); snap(); }
+        if (fr == 100 || fr == 102 || fr == 104) io.AddMouseWheelEvent(0, 1.f);
+        if (fr == 130) { io.AddMousePosEvent(mid.x + w * 0.2f, mid.y); snap(); }
+        if (fr == 135) io.AddMouseButtonEvent(0, true);
+        if (fr == 137) io.AddMouseButtonEvent(0, false);
+        if (fr == 160) report("click at +20% of the width");
+        if (fr == 120) { report("ctrl+wheel x3"); io.AddKeyEvent(kCtrlMod, false); }
+    }
     // DECT2_FPS=1: what the spectrum and the waterfall cost on the CPU per frame (building their draw lists), every 2 seconds on stderr
     static const bool perf = getenv("DECT2_FPS") != nullptr;
     if (perf) {

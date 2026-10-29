@@ -85,6 +85,20 @@ struct AeroAircraft {
     std::vector<std::pair<double, double>> route;      // ADS-C predicted route of the last report (next, next + 1)
 };
 
+// What the P channel's system table SUs said (JAERO's reading, aero_su.h): the satellite id and longitude, the P channel of the satellite's
+// signalling, spot beam or global beam. Used by the Inmarsat all-carriers mode to name the satellite. Unverified against a real capture.
+struct AeroSysEntry {
+    int kind = 0;                 // 2 satellite id, 3 P/R channel control
+    int satId = -1;               // kind 2
+    double lonDeg = 0;            // kind 2, east positive
+    int gesId = -1;               // kind 3
+    int bitRate = 0;              // kind 3
+    double pMHz = 0;              // kind 2: Psmc1; kind 3: the P channel
+    bool spotBeam = false;
+    uint64_t count = 0;           // times heard
+    int64_t wallTime = 0;
+};
+
 struct AeroTelemetry {
     uint64_t seq = 0;            // grows with every report
     int state = 0;               // 0 searching, 1 signal, 2 decoding
@@ -104,6 +118,7 @@ struct AeroTelemetry {
     uint64_t messagesTotal = 0, logonsTotal = 0, frames = 0;
     uint64_t positionsTotal = 0;                 // messages that carried a position
     bool suLayer = false;                        // the SU layer decodes (false: frames and checks only)
+    std::vector<AeroSysEntry> sys;               // system table facts heard (up to 24)
 };
 
 inline std::string aeroSummary(const AeroTelemetry& t) {

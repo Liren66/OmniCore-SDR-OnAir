@@ -26,6 +26,7 @@ struct P25p2GenConfig {
     int superframes = 12;
     int leadDibits = 13;           // random dibits in front of the first sync (not a whole slot)
     int colorCode = 0x293;         // the NAC: sent in the END_PTT, and a part of the scrambling seed
+    bool ownMacLayout = false;     // the MAC PDUs of the SACCH / FACCH bursts in OnAir's earlier private layout instead of the coding of the standard
     bool scramble = false;         // scramble the bursts with the seed WACN / system / colour code (the receiver needs setSystem with the same)
     int wacn = 0xBEE00, sysId = 0x3A5;
     uint32_t seed = 7;

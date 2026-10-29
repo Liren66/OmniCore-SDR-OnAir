@@ -13,7 +13,7 @@ std::map<std::string, Slot>& slots() { static std::map<std::string, Slot> m; ret
 const std::vector<CodecInfo>& codecTable() {
     static const std::vector<CodecInfo> t = {
         {"ambe2", "AMBE+2 (3600x2450)", CodecKind::Patented, "DMR, NXDN, dPMR, P25 phase 2", "plug-in onair-codec-ambe2 (for example around mbelib), or libmbe in the codecs folder"},
-        {"ambe",  "AMBE (3600x2400)",   CodecKind::Patented, "D-STAR", "plug-in onair-codec-ambe, or libmbe in the codecs folder"},
+        {"ambe",  "AMBE (3600x2400)",   CodecKind::Patented, "D-STAR, Inmarsat Aero voice (3.3)", "plug-in onair-codec-ambe, or libmbe in the codecs folder"},
         {"imbe",  "IMBE (7200x4400)",   CodecKind::Patented, "P25 phase 1, ProVoice / EDACS", "plug-in onair-codec-imbe, or libmbe in the codecs folder"},
         {"ysf",   "AMBE+2 (Yaesu)",     CodecKind::Patented, "Yaesu System Fusion (C4FM)", "plug-in onair-codec-ysf"},
         {"iridium", "AMBE-family (Iridium)", CodecKind::Patented, "Iridium voice", "plug-in onair-codec-iridium; gets the 39 byte voice field of each frame as received (unverified without recordings)"},
@@ -22,7 +22,7 @@ const std::vector<CodecInfo>& codecTable() {
         {"",      "Codec 2",            CodecKind::Open,     "M17, FreeDV 700D / 700E / 1600", "built in (libcodec2 comes with OnAir)"},
         {"",      "RADE",               CodecKind::Open,     "FreeDV RADE", "optional librade"},
         {"",      "KA codecs",          CodecKind::Open,     "KAAL, KAPP, KAFT, KAVB, KAIT, KAWS", "built in"},
-        {"",      "DECT and satellite voice", CodecKind::Unsupported, "DECT, Inmarsat, other satellite voice", "no voice decoder in OnAir (signalling and data only)"},
+        {"",      "DECT and satellite voice", CodecKind::Unsupported, "DECT, other satellite voice", "no voice decoder in OnAir (signalling and data only)"},
     };
     return t;
 }

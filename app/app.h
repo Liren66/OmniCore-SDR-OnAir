@@ -153,13 +153,14 @@ using SavedChannel = plat::Channel;
 // parts of the window the tour points at
 enum WizTarget { TgNone = 0, TgSwitch, TgToolbar, TgMain, TgRight, TgConst, TgCount };
 
-constexpr int kNumFamilies = 208;   // App::family runs from 0 to kNumFamilies - 1
+constexpr int kNumFamilies = 209;   // App::family runs from 0 to kNumFamilies - 1
 constexpr int kNumSubModes = 32;   // dect2::subModes(): the protocols of HF digital, mesh, pagers, marine and VOR / ILS listed as modes of their own
 constexpr int kNumSlots = kNumFamilies + kNumSubModes;   // what keeps its own frequency and gains: each family, and each protocol entry
 
 struct App {
     Engine engine;
     int rxId = 1;                 // receiver number: RX 1 is the first (receivers.h)
+    std::string mainTabName;      // the main tab this receiver last showed (a tab's English name): shown again when its chip is selected again (#342)
     bool rxForcedMute = false, rxSavedMuted = false;   // only the receiver that plays gets sound: the others are muted
     NetTuner net{engine};      // network tuner (declared after the engine so that it stops first)
     bool netOn = false, netLan = false;
@@ -694,6 +695,8 @@ void languageMenuItems(App& a);
 void languageButton(App& a);
 void setUiLanguage(App& a, const std::string& code);   // empty: the system's language
 extern bool gTightTabs;   // the tabs of mainTabs() get less padding (a narrow pane)
+extern App* gTabOwner;      // the receiver whose main tab bar is being drawn (widgets.cpp): tabItem() notes the open tab on it
+extern void* gMainTabBar;   // that bar (an ImGuiTabBar*)
 void toggleFullscreen();
 bool analogFullPicture(App& a, ImVec2 disp);   // analog TV and FPV video: the picture over the whole window (video-only view); false when there is none yet (#326)
 bool analogHasPicture(const App& a);
@@ -1143,7 +1146,7 @@ void wideSwitch(App& a, ImVec2 plotMin, ImVec2 plotSize);
 void multiSwitch(App& a, ImVec2 plotMin, ImVec2 plotSize);   // the "Whole span" switch of the TV standards (wholeSpanTvState in plots.cpp)
 bool wholeSpanTvOffered(const App& a);
 float specCornerPopup(App& a, const char* label, const char* popId, ImVec2 plotMin, ImVec2 plotSize, float rightUsed, float reserveLeft, float dropY, bool on, const char* tip, void (*body)(App&));
-double clickTuneMhz(const App& a, double mhz);   // plots.cpp: where a click on the spectrum at mhz tunes (the mode's limits and raster); NAN: the mode is not tuned by a click
+double clickTuneMhz(const App& a, double mhz, bool snap = true);   // plots.cpp: where a click on the spectrum at mhz tunes (the mode's limits and raster); NAN: the mode is not tuned by a click
 void waterfall3dPlot(App& a, ImVec2 size);       // gfx/wf3d_plot.cpp: the 3D waterfall in place of the flat one (a.wf.s3d.on)
 void waterfall3dPopup(App& a);                   // gfx/wf3d_plot.cpp: its settings (in the waterfall popup)
 float bandPlanStripHeight();         // plots.cpp: one text line plus padding; follows the font and resize
@@ -1285,6 +1288,8 @@ bool bandPlanPicker(App& a);
 std::vector<double> bandPlanChannels(const App& a, double loHz, double hiHz);   // the plan's channels of the current mode's bands in the range (whole-span priors)
 bool tvChannelCombo(App& a);
 std::vector<TvRange> tvBandRanges(App& a);
+// the FM broadcast range of the active plan, MHz: 87.5 - 108, widened to the plan's FM bands (Japan's 76 - 95, Brazil's extended FM from 76)
+void fmBandRange(const App& a, double& loMhz, double& hiMhz);
 void dabStatus(App& a);
 void dabHistory(App& a);
 void dabPanels(App& a);

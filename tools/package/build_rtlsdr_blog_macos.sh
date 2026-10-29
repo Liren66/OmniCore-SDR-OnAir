@@ -1,20 +1,20 @@
 #!/bin/bash
-# Build RTL-SDR Blog librtlsdr 1.3.6 as a dylib for bundling into OnAir.app (stock Homebrew librtlsdr cannot drive the V4 HF upconverter).
+# Build RTL-SDR Blog librtlsdr 1.4.0 (commit aed0ea1: V4 Lite support, HF tracking filter bypass) as a dylib for bundling into OnAir.app (stock Homebrew librtlsdr cannot drive the V4 HF upconverter).
 # Usage: build_rtlsdr_blog_macos.sh <output directory>
 set -euo pipefail
 OUT=${1:?output directory}
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
-T=rtl-sdr-blog-1.3.6.tar.gz
+T=rtl-sdr-blog-1.4.0.tar.gz
 W=$(mktemp -d)
 trap 'rm -rf "$W"' EXIT
 tarball=
 for f in "$REPO/build-windows-deps/src/$T" "$REPO/tools/package/cache/$T"; do [ -f "$f" ] && tarball=$f && break; done
 if [ -z "$tarball" ]; then
   tarball=$W/$T
-  curl -fsSL -o "$tarball" https://github.com/rtlsdrblog/rtl-sdr-blog/archive/refs/tags/v1.3.6.tar.gz
+  curl -fsSL -o "$tarball" https://github.com/rtlsdrblog/rtl-sdr-blog/archive/aed0ea1.tar.gz
 fi
 mkdir "$W/src" && tar xf "$tarball" -C "$W/src" --strip-components=1
-sed -i '' 's/^set(VERSION_INFO_PATCH_VERSION git)/set(VERSION_INFO_PATCH_VERSION 6)/' "$W/src/CMakeLists.txt"
+sed -i '' 's/^set(VERSION_INFO_PATCH_VERSION git)/set(VERSION_INFO_PATCH_VERSION 0)/' "$W/src/CMakeLists.txt"
 CMAKE_EXTRA=()
 if command -v brew >/dev/null 2>&1; then
   prefix=$(brew --prefix libusb 2>/dev/null || brew --prefix)

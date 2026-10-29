@@ -22,7 +22,7 @@ std::string fmtf(const char* f, ...) {
 }
 
 // slots per carrier of a TDMA channel type (TIA-102.BBAC channel types): only the 12.5 kHz two-slot type is known to this implementation
-int slotsOfType(int type) { return type == 3 ? 2 : 0; }
+int slotsOfType(int type) { return type <= 2 ? 1 : type == 3 ? 2 : 0; }   // 0..2: one voice channel per carrier (FDMA)
 
 } // namespace
 
@@ -32,6 +32,15 @@ void SystemModel::clear() {
     for (auto& i : idens_) i = IdenInfo();
     secondary_.clear();
     nTsbk_ = nGrant_ = 0;
+}
+
+// The control channel is another site's (or another system's) now: what was learned from the old one must not place this one's channels. The
+// identifier rows announced in the last two seconds stay (they may belong to the new site, which sends them in the same cycle as its site id);
+// the neighbours and secondary control channels are the old site's.
+void SystemModel::leaveSite(double now) {
+    adj_.clear();
+    secondary_.clear();
+    for (auto& i : idens_) if (i.valid && now - i.lastSec > 2.0) i = IdenInfo();
 }
 
 double SystemModel::channelFreq(int channel, int* slot, bool* tdma) const {
@@ -59,6 +68,18 @@ std::vector<double> SystemModel::controlCandidates() const {
     add(site_.ccHz);
     for (double h : secondary_) add(h);
     for (const SiteInfo& a : adj_) add(a.ccHz);
+    return v;
+}
+
+std::vector<double> SystemModel::ownControlChannels() const {
+    std::vector<double> v;
+    auto add = [&](double hz) {
+        if (hz <= 0) return;
+        for (double o : v) if (std::fabs(o - hz) < 1) return;
+        v.push_back(hz);
+    };
+    add(site_.ccHz);
+    for (double h : secondary_) add(h);
     return v;
 }
 
@@ -130,8 +151,9 @@ std::string SystemModel::onTsbk(const p25::Tsbk& t, int nac, double now, std::ve
             r.txOffsetHz = ((toff >> 13) & 1 ? 1 : -1) * (double)(toff & 0x1FFF) * r.spacingHz;
             const int field = (int)(a >> 56) & 15;
             if (t.opcode == p25::kIdenUpVu) { r.vu = true; r.bwHz = field == 4 ? 6250 : field == 5 ? 12500 : 0; }
-            else { r.tdma = true; r.chanType = field; r.slots = slotsOfType(field); r.bwHz = 12500; }
+            else { r.chanType = field; r.slots = slotsOfType(field); r.tdma = field >= 3; r.bwHz = 12500; }
         }
+        r.lastSec = now;
         const bool news = !idens_[id].valid || idens_[id].baseHz != r.baseHz || idens_[id].spacingHz != r.spacingHz || idens_[id].tdma != r.tdma;
         idens_[id] = r;
         if (!news) return std::string();
@@ -141,12 +163,14 @@ std::string SystemModel::onTsbk(const p25::Tsbk& t, int nac, double now, std::ve
     case p25::kNetSts: {   // WACN 20, system 12, control channel 16, service class 8
         const int wacn = (int)((a >> 36) & 0xFFFFF), sys = (int)((a >> 24) & 0xFFF), ch = (int)((a >> 8) & 0xFFFF);
         const bool news = site_.wacn != wacn || site_.sysId != sys;
+        if (site_.valid && site_.wacn >= 0 && news) leaveSite(now);
         site_.valid = true; site_.wacn = wacn; site_.sysId = sys; site_.nac = nac; site_.ccChannel = ch; site_.ccHz = channelFreq(ch); site_.ssc = (int)(a & 0xFF); site_.lastSec = now;
         return news ? fmtf("NET_STS_BCST WACN %05X system %03X NAC %03X", wacn, sys, nac) : std::string();
     }
     case p25::kRfssSts: {   // (LRA 8) system 12, RFSS 8, site 8, control channel 16, service class 8
         const int sys = (int)((a >> 40) & 0xFFF), rf = (int)((a >> 32) & 0xFF), st = (int)((a >> 24) & 0xFF), ch = (int)((a >> 8) & 0xFFFF);
         const bool news = site_.rfss != rf || site_.site != st;
+        if (site_.valid && site_.rfss >= 0 && (news || (site_.sysId >= 0 && site_.sysId != sys))) leaveSite(now);
         site_.valid = true; site_.sysId = sys; site_.rfss = rf; site_.site = st; site_.nac = nac; site_.ccChannel = ch; site_.ccHz = channelFreq(ch); site_.ssc = (int)(a & 0xFF); site_.lastSec = now;
         for (const auto& p : positions_)
             if (p.first.first == sys && p.first.second.first == rf && p.first.second.second == st) { site_.lat = p.second.first; site_.lon = p.second.second; site_.hasPosition = true; }

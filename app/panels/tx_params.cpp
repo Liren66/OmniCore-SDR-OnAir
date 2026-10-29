@@ -387,7 +387,9 @@ void advancedPanel(TxUi& s, const TxModeSpec& mode, bool running) {
             ImGui::SameLine(labW);
             ImGui::SetNextItemWidth(-1);
             if (ImGui::InputDouble("##txoff", &s.offsetMhz, 0.0, 0.0, "%.6f MHz")) plat::basePrefs().setD("tx.offsetMhz", s.offsetMhz);
-            if (s.offsetMhz != 0) ImGui::TextDisabled(tr("radio is told %.6f MHz"), s.freqMhz + s.offsetMhz);
+            const TxModeSpec* tm = txModeById(s.modeId);
+            const double modeOff = tm ? txModeTuneOffsetHz(*tm) / 1e6 : 0;   // the radio is tuned this far above the dial, the signal sits that far below the radio's centre (#351)
+            if (s.offsetMhz != 0 || modeOff != 0) ImGui::TextDisabled(tr("radio is told %.6f MHz"), s.freqMhz + s.offsetMhz + modeOff);
         }
         if (sec == Sec::Timing) {
             const float labW = std::max(140.f * gUi, ImGui::GetContentRegionAvail().x * 0.42f);

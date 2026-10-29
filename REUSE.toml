@@ -372,7 +372,7 @@ SPDX-FileCopyrightText = [
 ]
 SPDX-License-Identifier = "GPL-2.0-or-later"
 
-# librtlsdr (RTL-SDR Blog fork 1.3.6, osmocom rtl-sdr), translated to Rust
+# librtlsdr (RTL-SDR Blog fork 1.4.0, osmocom rtl-sdr), translated to Rust
 [[annotations]]
 path = [
   "rust/onair_usb/src/rtl.rs",

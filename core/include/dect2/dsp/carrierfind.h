@@ -40,6 +40,7 @@ struct CarrierCfg {
     bool rejectTones = false;       // an unmodulated line (nearly all the cell's power in 3 bins) is not a carrier
     std::vector<double> priorHz;    // known channels (frequency database, band plan), relative to the span centre
     double priorDb = 3;             // their threshold is this much lower
+    bool snapReported = true;       // a whole-span row/log reports the nearest raster channel centre, not the measured centroid (WideBank)
     bool priorOnly = false;         // only the known channels are searched
 };
 

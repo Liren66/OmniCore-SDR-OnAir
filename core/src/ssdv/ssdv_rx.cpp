@@ -2,6 +2,7 @@
 #include "dect2/ssdv/ssdv_rx.h"
 #include "dect2/ssdv/ssdv_proto.h"
 #include "dect2/ssdv/ssdv_tel.h"
+#include "dect2/ssdv/wenet.h"
 #include "dect2/packet/packet_demod.h"
 #include <algorithm>
 #include <array>
@@ -93,6 +94,9 @@ struct SsdvReceiver::Impl {
     std::function<void(const std::string&)> log;
     std::vector<Chain> chains;
     int fixedBaud = 0;
+    wenet::Demod wn;
+    uint64_t wenetOther = 0, wenetIdle = 0;
+    bool lastWenet = false;
     std::string saveDir;
     // results
     std::deque<SsdvPacketLog> packets;
@@ -106,6 +110,7 @@ struct SsdvReceiver::Impl {
     int lastState = 0;
     SsdvTelemetry pub;
 
+    static bool isWenetBaud(int b) { return b == wenet::kUartBaud || b == wenet::kRawBaud; }
     void say(const std::string& s) { if (log) log(s); }
     double now() const { return (double)fe.n96 / kMidRate; }
 
@@ -115,6 +120,9 @@ struct SsdvReceiver::Impl {
         fe.chanPass = 12000.0; fe.chanStop = 20000.0; fe.chanPass2 = 3500.0; fe.chanStop2 = 7500.0;
         fe.clipHz = 12000.f; fe.afcMaxHz = 12000.0;
         if (!fe.configure(fs, ssdvTuning().minSampleRate)) return;
+        wn.configure(fs);
+        wn.setCallback([this](const wenet::Hit& h) { onWenet(h); });
+        applyMask();
         chains.clear();
         for (int inv = 0; inv < 2; inv++) {
             for (int b : kSyncBauds) { Chain c; c.setup(b, false, inv != 0); chains.push_back(std::move(c)); }
@@ -122,24 +130,26 @@ struct SsdvReceiver::Impl {
         }
         isReady = true;
         resetState();
-        say("SSDV: listening for 256-byte SSDV packets (plain FSK 1200 - 19200 baud, RTTY-framed 300 - 1200 baud)");
+        say(wn.ready() ? "SSDV: listening for 256-byte SSDV packets (plain FSK 1200 - 19200 baud, RTTY-framed 300 - 1200 baud, Wenet 115 / 96 kbaud)"
+                       : "SSDV: listening for 256-byte SSDV packets (plain FSK 1200 - 19200 baud, RTTY-framed 300 - 1200 baud; Wenet needs a sample rate of 700 kHz or more)");
     }
 
     void resetState() {
         const double off = fe.offsetHz;
         fe.reset(); fe.offsetHz = off;
         for (auto& c : chains) c.reset();
+        wn.reset();
         nextReport = fe.n96 + (int64_t)(0.25 * kMidRate);
     }
 
-    void accept(const Chain& c, std::array<uint8_t, ssdv::kPktSize>& pkt, int rsErr, const ssdv::Info& in) {
+    void accept(int baud, bool async, bool inverted, bool isWenet, float snr, std::array<uint8_t, ssdv::kPktSize>& pkt, int rsErr, const ssdv::Info& in) {
         const int64_t utc = wallNow();
         ok++;
         if (rsErr > 0) corrected++;
-        lastGoodSec = now(); lastBaud = c.baud; lastAsync = c.async;
+        lastGoodSec = now(); lastBaud = baud; lastAsync = async; lastWenet = isWenet;
         SsdvPacketLog l;
         l.utc = utc; l.timeSec = now(); l.call = in.call; l.imageId = in.imageId; l.packetId = in.packetId; l.rsErrors = rsErr;
-        l.baud = c.baud; l.async = c.async; l.inverted = c.inv; l.noFec = in.type == 1; l.eoi = in.eoi; l.snrDb = (float)fe.snrEma;
+        l.baud = baud; l.async = async; l.inverted = inverted; l.wenet = isWenet; l.noFec = in.type == 1; l.eoi = in.eoi; l.snrDb = isWenet ? snr : (float)fe.snrEma;
         packets.push_front(l);
         if (packets.size() > kSsdvPacketsMax) packets.pop_back();
         // the picture
@@ -156,10 +166,30 @@ struct SsdvReceiver::Impl {
         say("SSDV: " + in.call + " picture " + std::to_string(in.imageId) + " packet " + std::to_string(in.packetId));
     }
 
+    // a Wenet frame passed the LDPC code and its CRC: the first byte is the packet type
+    void onWenet(const wenet::Hit& h) {
+        const uint8_t type = h.pkt[0];
+        if (type == 0x55) {
+            std::array<uint8_t, ssdv::kPktSize> pk;
+            std::copy(h.pkt.begin(), h.pkt.end(), pk.begin());
+            int e = 0;
+            ssdv::Info info;
+            if (ssdv::check(pk.data(), &e, &info)) { accept(h.baud, false, h.inverted, true, h.snrDb, pk, e, info); return; }
+            bad++;
+            return;
+        }
+        lastGoodSec = now(); lastBaud = h.baud; lastAsync = false; lastWenet = true;
+        if (type == 0x56) wenetIdle++; else wenetOther++;
+    }
+
+    void applyMask() {
+        wn.setMask(fixedBaud == 0 ? (wenet::Demod::kMaskUart | wenet::Demod::kMaskRaw) : fixedBaud == wenet::kUartBaud ? wenet::Demod::kMaskUart : fixedBaud == wenet::kRawBaud ? wenet::Demod::kMaskRaw : 0);
+    }
+
     void tryPacket(const Chain& c, Cap& cp) {
         int e = 0;
         ssdv::Info info;
-        if (ssdv::check(cp.pkt.data(), &e, &info)) accept(c, cp.pkt, e, info);
+        if (ssdv::check(cp.pkt.data(), &e, &info)) accept(c.baud, c.async, c.inv, false, (float)fe.snrEma, cp.pkt, e, info);
         else if (cp.exact) bad++;
     }
 
@@ -288,7 +318,7 @@ struct SsdvReceiver::Impl {
         o.dataValid = t - lastGoodSec < 30.0;
         o.state = o.dataValid ? 2 : (fe.carrierRecent(5) ? 1 : 0);
         o.cfoHz = fe.cfoHz(); o.snrDb = (float)fe.snrEma; o.levelDb = fe.takeLevelDb();
-        o.blocksOk = ok; o.blocksBad = bad; o.baud = lastBaud; o.async = lastAsync; o.fixedBaud = fixedBaud; o.corrected = corrected; o.imagesDone = done;
+        o.blocksOk = ok + wenetOther + wenetIdle; o.blocksBad = bad; o.baud = lastBaud; o.async = lastAsync; o.wenet = lastWenet; o.wenetOther = wenetOther; o.wenetIdle = wenetIdle; o.fixedBaud = fixedBaud; o.corrected = corrected; o.imagesDone = done;
         o.packets.assign(packets.begin(), packets.end());
         for (auto& im : images) {
             SsdvImage s;
@@ -310,7 +340,8 @@ struct SsdvReceiver::Impl {
         if (!isReady || n == 0) return;
         const std::vector<float>& wide = fe.process(x, n);
         const std::vector<float>& narrow = fe.narrowDisc();
-        if (!wide.empty())
+        if (wn.ready()) wn.feed(x, n);
+        if (!wide.empty() && !isWenetBaud(fixedBaud))
             for (auto& c : chains) {
                 if (fixedBaud && c.baud != fixedBaud) continue;
                 const std::vector<float>& d = c.narrow ? narrow : wide;
@@ -325,11 +356,11 @@ SsdvReceiver::SsdvReceiver() : p_(std::make_unique<Impl>()) {}
 SsdvReceiver::~SsdvReceiver() = default;
 
 void SsdvReceiver::configure(double r) { std::lock_guard<std::mutex> lk(p_->procMu); p_->configure(r); }
-void SsdvReceiver::setSignalOffset(double hz) { std::lock_guard<std::mutex> lk(p_->procMu); p_->fe.setOffset(hz); }
+void SsdvReceiver::setSignalOffset(double hz) { std::lock_guard<std::mutex> lk(p_->procMu); p_->fe.setOffset(hz); p_->wn.setOffset(hz); }
 bool SsdvReceiver::ready() const { std::lock_guard<std::mutex> lk(p_->procMu); return p_->isReady; }
 void SsdvReceiver::reset() { std::lock_guard<std::mutex> lk(p_->procMu); if (p_->isReady) p_->resetState(); }
 void SsdvReceiver::setLogCallback(std::function<void(const std::string&)> cb) { std::lock_guard<std::mutex> lk(p_->procMu); p_->log = std::move(cb); }
-void SsdvReceiver::setBaud(int b) { std::lock_guard<std::mutex> lk(p_->procMu); if (p_->fixedBaud != b) { p_->fixedBaud = b; for (auto& c : p_->chains) c.reset(); } }
+void SsdvReceiver::setBaud(int b) { std::lock_guard<std::mutex> lk(p_->procMu); if (p_->fixedBaud != b) { p_->fixedBaud = b; for (auto& c : p_->chains) c.reset(); p_->applyMask(); } }
 void SsdvReceiver::setSaveDir(const std::string& d) { std::lock_guard<std::mutex> lk(p_->procMu); p_->saveDir = d; }
 void SsdvReceiver::feed(const cf32* x, size_t n) { std::lock_guard<std::mutex> lk(p_->procMu); p_->feed(x, n); }
 void SsdvReceiver::flush() { std::lock_guard<std::mutex> lk(p_->procMu); p_->housekeeping(true); p_->publish(); }
@@ -337,7 +368,7 @@ void SsdvReceiver::flush() { std::lock_guard<std::mutex> lk(p_->procMu); p_->hou
 void SsdvReceiver::clearResults() {
     std::lock_guard<std::mutex> lk(p_->procMu);
     Impl& m = *p_;
-    m.packets.clear(); m.images.clear(); m.ok = m.bad = m.corrected = m.done = 0; m.lastGoodSec = -1e9; m.lastBaud = 0;
+    m.packets.clear(); m.images.clear(); m.ok = m.bad = m.corrected = m.done = 0; m.wenetOther = m.wenetIdle = 0; m.lastGoodSec = -1e9; m.lastBaud = 0;
     m.publish();
 }
 

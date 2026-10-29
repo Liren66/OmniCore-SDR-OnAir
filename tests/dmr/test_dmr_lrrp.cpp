@@ -41,6 +41,13 @@ int main() {
         CHECK(loc.hasSpeed && near(loc.speedMs, 0.5625, 1e-3), "183: speed %.4f m/s", loc.speedMs);
         CHECK(loc.hasHeading && near(loc.headingDeg, 142.0, 0.5), "183: heading %.1f", loc.headingDeg);
     }
+    // the IPv4 header checksum of the real packets holds, and fails after one wrong bit (#335: a packet whose DMR CRC failed is kept on this check)
+    {
+        std::vector<uint8_t> d = hex("45000033DE660000401187A20C0000B70D00FAFA0FA10FA1001FEB370D152203000001514BE3B6DC3B811656602D6C00485647");
+        CHECK(dmrIpv4HeaderOk(d.data(), d.size()), "ipv4 checksum of a real packet");
+        d[15] ^= 0x04;
+        CHECK(!dmrIpv4HeaderOk(d.data(), d.size()), "ipv4 checksum of a damaged packet");
+    }
     // a moving radio: 115 at 22 km/h (6.13 m/s)
     {
         std::vector<uint8_t> d = hex("45000033441C0000401122310C0000730D00FAFA0FA10FA1001F376F0D152203000001514BE79AC13B829044025C6C06115632");

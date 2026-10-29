@@ -5,6 +5,7 @@
 #include "dect2/net/net_proto.h"
 #include "dect2/net/kiwisdr.h"
 #include <algorithm>
+#include <cstring>
 #include <chrono>
 #include <map>
 #include <mutex>
@@ -305,6 +306,29 @@ std::vector<DeviceInfo> netRadioDevices(const std::vector<NetRadio>& v) {
     return out;
 }
 
+// An rtl_tcp server talks first; a web server (the OnAir server's page and remote-control port) stays quiet until asked.
+static bool portAnswersHttp(const std::string& host, int port, int timeoutMs) {
+    std::string e;
+    const sock_t s = tcpConnect(host, port, timeoutMs, e);
+    if (s == kBadSock) return false;
+    sockRecvTimeout(s, timeoutMs);
+    static const char req[] = "GET / HTTP/1.0\r\n\r\n";
+    bool http = false;
+    if (sockSendAll(s, req, sizeof req - 1)) {
+        char b[5] = {0};
+        http = sockRecvAll(s, b, 5) && std::memcmp(b, "HTTP/", 5) == 0;
+    }
+    sockShutdown(s);
+    sockClose(s);
+    return http;
+}
+
+static std::string httpNotRtlTcpHelp(const std::string& host, int port) {
+    const std::string hp = hostPort(host, port);
+    return hp + " is the OnAir server's web page and remote-control port, not the rtl_tcp share. Start the server with --share-rtltcp "
+           "and use the share port it prints (1234 unless you changed it), or open " + hp + " in a browser: http://" + hp + "/?token=<your token>";
+}
+
 bool probeNetRadio(const NetRadio& r, int timeoutMs, std::string& err) {
     if (r.type == NetRadio::SoapyArgs) {   // nothing to reach by TCP: the driver opens it when started
         if (r.remote.empty()) { err = "type the device string, e.g. type=uhd,addr=10.0.0.55"; return false; }
@@ -333,7 +357,12 @@ bool probeNetRadio(const NetRadio& r, int timeoutMs, std::string& err) {
     if (r.type == NetRadio::RtlTcp) {   // an rtl_tcp server greets every client with "RTL0" (or its own magic) and its tuner
         sockRecvTimeout(s, timeoutMs);
         unsigned char hdr[12];
-        if (!sockRecvAll(s, hdr, sizeof hdr)) { err = "the server at " + hostPort(host, netRadioPort(r)) + " sent no rtl_tcp greeting (another client may be connected)"; ok = false; }
+        if (!sockRecvAll(s, hdr, sizeof hdr)) {
+            err = "the server at " + hostPort(host, netRadioPort(r)) + " sent no rtl_tcp greeting (another client may be connected)";
+            if (portAnswersHttp(host, netRadioPort(r), timeoutMs)) err = httpNotRtlTcpHelp(host, netRadioPort(r));
+            ok = false;
+        }
+        else if (std::memcmp(hdr, "HTTP", 4) == 0) { err = httpNotRtlTcpHelp(host, netRadioPort(r)); ok = false; }
         else {
             std::string magic;
             bool other = false;

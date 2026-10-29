@@ -105,6 +105,12 @@ void p25TxSymbols(const P25GenTx& tx, std::vector<int8_t>& sym) {
         const uint64_t grant = ((uint64_t)tx.grantChannel << 40) | ((uint64_t)tx.grantTg << 24) | (uint64_t)tx.grantSrc;
         const uint64_t upd = ((uint64_t)tx.grantChannel << 48) | ((uint64_t)tx.grantTg << 32) | ((uint64_t)0x2005 << 16) | 1300;
         for (int f = 0; f < n; f++) {
+            if (!tx.script.empty()) {
+                std::vector<p25::Tsbk> ts;
+                for (const auto& m : tx.script[(size_t)f % tx.script.size()]) ts.push_back(tsbk(m.first, m.second));
+                tsbkFrame(fb, ts);
+                continue;
+            }
             if (f % 2 == 0) tsbkFrame(fb, {tsbk(p25::kNetSts, net), tsbk(p25::kRfssSts, rfss), tsbk(p25::kIdenUp, idenUp)});
             else tsbkFrame(fb, {tsbk(p25::kAdjSts, adj), tsbk(p25::kGrpVGrant, grant), tsbk(f % 4 == 1 ? p25::kIdenUpVu : p25::kGrpVGrantUpd, f % 4 == 1 ? idenVu : upd)});
         }

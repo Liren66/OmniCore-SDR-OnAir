@@ -3,6 +3,7 @@
 // interface (main.cpp). This file holds the entry point drawShell2() and the Sidebar / Scope / Tiles layouts; the others
 // are in ui2_faces.cpp, the shell in ui2_shell.cpp, the theme in ui2_theme.cpp.
 #include "ui2_internal.h"
+#include "input_map.h"
 #include "dect2/dsp/baseband_filter.h"
 
 using namespace ui2;
@@ -251,13 +252,14 @@ void bodyTiles(App& a, float bodyH, ImVec2 disp) {
 void drawShell2(App& a, ImVec2 disp) {
     {   // keyboard: 1-9 pick a mode, space starts and stops (not while typing)
         ImGuiIO& io = ImGui::GetIO();
-        if (!io.WantTextInput && !ImGui::IsAnyItemActive() && !io.KeyCtrl && !io.KeyAlt && !io.KeySuper) {
-            if (!gFreqHovered) for (int k = 0; k < 9; k++) if (ImGui::IsKeyPressed((ImGuiKey)(ImGuiKey_1 + k), false)) {
+        if (!io.WantTextInput && !ImGui::IsAnyItemActive()) {   // the keys are View > Controls (ui/input_map.h): Space, 1-9 by default, with exactly their modifiers
+            if (!gFreqHovered) for (int k = 0; k < 9; k++) if (inputmap::pressed((inputmap::Action)((int)inputmap::Action::Mode1 + k))) {
                 int n = 0;
                 for (int g = 0; g < kNumGroups; g++) for (int i = 0; i < kNumModes; i++) if (kModes[i].group == g && modeListed(a, kModes[i]) && n++ == k) selectMode(a, kModes[i].family, kModes[i].subId);
             }
             const bool spaceTaken = gSpaceClaimFrame >= ImGui::GetFrameCount() - 1 || txViewFlag();   // the TV picture or the transmitter has it
-            if (!spaceTaken && ImGui::IsKeyPressed(ImGuiKey_Space, false)) { if (a.engine.running()) a.engine.stop(); else startReceiver(a); }
+            if (!spaceTaken && inputmap::pressed(inputmap::Action::StartStop)) { if (a.engine.running()) a.engine.stop(); else startReceiver(a); }
+            if (inputmap::pressed(inputmap::Action::Mute)) { a.muted = !a.muted; a.engine.player().setMuted(a.muted); a.engine.dabAudio().setMuted(a.muted); }
         }
     }
     if (a.kitGallery) { kit::gallery(a, disp); return; }

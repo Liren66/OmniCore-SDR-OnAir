@@ -467,7 +467,7 @@ impl<T: UsbTransfer> RtlSdr<T> {
         let last_ds = self.direct_sampling;
         // automatic direct sampling only while the mode is 0 (standard)
         if self.direct_sampling_mode == 0 {
-            self.direct_sampling = if freq < 24_000_000 && self.tuner_type == Tuner::R820T { 2 } else { 0 };
+            self.direct_sampling = if freq < 24_000_000 && self.tuner_type == Tuner::R820T && !self.check_dongle_model("RTLSDRBlog", "Blog V4L") { 2 } else { 0 };
         }
         if self.direct_sampling != 0 {
             self.set_i2c_repeater(false);

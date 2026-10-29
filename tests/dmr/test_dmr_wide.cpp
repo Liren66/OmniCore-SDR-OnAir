@@ -4,6 +4,7 @@
 #include "dect2/common/stable_random.h"
 #include "dect2/dmr/dmr_gen.h"
 #include "dect2/dmr/dmr_rx.h"
+#include "dect2/engine/wide_bank.h"
 #include "dect2/engine/wide_modes.h"
 #include "dect2/t2/t2rx.h"
 #include <chrono>
@@ -118,15 +119,17 @@ static void testDmrBank() {
     CHECK(t.wide.size() == 3, "carriers table has %zu rows", t.wide.size());
     for (auto& r : t.wide) printf("  carrier %+9.0f Hz level %.1f dB snr %.1f state %d %s\n", r.hz, r.levelDb, r.snrDb, r.state, r.info.c_str());
     for (size_t k = 0; k < cs.size(); k++) {
-        bool row = false; for (auto& r : t.wide) if (std::fabs(r.hz - cs[k].hz) < 600) row = true;
-        CHECK(row, "no table row for carrier %zu at %.0f Hz", k, cs[k].hz);
+        // the table reports the 12.5 kHz channel centre, not the measured frequency (+-1 kHz off it)
+        const double chan = std::round(cs[k].hz / 12500.0) * 12500.0;
+        bool row = false; for (auto& r : t.wide) if (std::fabs(r.hz - chan) < 1.0) row = true;
+        CHECK(row, "no table row on channel %.0f Hz for carrier %zu at %.0f Hz", chan, k, cs[k].hz);
         // calls: every finished voice call the generator sent (after the carrier was found) must be in the merged log at that carrier
         int sent = 0, found = 0;
         for (auto& tr : sig[k]->truth()) {
             if (!tr.finished || (tr.kind != 0 && tr.kind != 1) || tr.startSec < cs[k].startSec + 2.5) continue;
             sent++;
             for (auto& c : t.dmr.callLog)
-                if (c.carrierId && std::fabs(c.carrierHz - cs[k].hz) < 700 && c.src == tr.src && c.dst == tr.dst && c.kind == tr.kind) { found++; break; }
+                if (c.carrierId && std::fabs(c.carrierHz - chan) < 1.0 && c.src == tr.src && c.dst == tr.dst && c.kind == tr.kind) { found++; break; }
         }
         printf("  carrier %zu: voice calls %d/%d found in the merged log\n", k, found, sent);
         CHECK(sent >= 1, "carrier %zu: the signal held no voice call to check", k);
@@ -157,16 +160,16 @@ static void testDmrTalking() {
         if (rx.telemetry(t, seq)) seq = t.seq;
         if (s < 2.0 || t.state != 2) continue;   // locked first
         const double now = sig.seconds();
-        bool voice = false, near = false;
+        bool voice = false, closeBy = false;
         for (const auto& tr : sig.truth()) {
             if (tr.kind > 2) continue;
             const double end = tr.finished ? tr.endSec : 1e9;   // a call still going on
             if (now > tr.startSec + 0.6 && now < end - 0.2) voice = true;   // well inside a call (the receiver needs a few bursts)
-            if (now > tr.startSec - 0.3 && now < end + 1.5) near = true;     // the start, the call or its hang time
+            if (now > tr.startSec - 0.3 && now < end + 1.5) closeBy = true;     // the start, the call or its hang time
         }
         const bool talk = dmrTalking(t);
         if (voice) { inCall++; inCallTrue += talk; }
-        else if (!near) { idle++; idleFalse += !talk; }
+        else if (!closeBy) { idle++; idleFalse += !talk; }
     }
     printf("dmrTalking: true in %d of %d moments inside calls, false in %d of %d idle moments\n", inCallTrue, inCall, idleFalse, idle);
     CHECK(inCall >= 20 && idle >= 20, "the signal held too little call (%d) or idle (%d) time to judge", inCall, idle);
@@ -174,8 +177,29 @@ static void testDmrTalking() {
     CHECK(idleFalse >= idle * 9 / 10, "talking between calls %d of %d", idle - idleFalse, idle);
 }
 
+// snapping to the raster: nearest channel centre, with the raster through the tuned channel (origin) and any step
+static void testSnap() {
+    CHECK(std::fabs(snapToRaster(38300, 0, 12500) - 37500) < 1e-6, "38300 -> 37500");
+    CHECK(std::fabs(snapToRaster(-113400, 0, 12500) + 112500) < 1e-6, "-113400 -> -112500");
+    CHECK(std::fabs(snapToRaster(40500, 0, 12500) - 37500) < 1e-6 && std::fabs(snapToRaster(34300, 0, 12500) - 34300) < 1e-6, "3 kHz off snaps, 3.2 kHz off stays measured");
+    CHECK(std::fabs(snapToRaster(43700, 0, 12500) - 43700) < 1e-6, "a signal half-way between two 12.5 kHz channels is not forced onto one");
+    CHECK(std::fabs(snapToRaster(6500, 6250, 12500) - 6250) < 1e-6, "raster through the tuned channel (6.25 kHz off DC)");
+    CHECK(std::fabs(snapToRaster(-5800, 6250, 12500) + 6250) < 1e-6, "negative side, origin off DC");
+    CHECK(std::fabs(snapToRaster(31300, 0, 6250) - 31250) < 1e-6, "6.25 kHz raster");
+    CHECK(std::fabs(snapToRaster(28000, 0, 25000) - 25000) < 1e-6, "25 kHz raster");
+    CHECK(snapToRaster(31300, 0, 0) == 31300, "no step: unchanged");
+    // the WideModes setting reaches the bank: a 25 kHz raster is configured and ready
+    WideModes wm;
+    WideTuning t; t.rasterKhz = 25; wm.setTuning(t);
+    wm.configure(10, kFs, 0);
+    CHECK(wm.ready(10), "bank not ready with a 25 kHz raster");
+    t.rasterKhz = 0; wm.setTuning(t);
+    CHECK(wm.ready(10), "bank not ready after going back to automatic");
+}
+
 int main() {
     testDmrTalking();
+    testSnap();
     testFinder();
     testDmrBank();
     printf(fails ? "FAILED %d\n" : "ok\n", fails);

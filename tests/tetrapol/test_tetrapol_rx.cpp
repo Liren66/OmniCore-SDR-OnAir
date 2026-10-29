@@ -179,11 +179,76 @@ static bool cellOk(const TetrapolTelemetry& t) {
     return false;
 }
 
+// A retune while running: the signal moves (the tuned frequency changed inside the capture: only the offset) or the radio's centre
+// changed (another carrier). The receiver must find the new carrier again by itself within a few seconds.
+static double relockSecs(double rate, double cfo1, double cfo2, double newCentre, int pol2, int scr2) {
+    TetrapolReceiver rx;
+    rx.configure(rate);
+    rx.setCenterHz(kTetrapolTestCentreHz);
+    rx.setSignalOffset(cfo1);
+    rx.reset();
+    const size_t chunk = (size_t)std::max(1024.0, rate * 0.05);
+    std::vector<cf32> buf(chunk);
+    uint64_t okAtRetune = 0;
+    auto feedFor = [&](ModeSynth& syn, double secs, double& t0, double centre, bool watch) {
+        double found = -1;
+        for (double done = 0; done < secs; done += (double)chunk / rate) {
+            syn.generate(buf.data(), chunk);
+            rx.feed(buf.data(), chunk);
+            if (watch && found < 0) {
+                TetrapolTelemetry t;
+                rx.telemetry(t, 0);
+                // 30 good blocks after the retune, and the cell of the new centre heard with its system info
+                if (t.blocksOk >= okAtRetune + 30)
+                    for (const auto& c : t.cells)
+                        if (c.hasSysinfo && c.freqHz == centre && c.scramble == scr2) found = done + (double)chunk / rate;
+            }
+        }
+        t0 += secs;
+        return found;
+    };
+    SynthConfig a;
+    a.mode = 81; a.snrDb = 25; a.cfoHz = cfo1; a.sroPpm = 20;
+    auto s1 = makeTetrapolSynth(a, rate);
+    double t = 0;
+    feedFor(*s1, 3.0, t, kTetrapolTestCentreHz, false);
+    // the retune: a short gap of noise (the radio settling), then the new carrier
+    SynthConfig g;
+    g.mode = 81; g.snrDb = -10; g.cfoHz = 0;
+    auto gap = makeTetrapolSynth(g, rate);
+    feedFor(*gap, 0.3, t, 0, false);
+    { TetrapolTelemetry t0; rx.telemetry(t0, 0); okAtRetune = t0.blocksOk; }
+    rx.setSignalOffset(cfo2);
+    rx.setCenterHz(newCentre);
+    SynthConfig b;
+    b.mode = 81; b.snrDb = 25; b.cfoHz = cfo2; b.sroPpm = -30;
+    b.modeOpt[0] = scr2; b.modeOpt[2] = pol2;
+    auto s2 = makeTetrapolSynth(b, rate);
+    return feedFor(*s2, 12.0, t, newCentre, true);
+}
+
+static void testRetune() {
+    struct Case { double rate, cfo1, cfo2, centre; int pol2, scr2; const char* what; };
+    const Case cases[] = {
+        {250000, 0, 3000, kTetrapolTestCentreHz, 0, 5, "tuned frequency +3 kHz, same centre"},
+        {250000, 800, -4200, kTetrapolTestCentreHz, 0, 5, "tuned frequency -5 kHz, offset impairment"},
+        {250000, 0, 0, kTetrapolTestCentreHz + 1.5e6, 0, 5, "centre changed"},
+        {250000, 600, -900, kTetrapolTestCentreHz + 2.5e6, 1, 9, "centre changed, other cell, inverted, carrier offset"},
+        {2400000, 0, 12500, kTetrapolTestCentreHz, 0, 5, "2.4 Msps, next channel"},
+    };
+    for (const Case& c : cases) {
+        const double s = relockSecs(c.rate, c.cfo1, c.cfo2, c.centre, c.pol2, c.scr2);
+        printf("  retune (%s): locked again after %.2f s\n", c.what, s);
+        CHECK(s > 0 && s < 8.0, "no relock after a retune: %s (%.2f)", c.what, s);
+    }
+}
+
 int main() {
     testTables();
     testFrames();
     testStream();
     testLink();
+    testRetune();
     const ModeTuning mt = tetrapolTuning();
     CHECK(mt.stdMode == 81 && modeTuningById("tetrapol") && modeTuning(81), "tuning table");
 

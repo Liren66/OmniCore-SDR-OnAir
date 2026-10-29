@@ -2,6 +2,7 @@
 // mode list and side bar, the status line and the log console).
 // Split from ui2.cpp; the shared declarations are in ui2_internal.h.
 #include "transcribe/transcribe_app.h"
+#include "input_map.h"
 #include "dect2/dsp/baseband_filter.h"
 #include "ui2_internal.h"
 #include "../state/listen_freq.h"
@@ -571,6 +572,8 @@ static void viewMenu(App& a) {
         timeDisplayChoice(true);
         if (ImGui::BeginMenu(tr("Language"))) { languageMenuItems(a); ImGui::EndMenu(); }
         ImGui::Separator();
+        if (ImGui::MenuItem(tr("Controls (keys and mouse) ..."), nullptr, &inputmap::windowOpen())) {}
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("What the mouse wheel, keys and extra mouse buttons do on the spectrum and waterfall: zoom, tune, pan, step size, shortcuts"));
         if (ImGui::MenuItem(tr("Performance overlay"), nullptr, &a.perfOverlay)) savePrefs(a);
         if (ImGui::BeginMenu(tr("Power"))) {   // battery life: dect2/power/power.h (update rates, background work) and app/ui/frame_pace.h (redraws)
             static const char* lp[3] = {N_("Low power mode: off"), N_("Low power mode: automatic (on battery or hot)"), N_("Low power mode: always")};
@@ -785,6 +788,7 @@ float menuBar(App& a) {
     appcodec::voiceCodecsWindow(a);
     voiceui::window(a);
     voiceKeysWindow(a);
+    inputmap::window();
     tx::windowPanel(a);
     reportProblemWindow(a);
     modeVisibilityWindow(a);

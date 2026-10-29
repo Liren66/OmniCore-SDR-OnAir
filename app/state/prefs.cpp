@@ -91,6 +91,7 @@ const std::vector<PrefKey>& keyTable() {
         early(dbl("gain", AT(a.tune.gainDb), 0, true, true)),
         early(text("gainDev", AT(a.gainDev))),
         early(flagB("amp", AT(a.tune.ampOn), false)),
+        flagB("agcOn", AT(a.agcOn), false),   // Auto gain: the Auto choice survives a restart (#342)
         shared(scaled("uiTextScale", AT(a.uiTextScale), 100, 100, 0.8, 2, true)),
         shared(flagI("touchUi", AT(a.touchUi), false)), shared(scaled("touchScale", AT(a.touchScale), 100, 135, 1.0, 2, true)),
         num("tetraSlotMode", AT(a.tetraSlotMode), 0, 0, 3, true), num("tetraSlotNum", AT(a.tetraSlotNum), 1, 1, 4, true),
@@ -266,7 +267,7 @@ void loadFmStations(plat::Prefs& d, App& a) {
         for (;;) { size_t bar = line.find('|', q); if (bar == std::string::npos) { f.push_back(line.substr(q)); break; } f.push_back(line.substr(q, bar - q)); q = bar + 1; }
         if (f.size() < 6) continue;
         App::FmScan::Res r;
-        r.mhz = atof(f[0].c_str()); r.name = f[1]; r.pty = f[2]; r.snr = (float)atof(f[3].c_str()); r.stereo = f[4] == "1"; r.rds = f[5] == "1"; r.found = r.mhz >= 87.5 && r.mhz <= 108.01;
+        r.mhz = atof(f[0].c_str()); r.name = f[1]; r.pty = f[2]; r.snr = (float)atof(f[3].c_str()); r.stereo = f[4] == "1"; r.rds = f[5] == "1"; r.found = r.mhz >= 76.0 && r.mhz <= 108.01;   // from 76 MHz, as the band scan reaches
         if (f.size() >= 10) { r.pi = (int)strtol(f[6].c_str(), nullptr, 16); r.tp = f[7] == "1"; r.rt = f[8]; r.psText = f[9]; }   // since full RDS
         if (r.found) a.fmScan.results.push_back(r);
     }
@@ -411,6 +412,7 @@ void loadPrefs(App& a) {
         w.dwellSec = d.getD("wideDwell", w.dwellSec); w.holdSec = d.getD("wideHold", w.holdSec);
         w.maxCarriers = (int)d.getI("wideMax", w.maxCarriers); w.cpuBudget = d.getD("wideCpu", w.cpuBudget);
         w.usePriors = d.getI("widePriors", w.usePriors ? 1 : 0) != 0; w.priorsOnly = d.getI("widePriorsOnly", w.priorsOnly ? 1 : 0) != 0;
+        w.rasterKhz = d.getD("wideRasterKhz", w.rasterKhz); w.snapFreq = d.getI("wideSnap", w.snapFreq ? 1 : 0) != 0;
         a.wideTuningDirty = true;
     }
     if (a.rxId == 1 && a.mapSend && !a.mapConsent) a.mapSend = false;   // never on without consent
@@ -479,6 +481,7 @@ void savePrefs(const App& a) {
         d.setD("wideOnDb", w.onDb); d.setD("wideOffDb", w.offDb); d.setD("wideMinSnr", w.minSnrDb); d.setD("wideDwell", w.dwellSec);
         d.setD("wideHold", w.holdSec); d.setI("wideMax", w.maxCarriers); d.setD("wideCpu", w.cpuBudget);
         d.setI("widePriors", w.usePriors ? 1 : 0); d.setI("widePriorsOnly", w.priorsOnly ? 1 : 0);
+        d.setD("wideRasterKhz", w.rasterKhz); d.setI("wideSnap", w.snapFreq ? 1 : 0);
     }
     saveFmStations(d, a);
     d.setS("fmSaved", fmSavedEncode(a.fmSaved));   // the saved-stations library, not the scan results

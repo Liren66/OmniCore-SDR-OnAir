@@ -59,11 +59,12 @@ PC
 
 # --- generic radios: SoapySDR (a DLL). Its RTL-SDR and Airspy modules are not built: the native drivers of the same name always win and hide them.
 
-[ -f "$P/lib/librtlsdr.a" ] || { step librtlsdr; unpack rtl-sdr-blog-1.3.6.tar.gz rtl-sdr-blog-1.3.6
-  sed -i.bak 's/^set(VERSION_INFO_PATCH_VERSION git)/set(VERSION_INFO_PATCH_VERSION 6)/' rtl-sdr-blog-1.3.6/CMakeLists.txt   # (the tarball has no git history to take the version from)
-  cmake -S rtl-sdr-blog-1.3.6 -B rtl-build "-DCMAKE_TOOLCHAIN_FILE=$TC" -DCMAKE_INSTALL_PREFIX=$P -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DVERSION=0.6.6 -DCMAKE_C_FLAGS="-std=gnu11" -DDETACH_KERNEL_DRIVER=OFF -DINSTALL_UDEV_RULES=OFF >/dev/null
+[ -f "$P/lib/librtlsdr.a" ] || { step librtlsdr; [ -f "$SRC/rtl-sdr-blog-1.4.0.tar.gz" ] || curl -fsSL -o "$SRC/rtl-sdr-blog-1.4.0.tar.gz" https://github.com/rtlsdrblog/rtl-sdr-blog/archive/aed0ea1.tar.gz   # 1.4.0 = commit aed0ea1: V4 Lite support, HF tracking filter bypass
+  [ -d rtl-sdr-blog-1.4.0 ] || { mkdir rtl-sdr-blog-1.4.0 && tar xf "$SRC/rtl-sdr-blog-1.4.0.tar.gz" -C rtl-sdr-blog-1.4.0 --strip-components=1; }
+  sed -i.bak 's/^set(VERSION_INFO_PATCH_VERSION git)/set(VERSION_INFO_PATCH_VERSION 0)/' rtl-sdr-blog-1.4.0/CMakeLists.txt   # (the tarball has no git history to take the version from)
+  cmake -S rtl-sdr-blog-1.4.0 -B rtl-build "-DCMAKE_TOOLCHAIN_FILE=$TC" -DCMAKE_INSTALL_PREFIX=$P -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DVERSION=0.6.6 -DCMAKE_C_FLAGS="-std=gnu11" -DDETACH_KERNEL_DRIVER=OFF -DINSTALL_UDEV_RULES=OFF >/dev/null
   cmake --build rtl-build -j$JOBS --target rtlsdr_static >/dev/null
-  cp rtl-build/src/librtlsdr_static.a "$P/lib/librtlsdr.a"; cp rtl-sdr-blog-1.3.6/include/rtl-sdr.h rtl-sdr-blog-1.3.6/include/rtl-sdr_export.h "$P/include/"
+  cp rtl-build/src/librtlsdr_static.a "$P/lib/librtlsdr.a"; cp rtl-sdr-blog-1.4.0/include/rtl-sdr.h rtl-sdr-blog-1.4.0/include/rtl-sdr_export.h "$P/include/"
   cat > "$P/lib/pkgconfig/librtlsdr.pc" <<PC
 prefix=$P
 libdir=\${prefix}/lib

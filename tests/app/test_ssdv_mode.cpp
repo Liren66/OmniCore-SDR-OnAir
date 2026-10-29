@@ -31,12 +31,12 @@ int main() {
     const std::string modes = readFile("core/src/engine/modes.cpp");
     CHECK(has(modes, "ssdvTuning()") && has(modes, "case 208: return makeSsdvSynth") && has(modes, "case 207: return ssdvSummary"), "modes.cpp wiring");
     const std::string doc = readFile("docs/ssdv.md");
-    CHECK(has(doc, "GPL-3.0") && has(doc, "fsphil") && has(doc, "Wenet") && has(doc, "not handled"), "the help page names the licence and the limits");
+    CHECK(has(doc, "GPL-3.0") && has(doc, "fsphil") && has(doc, "Wenet") && has(doc, "not handled") && has(doc, "user test with a real recording"), "the help page names the licence and the limits");
     CHECK(has(readFile("THIRD_PARTY.md"), "fsphil/ssdv"), "THIRD_PARTY.md names ssdv");
     const std::string ui = readFile("app/ssdv/ssdv_ui.cpp");
     CHECK(has(ui, "SSDV") && has(ui, "Save PNG"), "the panel");
     const std::string tbl = readFile("app/ui/mode_table.cpp");
-    CHECK(has(tbl, "Wenet (LDPC, 115 kbaud) and LoRa are not handled") && has(tbl, "GPL-3.0-or-later"), "mode row names the limits and the licence");
+    CHECK(has(tbl, "needs a user test with a real recording") && has(tbl, "LoRa are not handled") && has(tbl, "GPL-3.0-or-later"), "mode row names the limits and the licence");
     const std::string num = readFile("docs/MODE-NUMBERS.md");
     CHECK(has(num, "| SSDV pictures | 206 | 208 | 207 | 183 |"), "docs/MODE-NUMBERS.md row");
     std::printf(fails ? "ssdv mode: %d FAILED\n" : "ssdv mode: all passed\n", fails);

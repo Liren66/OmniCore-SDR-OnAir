@@ -151,7 +151,7 @@ static const char* const kRestoreSafe[] = {
     "airScan", "airSquelch", "aisZoom", "aleListen", "antWheelMm", "ardopListen", "astroCustom", "astroDeg", "astroFft", "astroInt", "astroLine",
     "astroXVel", "astroY", "atvDeint", "audioRecFmt", "audioRecGate", "audioRecKeep", "audioRecSplit", "bleHop", "bleHopSec", "bletrkMin",
     "bletrkNear", "capBg", "capLines", "capModes", "capOn", "capSave", "capShow", "capSize", "capSource", "capTop", "cdDwell", "cdScan", "clipAudio",
-    "clipAudioSec", "clipRows", "clipWf", "clipWfMB", "clipWfMin", "cquamMode", "cquamSquelch", "cquamWidth", "cubesatCcsdsLen", "cubesatKiss",
+    "clipAudioSec", "clipRows", "clipWf", "clipWfMB", "clipWfMin", "cquamMode", "cquamSquelch", "ctlKeys", "ctlNotch", "ctlStep", "ctlWhSpec", "ctlWhWf", "cquamWidth", "cubesatCcsdsLen", "cubesatKiss",
     "cubesatSats", "cwPitch", "cwSidetone", "cwThreshold", "dabAnnMask", "dabAnnOn", "dabFollow", "dabRecFmt", "dabRecLog", "dabTiiCountry",
     "devName", "dfCal", "dfCompass", "dfGeo", "dfLock", "dfMethod", "dfMhz", "dfN", "dfOrient", "dfShare", "dfSpacing", "dfSrc", "dfUseCal",
     "djiDecode", "dpmrScan", "dstarZoom", "dtmbThreads", "dvbcAnnexC", "dvbcQam", "dvbcSr", "dvbsLnbPol", "dvbsSr", "dvbsStd", "dvbsTxPol", "dwFmt",

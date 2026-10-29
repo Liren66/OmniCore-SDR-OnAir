@@ -90,6 +90,7 @@ static PaceInfo paceFrame(GLFWwindow* window, App& app, const DevOpts& o, double
     ps.video = app.engine.player().selected() >= 0;
     ps.running = anyRunning();
     ps.liveWaterfall = ps.running && !app.wf.paused;   // a shown window with a live waterfall keeps 30 frames a second, focused or not (#246)
+    ps.fastWaterfall = app.wf.fast();
     ps.batterySaver = app.powerLowMode != 0;                                // View > Power > Low power mode (one setting for both)
     ps.onBattery = ps.batterySaver && dect2::power::lowPower();             // manual on, or automatic with the battery or serious heat
     ::power::setReceiving(ps.running);   // no App Nap while a receiver runs

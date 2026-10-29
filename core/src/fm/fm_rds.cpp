@@ -1,5 +1,6 @@
 // RDS / RBDS data layer, see fm_rds.h.
 #include "dect2/fm/fm_rds.h"
+#include "dect2/common/text_charset.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -35,7 +36,43 @@ struct BurstTable {
 };
 const BurstTable& bursts() { static const BurstTable t; return t; }
 
-char rdsChar(uint8_t c) { return c >= 0x20 && c < 0x7F ? (char)c : (c == 0x0D ? '\r' : '?'); }
+// The text buffers keep the received bytes; they become UTF-8 only when the text leaves the decoder (rdsText).
+char rdsChar(uint8_t c) { return c == 0x0D || (c >= 0x20 && c != 0x7F) ? (char)c : '?'; }
+
+const uint16_t kGb2312[87][94] = {
+#include "fm_gb2312.inc"
+};
+
+uint32_t gb2312At(uint8_t lead, uint8_t trail) {
+    if (lead < 0xA1 || lead > 0xF7 || trail < 0xA1 || trail > 0xFE) return 0;
+    return kGb2312[lead - 0xA1][trail - 0xA1];
+}
+
+// Bytes 0x20..0x7E as they come (the de-facto ASCII of every station); 0x80..0xFF as the EBU Latin table of IEC 62106 Annex E
+// (the same table as DAB charset 0). Many Chinese stations send GB2312 (two bytes a character, both >= 0xA1) instead; 'charset' 1 (auto)
+// takes the bytes as GB2312 when every byte >= 0x80 pairs up as a GB2312 character (or most do while a partial text still has gaps), 2 always, 0 never.
+std::string rdsText(const char* raw, size_t n, int charset) {
+    bool gb = false;
+    if (charset != 0) {
+        int pairs = 0, stray = 0;
+        for (size_t i = 0; i < n; i++) {
+            const uint8_t c = (uint8_t)raw[i];
+            if (c < 0x80) continue;
+            if (i + 1 < n && gb2312At(c, (uint8_t)raw[i + 1])) { pairs++; i++; } else stray++;
+        }
+        gb = pairs >= 1 && (charset == 2 || stray == 0 || (pairs >= 2 && stray * 2 <= pairs));
+    }
+    std::string o;
+    for (size_t i = 0; i < n; i++) {
+        const uint8_t c = (uint8_t)raw[i];
+        if (c < 0x80) { o += (char)c; continue; }
+        if (gb) {
+            const uint32_t cp = i + 1 < n ? gb2312At(c, (uint8_t)raw[i + 1]) : 0;
+            if (cp) { text::appendUtf8(o, cp); i++; } else o += '?';
+        } else o += text::ebuLatin(&c, 1);
+    }
+    return o;
+}
 
 std::string trimmed(std::string s) {
     while (!s.empty() && (s.back() == ' ' || s.back() == '\0')) s.pop_back();
@@ -223,11 +260,11 @@ void RdsDecoder::decodeGroup(const uint16_t b[4], const uint8_t err[4], double n
         if ((psSeen_ >> seg & 1) && (psBuf_[seg * 2] != c0 || psBuf_[seg * 2 + 1] != c1)) psSeen_ = 0;
         psBuf_[seg * 2] = c0; psBuf_[seg * 2 + 1] = c1;
         psSeen_ |= (uint8_t)(1 << seg);
-        if (psSeen_ == 15) { ps.assign(psBuf_, 8); psSeen_ = 0; info.psPartial = ps; }
+        if (psSeen_ == 15) { ps = rdsText(psBuf_, 8, charset); psSeen_ = 0; info.psPartial = ps; }
         else {
-            std::string p(8, '_');
+            char p[9] = "________";
             for (int s = 0; s < 4; s++) if (psSeen_ >> s & 1) { p[s * 2] = psBuf_[s * 2]; p[s * 2 + 1] = psBuf_[s * 2 + 1]; }
-            if (ps.empty()) info.psPartial = p;
+            if (ps.empty()) info.psPartial = rdsText(p, 8, charset);
         }
         if (!verB && cOk) {   // alternative frequencies (method A or B lists alike: the frequencies are collected)
             for (int k = 0; k < 2; k++) {
@@ -273,7 +310,7 @@ void RdsDecoder::decodeGroup(const uint16_t b[4], const uint8_t err[4], double n
         const size_t cr = s.find('\r');
         if (cr != std::string::npos) s.resize(cr);
         while (!s.empty() && s.back() == ' ') s.pop_back();
-        rt = s;
+        rt = rdsText(s.data(), s.size(), charset);
         rtPlusRefresh();
     } else if (type == 3 && !verB && cOk) {
         const int app = low, aid = b[3];
@@ -301,7 +338,7 @@ void RdsDecoder::decodeGroup(const uint16_t b[4], const uint8_t err[4], double n
         ptynBuf_[seg * 4] = rdsChar(b[2] >> 8); ptynBuf_[seg * 4 + 1] = rdsChar(b[2] & 0xFF);
         ptynBuf_[seg * 4 + 2] = rdsChar(b[3] >> 8); ptynBuf_[seg * 4 + 3] = rdsChar(b[3] & 0xFF);
         ptynSeen_ |= (uint8_t)(1 << seg);
-        if (ptynSeen_ == 3) info.ptyn = std::string(ptynBuf_, 8);
+        if (ptynSeen_ == 3) info.ptyn = rdsText(ptynBuf_, 8, charset);
     } else if (type == 14 && !verB && cOk) {
         const int variant = low & 15, on = b[3];
         if (variant <= 3 && on != 0 && on != pi) {
@@ -314,7 +351,7 @@ void RdsDecoder::decodeGroup(const uint16_t b[4], const uint8_t err[4], double n
             it->ps[variant * 2] = rdsChar(b[2] >> 8); it->ps[variant * 2 + 1] = rdsChar(b[2] & 0xFF);
             it->seen |= (uint8_t)(1 << variant);
             info.eon.clear();
-            for (const auto& e : eonBuf_) info.eon.push_back({e.pi, e.seen == 15 ? std::string(e.ps, 8) : std::string()});
+            for (const auto& e : eonBuf_) info.eon.push_back({e.pi, e.seen == 15 ? rdsText(e.ps, 8, charset) : std::string()});
         }
     }
 }
@@ -335,7 +372,7 @@ void RdsDecoder::rtPlusRefresh() {
         bool all = true;   // every segment the tag covers has come
         for (int s = t.start / per; s <= (t.start + t.len) / per; s++) if (!(rtSeen_ >> s & 1)) all = false;
         if (!all) continue;
-        const std::string text = trimmed(std::string(rtBuf_ + t.start, (size_t)t.len + 1));
+        const std::string text = trimmed(rdsText(rtBuf_ + t.start, (size_t)t.len + 1, charset));
         if (text.empty() || text.find('\r') != std::string::npos) continue;
         auto it = std::find_if(info.rtPlus.begin(), info.rtPlus.end(), [&](const RtPlusTag& x) { return x.type == t.type; });
         if (it == info.rtPlus.end()) { info.rtPlus.push_back({t.type, rtPlusTypeName(t.type), text}); }

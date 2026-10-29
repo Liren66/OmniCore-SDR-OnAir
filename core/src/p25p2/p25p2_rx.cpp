@@ -1,5 +1,6 @@
 // P25 Phase 2 receiver (see p25p2_rx.h; the protocol layout is in p25p2_proto.h and is this program's own reading of public descriptions).
 #include "dect2/p25p2/p25p2_rx.h"
+#include "dect2/dsp/fftutil.h"
 #include "dect2/dsp/up6.h"
 #include "dect2/dsp/cic3.h"
 #include "dect2/p25p2/p25p2_proto.h"
@@ -69,7 +70,7 @@ struct P25p2Receiver::Impl {
         D = std::max(1, (int)std::floor(rate / 100000.0));
         fd = rate > 0 ? rate / D : 0;
         inv = 1.0 / ((double)D * D * D);
-        lo = 1; loCount = 0;
+        lo = 1; loCount = 0; afcHz = 0;
         loStep = rate > 0 ? std::polar(1.0, -2 * kPi * offset / rate) : std::complex<double>(1, 0);
         cic.reset();
         decCount = 0;
@@ -124,7 +125,97 @@ struct P25p2Receiver::Impl {
     float angr[kRing];
     uint64_t reg[kSps] = {};
     int64_t n = 0;                 // 48 kHz sample count
-    double cfoStep = 0;            // rad per symbol of carrier offset
+    double cfoStep = 0;            // rad per symbol of carrier offset still left after the front end's own move (afcHz)
+    // Carrier acquisition. The differential demodulator slices at +-pi/2 and pi: a carrier more than about 700 Hz off (45 degrees a symbol) is read as
+    // other dibits and the sync word never matches. While not locked the sync search therefore also runs at kHyp offsets either side in steps of
+    // kHypHz (the stricter kSyncMaxHyp bit errors, the false sync rate stays low); the offset that finds the sync is then taken out at the front end
+    // (afcHz, as the Phase 1 receiver does) so the matched filter and the slicer see a centred signal.
+    static constexpr int kHyp = 4;   // +-2.4 kHz and a residual of 300 Hz: +-2.7 kHz. Further out the symbol-rate differential detector aliases (3 kHz is half a circle a symbol)
+    static constexpr double kHypHz = 600.0;
+    static constexpr int kSyncMaxHyp = 2;
+    static constexpr double kMaxAfcHz = 7500.0;
+    uint64_t regH[2 * kHyp + 1][kSps] = {};
+    // Coarse carrier search by spectrum. The symbol-rate differential detector cannot tell offsets apart past +-3 kHz (it sees them modulo 6 kHz), so
+    // while there is no lock the 48 kHz stream is also watched for where the signal's power sits; a carrier further out than the sync search reaches
+    // is moved towards the middle at the front end, and the sync search takes it from there.
+    static constexpr int kSpecN = 1024, kSpecBlocks = 8;
+    Fft specFft{kSpecN};
+    std::vector<cf32> specBuf;
+    std::vector<float> specPow = std::vector<float>(kSpecN, 0.f);
+    int specBlocks = 0;
+    void specPush(cf32 z) {
+        specBuf.push_back(z);
+        if ((int)specBuf.size() < kSpecN) return;
+        for (int i = 0; i < kSpecN; i++) specBuf[(size_t)i] *= (float)(0.5 - 0.5 * std::cos(2 * kPi * i / kSpecN));
+        specFft.forward(specBuf.data());
+        for (int i = 0; i < kSpecN; i++) specPow[(size_t)i] += std::norm(specBuf[(size_t)i]);
+        specBuf.clear();
+        if (++specBlocks < kSpecBlocks) return;
+        specBlocks = 0;
+        specEvaluate();
+        std::fill(specPow.begin(), specPow.end(), 0.f);
+    }
+    bool specReady = false;               // the first look at the spectrum is done (the sync search at other offsets waits for it)
+    double coarseHz = 0, coarseAt = -1e9, coarseOffUntil = -1e9;
+    void specEvaluate() {
+        specReady = true;
+        const double now = sigSec();
+        if (!locked && coarseHz != 0 && now - coarseAt > 1.5) {   // moved, and still no sync: that was noise or a stray carrier; back
+            moveLo(-coarseHz);
+            coarseHz = 0;
+            coarseOffUntil = now + 6.0;
+            return;
+        }
+        if (!locked && (now - lastSync < 1.0 || now < coarseOffUntil || coarseHz != 0)) return;
+        const int hw = 64;   // +-3 kHz: where most of the signal's power is
+        double bestE = 0;
+        int bestC = 0;
+        double e = 0;
+        for (int k = -hw; k <= hw; k++) e += specPow[(size_t)((k + kSpecN) % kSpecN)];
+        for (int c = 0; c < kSpecN; c++) {
+            if (c) e += specPow[(size_t)((c + hw) % kSpecN)] - specPow[(size_t)((c - hw - 1 + kSpecN) % kSpecN)];
+            if (e > bestE) { bestE = e; bestC = c; }
+        }
+        // the rest of the channel filter's passband (+-6 kHz) is the reference: noise there is as high as inside the window
+        double refSum = 0;
+        int refN = 0;
+        for (int k = -128; k <= 128; k++) {
+            const int bin = ((k % kSpecN) + kSpecN) % kSpecN;
+            const int d = std::abs(((bin - bestC + kSpecN / 2) % kSpecN + kSpecN) % kSpecN - kSpecN / 2);
+            if (d <= hw) continue;
+            refSum += specPow[(size_t)bin]; refN++;
+        }
+        if (refN < 20 || bestE < 3.0 * (refSum / refN) * (2 * hw + 1)) return;   // no clear signal
+        double sw = 0, sf = 0;
+        const double ref = refSum / refN;
+        for (int k = -hw; k <= hw; k++) {
+            const double w = std::max(0.0, specPow[(size_t)(((bestC + k) % kSpecN + kSpecN) % kSpecN)] - ref);
+            sw += w; sf += w * k;
+        }
+        if (sw <= 0) return;
+        int ctr = bestC + (int)std::lround(sf / sw);
+        ctr = ((ctr + kSpecN / 2) % kSpecN + kSpecN) % kSpecN - kSpecN / 2;
+        const double hz = ctr * (kFs / kSpecN);
+        if (locked) {   // a lock on an alias (the detector sees offsets modulo 6 kHz): the power says the carrier is somewhere else
+            if (std::fabs(hz) > 2800.0) { const double before = afcHz; moveLo(hz); if (afcHz != before) { unlock(); coarseHz = hz; coarseAt = now; tel.unlocks--; } }
+            return;
+        }
+        if (std::fabs(hz) > 1800.0) { const double before = afcHz; moveLo(hz); if (afcHz != before) { coarseHz = hz; coarseAt = now; } }
+    }
+    int winHyp = 0;
+    double afcHz = 0;
+    void moveLo(double hz) {
+        if (std::fabs(afcHz + hz) > kMaxAfcHz) return;
+        afcHz += hz;
+        loStep = std::polar(1.0, -2 * kPi * (offset + afcHz) / rate);
+    }
+    void recentre() {   // the whole carrier offset (cfoStep) moves into the front end
+        const double hz = cfoStep * p25p2::kSymbolRate / (2 * kPi);
+        if (std::fabs(hz) < 150) return;
+        const double before = afcHz;
+        moveLo(hz);
+        if (afcHz != before) cfoStep = 0;
+    }
     bool win = false;
     int64_t winStart = 0;
     int winDist[kSps] = {};
@@ -144,10 +235,14 @@ struct P25p2Receiver::Impl {
         for (auto& v : yr) v = cf32(0, 0);
         for (auto& v : angr) v = 0;
         for (auto& r : reg) r = 0;
+        for (auto& row : regH) for (auto& r : row) r = 0;
+        specBuf.clear(); std::fill(specPow.begin(), specPow.end(), 0.f); specBlocks = 0; specReady = false; coarseHz = 0; coarseAt = coarseOffUntil = -1e9;
+        winHyp = 0;
         n = 0; win = false; locked = false; cfoStep = 0; slotIdx = slotPos = dibSinceSync = 0;
     }
 
     void sample(cf32 z) {
+        specPush(z);
         zr[n & kRMask] = z;
         cf32 y(0, 0);
         for (int k = 0; k < kTaps; k++) y += zr[(n - k) & kRMask] * h[k];
@@ -162,8 +257,20 @@ struct P25p2Receiver::Impl {
             const int ph = (int)(n & 7);
             reg[ph] = ((reg[ph] << 2) | (uint64_t)dib) & kMask40;
             const int dist = __builtin_popcountll(reg[ph] ^ p25p2::kSyncWord);
-            if (win) winDist[n - winStart] = dist;
-            else if (dist <= kSyncMax) { win = true; winStart = n; for (int& v : winDist) v = 99; winDist[0] = dist; }
+            if (win) { if (winHyp == 0) winDist[n - winStart] = dist; }
+            else if (dist <= kSyncMax) { win = true; winHyp = 0; winStart = n; for (int& v : winDist) v = 99; winDist[0] = dist; }
+            if (!locked && specReady) {   // the search at the other carrier offsets
+                for (int h = -kHyp; h <= kHyp; h++) {
+                    if (h == 0) continue;
+                    const float ah = wrapPi(ang - (float)(cfoStep + h * 2 * kPi * kHypHz / p25p2::kSymbolRate));
+                    const int sh = ah >= (float)(kPi / 2) ? 3 : ah >= 0 ? 1 : ah >= -(float)(kPi / 2) ? -1 : -3;
+                    uint64_t& rg = regH[h + kHyp][ph];
+                    rg = ((rg << 2) | (uint64_t)p25p2::stepDibit(sh)) & kMask40;
+                    const int dh = __builtin_popcountll(rg ^ p25p2::kSyncWord);
+                    if (win) { if (winHyp == h) winDist[n - winStart] = dh; }
+                    else if (dh <= kSyncMaxHyp) { win = true; winHyp = h; winStart = n; for (int& v : winDist) v = 99; winDist[0] = dh; }
+                }
+            }
             if (win && n >= winStart + kSps - 1) { commitSync(); win = false; }
             if (locked && n == nextDibitN) { nextDibitN += kSps; takeDibit(dib); }
         }
@@ -192,8 +299,15 @@ struct P25p2Receiver::Impl {
             if (var < bestVar) { bestVar = var; bestN = m; bestMean = mean; }
         }
         if (bestN < 0) return;
+        // a carrier more than 3 kHz off turns more than half a circle a symbol: the residual angle only says the offset modulo 6 kHz, the search
+        // offset that found the sync says which
+        if (!locked && winHyp != 0) {
+            const double ref = cfoStep + winHyp * 2 * kPi * kHypHz / p25p2::kSymbolRate;
+            bestMean = ref + wrapPi((float)(bestMean - ref));
+        }
         tel.syncs++;
         lastSync = sigSec();
+        coarseHz = 0;
         const double snr = 10 * std::log10(1.0 / std::max(1e-4, bestVar));
         snrAvg = snrAvg == 0 ? snr : snrAvg + 0.3 * (snr - snrAvg);
         constexpr int64_t kB = (int64_t)p25p2::kBurstDibits * kSps;
@@ -204,6 +318,7 @@ struct P25p2Receiver::Impl {
                 pendingShift += shift;             // the symbol clock follows the sync, from the next burst on
                 syncEndPred += shift;
                 cfoStep += 0.5 * wrapPi((float)(bestMean - cfoStep));
+                if (std::fabs(cfoStep) > 0.2 * kPi) recentre();   // more than 0.2 pi a symbol (about 600 Hz) drifted: back to the front end
                 dibSinceSync = 0;
                 return;
             }
@@ -211,7 +326,7 @@ struct P25p2Receiver::Impl {
             // lock (a chance match in the payload is 2^-40 per position).
             if (winDist[bestN - winStart] != 0) return;
             tel.realigns++;
-        } else cfoStep = bestMean;
+        } else { cfoStep = bestMean; recentre(); }
         locked = true; dibSinceSync = 0;
         slotPos = p25p2::kIschDibits;            // the slot counter runs on: the I-ISCH puts it right
         p25p2::ischSync(buf);
@@ -429,7 +544,7 @@ struct P25p2Receiver::Impl {
             break;
         case p25p2::kMacEndPtt:
             if (len >= p25p2::kEndLen) {
-                tel.nac = (int)(p25p2::be16(m + p25p2::kEndColorOff) >> 4);
+                tel.nac = (int)(p25p2::be16(m + p25p2::kEndColorOff) & 0xFFF);
                 if (tel.now[ci].active) endCall(ci, true);
             }
             break;
@@ -439,7 +554,7 @@ struct P25p2Receiver::Impl {
         case p25p2::kMacSignal: case p25p2::kMacActive: case p25p2::kMacHangtime: {
             int pos = 1;
             while (pos < len) {
-                const int op = m[pos], ml = p25p2::macMsgLen(op);
+                const int op = m[pos], ml = (op >> 6) == 2 && pos + 2 < len && (m[pos + 2] & 0x3F) ? (m[pos + 2] & 0x3F) : p25p2::macMsgLen(op);   // a manufacturer's message carries its own length
                 if (op == p25p2::kMsgNull || ml == 0 || pos + ml > len) break;
                 if (op == p25p2::kMsgGrpVUser) userMsg(ci, m[pos + 1], (int)p25p2::be16(m + pos + 2), (int)p25p2::be24(m + pos + 4), true);
                 else if (op == p25p2::kMsgUuVUser) userMsg(ci, m[pos + 1], (int)p25p2::be24(m + pos + 2), (int)p25p2::be24(m + pos + 5), false);
@@ -633,9 +748,12 @@ struct P25p2Receiver::Impl {
             if (facch && vocUsed[ci]) { ambe[ci].reset(); vocUsed[ci] = false; }   // a call boundary: the vocoder starts afresh
             uint8_t pay[p25p2::kPayloadDibits];
             p25p2::payloadGet(duid == p25p2::kDuidSacchClear || duid == p25p2::kDuidFacchClear ? buf : d, pay);
-            uint8_t mac[p25p2::kFacchMacBytes];
+            uint8_t mac[p25p2::kFacchMacBytes + 4];
             int fixed = 0;
-            if (p25p2::macDecode(facch, pay, mac, &fixed)) {
+            if (p25p2::macDecodeAir(facch, pay, mac, &fixed)) {   // the coding of the standard
+                tel.blocksOk++; tel.rsCorrected += (uint64_t)fixed; tel.macAir++;
+                macPdu(ci, mac, facch ? p25p2::kFacchAirBytes : p25p2::kSacchAirBytes);
+            } else if (p25p2::macDecode(facch, pay, mac, &fixed)) {   // OnAir's own layout (the test signal of earlier versions); never expected on a real channel
                 tel.blocksOk++; tel.rsCorrected += (uint64_t)fixed;
                 macPdu(ci, mac, facch ? p25p2::kFacchMacBytes : p25p2::kSacchMacBytes);
             } else tel.blocksBad++;
@@ -698,7 +816,7 @@ struct P25p2Receiver::Impl {
             if (tel.now[i].active) tel.now[i].durSec = sigSec() - tel.now[i].startSec;
         }
         tel.locked = locked;
-        tel.cfoHz = cfoStep * kSymRate() / (2 * kPi);
+        tel.cfoHz = cfoStep * kSymRate() / (2 * kPi) + afcHz;
         tel.snrDb = (float)snrAvg;
         tel.listenSlot = listen.load();
         tel.followTag = followTag;

@@ -78,24 +78,31 @@ std::vector<uint8_t> p25p2Dibits(const P25p2GenConfig& c) {
                 uint8_t* b = burst[s];
                 for (int i = 0; i < p25p2::kBurstDibits; i++) b[i] = rnd();
                 const P25p2GenCall* call = callAt(c, ch, sf);
+                const int nF = c.ownMacLayout ? p25p2::kFacchMacBytes : p25p2::kFacchAirBytes, nS = c.ownMacLayout ? p25p2::kSacchMacBytes : p25p2::kSacchAirBytes;
                 auto sig = [&](bool facch, const std::vector<uint8_t>& mac) {
                     uint8_t cw[p25p2::kFacchDibits];
-                    p25p2::macEncode(facch, mac.data(), cw);
-                    p25p2::payloadPut(cw, facch ? p25p2::kFacchDibits : p25p2::kSacchDibits, b);
+                    if (c.ownMacLayout) {
+                        p25p2::macEncode(facch, mac.data(), cw);
+                        p25p2::payloadPut(cw, facch ? p25p2::kFacchDibits : p25p2::kSacchDibits, b);
+                    } else {
+                        uint8_t pay[p25p2::kPayloadDibits];
+                        p25p2::macEncodeAir(facch, mac.data(), pay);
+                        p25p2::payloadPut(pay, p25p2::kPayloadDibits, b);
+                    }
                     p25p2::duidPut(facch ? p25p2::kDuidFacch : p25p2::kDuidSacch, b);
                 };
                 if (!call) {
                     const bool facch = p != 5;
-                    const int n = facch ? p25p2::kFacchMacBytes : p25p2::kSacchMacBytes;
+                    const int n = facch ? nF : nS;
                     sig(facch, c.sysMsgs.empty() ? p25p2::macIdle(n) : p25p2::macSignal(n, {c.sysMsgs[sysIdx++ % c.sysMsgs.size()]}));
                     continue;
                 }
                 const bool first = sf == call->startSf, last = sf == call->startSf + call->nSf - 1;
-                if (first && p == 0) { sig(true, p25p2::macPtt(p25p2::kFacchMacBytes, call->src, call->group, call->algId)); continue; }
-                if (last && p == 5) { sig(true, p25p2::macEndPtt(p25p2::kFacchMacBytes, call->src, call->group, c.colorCode)); continue; }
+                if (first && p == 0) { sig(true, p25p2::macPtt(nF, call->src, call->group, call->algId)); continue; }
+                if (last && p == 5) { sig(true, p25p2::macEndPtt(nF, call->src, call->group, c.colorCode)); continue; }
                 if (p == 5) {
-                    sig(false, call->unitToUnit ? p25p2::macActiveUu(p25p2::kSacchMacBytes, call->svcOpts, call->group, call->src)
-                                                : p25p2::macActive(p25p2::kSacchMacBytes, call->svcOpts, call->group, call->src));
+                    sig(false, call->unitToUnit ? p25p2::macActiveUu(nS, call->svcOpts, call->group, call->src)
+                                                : p25p2::macActive(nS, call->svcOpts, call->group, call->src));
                     continue;
                 }
                 // voice: the frames, and the call's encryption sync (ESS-B a quarter at a time in the 4V bursts, ESS-A in the 2V)

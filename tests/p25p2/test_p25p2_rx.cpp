@@ -196,6 +196,21 @@ int main() {
         for (bool v : fr.clear[2]) clear2 += v;
         CHECK(clear2 == 0, "late entry: %zu encrypted frames handed on as clear", clear2);
     }
+    // ---- the MAC PDUs of the SACCH / FACCH bursts: the standard's coding names the talker on the voice channel, the earlier private layout still decodes
+    {
+        P25p2GenConfig c = baseConfig();
+        c.scramble = true; c.snrDb = 30;
+        const int seed[3] = {c.wacn, c.sysId, c.colorCode};
+        const P25p2Telemetry t = run(c, nullptr, 0, nullptr, seed);
+        const P25p2Call* a = findCall(t, 1, 1234567);
+        CHECK(t.macAir > 10 && a && a->dst == 1001 && a->group && a->endSeen && !a->lateEntry, "standard MAC coding: %llu PDUs, call %s", (unsigned long long)t.macAir, a ? "found" : "missing");
+        CHECK(t.colorCode == c.colorCode && t.nac == c.colorCode, "END_PTT colour code %03X", t.nac);
+        P25p2GenConfig o = c;
+        o.ownMacLayout = true;
+        const P25p2Telemetry u = run(o, nullptr, 0, nullptr, seed);
+        const P25p2Call* b = findCall(u, 1, 1234567);
+        CHECK(u.macAir == 0 && b && b->dst == 1001 && b->endSeen, "private layout fallback: %llu standard PDUs, call %s", (unsigned long long)u.macAir, b ? "found" : "missing");
+    }
     // ---- pure noise: nothing is found
     {
         P25p2GenConfig c = baseConfig();

@@ -46,7 +46,7 @@ struct P25p2Telemetry {
     bool locked = false;
     int slotNow = -1;            // slot of the superframe (0..11) being received
     uint64_t syncs = 0, slots = 0, slotsBad = 0, ischBad = 0, unlocks = 0;
-    uint64_t v4 = 0, v2 = 0, sacch = 0, facch = 0, rsCorrected = 0;
+    uint64_t v4 = 0, v2 = 0, sacch = 0, facch = 0, rsCorrected = 0, macAir = 0;   // macAir: MAC PDUs decoded with the coding of the standard
     uint64_t voiceFrames = 0, voiceDecoded = 0, encryptedSkipped = 0;
     uint64_t ischExact = 0, ischCorrected = 0, duidBad = 0, essOk = 0, essBad = 0, realigns = 0;
     int wacn = 0, sysId = 0, colorCode = 0;   // the descrambler seed in use (all 0: not descrambled)

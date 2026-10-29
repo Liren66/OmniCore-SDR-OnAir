@@ -46,6 +46,7 @@ Index of this file:
 
 // System includes
 #include <stdint.h>     // intptr_t
+#include <string>
 
 //-------------------------------------------------------------------------
 // Warnings
@@ -157,6 +158,11 @@ static ImVec2   InputTextCalcTextSize(ImGuiContext* ctx, const char* text_begin,
 // - BulletTextV()
 //-------------------------------------------------------------------------
 
+// OnAir: the text whose copy menu is open (#344); gOnAirCopySeen tells NewFrame() that the menu was drawn this frame (a text that changed or scrolled away would leave it open, unseen)
+ImGuiID gOnAirCopyId = 0;
+bool gOnAirCopySeen = false;
+static std::string gOnAirCopyText;
+
 void ImGui::TextEx(const char* text, const char* text_end, ImGuiTextFlags flags)
 {
     ImGuiWindow* window = GetCurrentWindow();
@@ -189,6 +195,31 @@ void ImGui::TextEx(const char* text, const char* text_end, ImGuiTextFlags flags)
 
         // Render (we don't hide text after ## in this end-user function)
         RenderTextWrapped(bb.Min, text_begin, text_end, wrap_width);
+
+        // OnAir: text can be copied (#344). Hover it and press Ctrl+C (or Ctrl+Insert), or right-click it for a one-entry "Copy" menu. Only a text nothing
+        // else lies under (no hovered widget, no editing in progress) is taken, so the context menus of rows and the input fields keep their clicks.
+        if (text_end > text_begin && (g.IO.MouseClicked[1] || (g.IO.KeyCtrl && (IsKeyPressed(ImGuiKey_C, false) || IsKeyPressed(ImGuiKey_Insert, false))) || gOnAirCopyId != 0))
+        {
+            const ImGuiID copy_id = ImHashData(text_begin, (size_t)(text_end - text_begin), window->IDStack.back());
+            if (g.ActiveId == 0 && g.HoveredId == 0 && ItemHoverable(bb, 0, g.LastItemData.ItemFlags))
+            {
+                if (g.IO.KeyCtrl && (IsKeyPressed(ImGuiKey_C, false) || IsKeyPressed(ImGuiKey_Insert, false)))
+                    SetClipboardText(std::string(text_begin, text_end).c_str());
+                else if (g.IO.MouseClicked[1])
+                {
+                    gOnAirCopyId = copy_id;
+                    gOnAirCopyText.assign(text_begin, text_end);
+                    OpenPopupEx(copy_id, ImGuiPopupFlags_None);
+                }
+            }
+            if (gOnAirCopyId == copy_id && BeginPopupEx(copy_id, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings))
+            {
+                gOnAirCopySeen = true;
+                if (Selectable("Copy"))
+                    SetClipboardText(gOnAirCopyText.c_str());
+                EndPopup();
+            }
+        }
     }
     else
     {

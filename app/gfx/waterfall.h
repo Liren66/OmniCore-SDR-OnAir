@@ -60,6 +60,8 @@ struct Waterfall {
     int accN = 0;            // frames summed into acc (rowAverage)
     std::vector<float> accOut;
     float rowsPerSec = 0;    // 0: one row per spectrum frame (about 30 a second); else this many rows a second (down to one a minute), each the highest level of the frames in between
+    size_t fastBins = 0;     // bins of a fast row (fast(): the history width follows it, not the spectrum frame)
+    double fastSent = -1;    // the fast row rate last told to the engine (0: off)
     bool paused = false;     // no new rows: the picture stays and can be scrolled back
     double nextRowT = 0;
     double trackT = 0;
@@ -76,8 +78,9 @@ struct Waterfall {
         pushT = t;
     }
     bool slow() const { return rowsPerSec > 0.001f && rowsPerSec < 28.f; }   // rows come at a set, slower pace
-    bool timeKnown() const { return nStamps >= 128 || slow(); }
-    void setRate(float r) { rowsPerSec = r; nStamps = 0; nextRowT = 0; accEmpty = true; rowDt = slow() ? 1.0 / r : 1.0 / 30; }
+    bool fast() const { return rowsPerSec >= 28.f; }   // fast rows (CW): the engine makes a row every 1/rowsPerSec seconds, the screen draws them in batches
+    bool timeKnown() const { return nStamps >= 128 || slow() || fast(); }
+    void setRate(float r) { rowsPerSec = r; nStamps = 0; nextRowT = 0; accEmpty = true; rowDt = slow() || fast() ? 1.0 / r : 1.0 / 30; }
 
     static int& themeMode() { static int m = 0; return m; }   // the interface theme's waterfall choice (pal::wfMode(), set by the app each frame)
     int effMap() const { return map >= 0 && map < NumMaps ? map : themeMode() == 2 ? Turbo : themeMode() == 1 ? Grey : Classic; }
@@ -155,6 +158,14 @@ struct Waterfall {
             extra = 0;
         }
         for (int i = 0; i <= extra; i++) writeFrom(d, dbfs.size());
+        return true;
+    }
+    // One fast row from the engine (fast(): rows a second, each from its own short transform): written as it is, no pacing and no average down
+    // the rows (rowTau would smear a 60 ms Morse dot over several rows).
+    bool offerFast(const float* d, size_t n) {
+        if (paused || n == 0) return false;
+        if (paletteStale()) palette();
+        writeFrom(d, n);
         return true;
     }
     // the bins of the frame onto the history columns (the highest of those that share a column), the levels onto the colour table

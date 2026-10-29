@@ -124,6 +124,7 @@ struct AeroReceiver::Impl {
     std::vector<AeroLogonEntry> logons;
     std::vector<AeroMessage> messages;
     std::vector<AeroAircraft> aircraft;
+    std::vector<AeroSysEntry> sys;
     uint64_t messagesTotal = 0, logonsTotal = 0, framesTotal = 0, susOk = 0, susBad = 0, positionsTotal = 0;
     bool suLayer = false;
     double lastNow = 0;                // stream time of the last report: the kept tables move back by it when the clock starts again
@@ -141,6 +142,7 @@ struct AeroReceiver::Impl {
         t.messages = messages;
         t.aircraft = aircraft;
         std::sort(t.aircraft.begin(), t.aircraft.end(), [](const AeroAircraft& a, const AeroAircraft& b) { return a.lastHeard > b.lastHeard; });
+        t.sys = sys;
         t.messagesTotal = messagesTotal; t.logonsTotal = logonsTotal; t.positionsTotal = positionsTotal;
     }
     void republish() {   // mu held: the tables alone (after a reset, a load or a clear)
@@ -361,6 +363,7 @@ struct AeroReceiver::Impl {
                 if (t.name.empty()) t.name = su.typeName;
                 t.count++;
                 if (su.crcOk) c.suDec.feed(su, now(), acars, lgs);
+                if (su.crcOk) noteSystem(su);
             }
         }
         const int64_t wall = (int64_t)std::time(nullptr);
@@ -403,6 +406,20 @@ struct AeroReceiver::Impl {
             for (auto& ch : line) if ((unsigned char)ch < 32) ch = ' ';
             say(line);
         }
+    }
+
+    // the system table: satellite id (with its longitude) and the P/R channel control: kept once per kind and identity, counted
+    void noteSystem(const AeroSu& su) {
+        const AeroSysInfo si = aeroParseSystemSu(su);
+        if (si.kind != 2 && si.kind != 3) return;
+        for (auto& e : sys) {
+            if (e.kind == si.kind && e.satId == si.satId && e.gesId == si.gesId && std::fabs(e.pMHz - si.freqMHz[0]) < 1e-6) { e.count++; e.wallTime = (int64_t)std::time(nullptr); return; }
+        }
+        if (sys.size() >= 24) return;
+        AeroSysEntry e;
+        e.kind = si.kind; e.satId = si.satId; e.lonDeg = si.lonDeg; e.gesId = si.gesId; e.bitRate = si.bitRate; e.pMHz = si.freqMHz[0];
+        e.spotBeam = si.spotBeam; e.count = 1; e.wallTime = (int64_t)std::time(nullptr);
+        sys.push_back(e);
     }
 
     void addPosition(AeroAircraft& a, const AeroPosition& p, int64_t wall) {
@@ -549,7 +566,7 @@ void AeroReceiver::reset() {
 }
 void AeroReceiver::clearResults() {
     std::lock_guard<std::mutex> lk(p_->mu);
-    p_->types.clear(); p_->logons.clear(); p_->messages.clear(); p_->aircraft.clear();
+    p_->sys.clear(); p_->types.clear(); p_->logons.clear(); p_->messages.clear(); p_->aircraft.clear();
     p_->messagesTotal = p_->logonsTotal = p_->positionsTotal = 0;
     p_->republish();
 }

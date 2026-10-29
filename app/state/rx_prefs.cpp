@@ -8,7 +8,7 @@ int gPrefRx = 1;
 
 namespace {
 bool perReceiver(const char* k) {
-    static const char* const kPre[] = {"freqMhz", "lna", "vga", "gain", "amp", "family", "subMode", "gLna", "gVga", "gAmp", "fFreq", "devName", "bw", "standard", "dtmbBw", "isdbtBw"};
+    static const char* const kPre[] = {"freqMhz", "lna", "vga", "gain", "amp", "family", "subMode", "gLna", "gVga", "gAmp", "fFreq", "agcOn", "devName", "bw", "standard", "dtmbBw", "isdbtBw"};
     for (const char* p : kPre) if (!strncmp(k, p, strlen(p))) return true;
     return false;
 }

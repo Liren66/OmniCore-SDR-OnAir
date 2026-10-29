@@ -84,7 +84,10 @@ void Engine::analysisLoop() {
     SpectrumFrame f;
     uint64_t rxSeq = 0;
     while (!stopReq_) {
-        if (resetReq_.exchange(false)) { applyReset(); rxSeq = 0; }
+        if (resetReq_.exchange(false)) {
+            applyReset(); rxSeq = 0;
+            for (auto& q : modeSeq_) q = 0;   // a reset receiver starts its report numbers again from 0: without this its reports would be ignored until it passed the old number (a retune froze TETRAPOL)
+        }
         size_t n;
         catchUp();
         while ((n = ring_.read(buf.data(), buf.size())) > 0) { ingest(buf.data(), n); if (std::chrono::steady_clock::now() > next + std::chrono::milliseconds(250)) break; } // keep publishing spectrum/telemetry even when the receiver is behind

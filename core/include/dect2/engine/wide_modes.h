@@ -33,6 +33,8 @@ struct WideTuning {
     double cpuBudget = 0.8;           // share of real time the carriers' work may take (0: no limit)
     bool usePriors = true;            // known channels (frequency database) at a lower threshold
     bool priorsOnly = false;          // only the known channels
+    double rasterKhz = 0;             // channel raster of the search (6.25, 12.5, 25 ...); 0: the mode's own (12.5 for DMR, 25 for pagers)
+    bool snapFreq = true;             // report each carrier on its raster channel centre, not on the measured centroid
 };
 
 class WideModes {

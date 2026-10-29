@@ -110,6 +110,11 @@ std::vector<int> txReceiveOnlyRadios(const std::vector<DeviceInfo>& devs);
 std::unique_ptr<TxSink> makeNullTxSink();
 
 // A generator at a given sample rate: endless, continuous, clean (no noise, offsets or echoes).
+// How far above the dial the radio is tuned for a mode (0: none). The receivers of most modes listen tuneOffsetHz above the dial, away from the
+// radio's DC spike, and the mode's generator puts its signal tuneOffsetHz below the radio's centre; a transmitter must tune the same way, or the
+// signal goes out that far below the frequency asked for (APRS 50 kHz down, #351). The modes with their own transmit chain place theirs themselves.
+double txModeTuneOffsetHz(const TxModeSpec& m);
+
 class TxGenerator {
 public:
     virtual ~TxGenerator() = default;

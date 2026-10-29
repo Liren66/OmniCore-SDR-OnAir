@@ -107,6 +107,48 @@ timers; nice 10 on Linux), and uploads nobody waits on (`onair-mapsend*`, `onair
 `onair-packs`, `onair-updl`, `onair-airport`) the utility class (nice 5). The sample path, decoders and players keep what they set
 themselves (`setThreadPriority`: user-interactive / user-initiated / utility). The main thread stays user-interactive.
 
+### 9. Big spectrum FFTs and the fast waterfall (3.3; core/src/dsp/spectrum.cpp)
+
+Reported: "SDRconnect 262144 is easy, OnAir 131072 lags". Measured with `bench_specfft [Msps] [seconds]` (tests/bench/bench_specfft.cpp, standalone
+`-O3`, Apple silicon, Accelerate FFT) and `bench_fft` (`-DDECT2_PORTABLE` for the portable kernels Windows and Linux run).
+
+* **Where the time goes** (ms per spectrum frame at 10 Msps, two blocks; one core is 33 ms of every 33 ms): 4096 bins 0.03; 16384 0.12;
+  65536 0.50; 131072 1.05; 262144 2.3 (of which windows, transforms and power sums 1.5, the dB conversion 0.16, the copies 0.08, the trace and row averages
+  0.55). That is 0.1 % to 4.4 % of a core on the Mac, so the transform is not what lags there. The portable FFT (what a PC runs; NEON here,
+  AVX2 there) is about three times slower than Accelerate: 262144 points in 1.7 ms against 0.5 ms, still about 5 % of a core at 30 frames a second.
+* **What did lag**: a frame is made of transforms of consecutive samples, so below a sample rate the frame rate was fs / N, not 30:
+  131072 bins at 2.4 Msps gave 18 frames a second, 262144 bins 9, and at 1 Msps 7 and 3.7 (a picture that moves a few times a second is the
+  lag). Since 3.3, with the sample rate known (`SpectrumAnalyzer::setSampleRate`, set by the engine) a size for which two blocks do not fit in a
+  frame period is made from overlapping windows, one every fs / 35 samples: 29 to 30 frames a second at every rate.
+
+  | Msps | bins | frames/s before | after | CPU ms per signal second before / after |
+  |---|---|---|---|---|
+  | 1 | 131072 | 7.3 | 29.0 | 3.4 / 10.4 |
+  | 1 | 262144 | 3.7 | 27.7 | 3.7 / 19.5 |
+  | 2.4 | 131072 | 18 | 29.7 | 7.5 / 12.3 |
+  | 2.4 | 262144 | 9 | 29.0 | 7.9 / 23.3 |
+  | 4 | 262144 | 15 | 29.7 | 12.7 / 23.7 |
+  | 10 and 20 | 16384 to 262144 | 30 | 30 | unchanged (the sizes do not overlap) |
+
+  The automatic size (8192 to 65536, bins of about 125 Hz or finer) never needs it: nothing changes for anyone who has not picked a big size by hand.
+* **The analysis thread no longer waits for a transform.** `feed()` held the analyser's mutex for the whole call, transforms included, so the
+  thread that also runs the decoders (it takes a frame every 33 ms) could wait for a 262144-point transform. The transforms now run on the
+  spectrum thread's own buffers and only the sum is added under the mutex (a `gen` counter drops a block that was under way when `resize()` /
+  `reset()` came). `tests/dsp/test_spectrum_threads.cpp`, also under ThreadSanitizer, ASan and UBSan.
+* **Not changed on purpose**: `fftSplit` (the decoders' transform; its bits are pinned by `test_fft_bits`). A cache-blocked version of its stages was tried
+  and measured: no faster on Apple silicon (1.6 ms against 1.8 ms at 262144), so it was left out. The frames, their dB scale and the
+  statistics are bit for bit what they were (`test_spectrum_fastrows`). Bins above 262144 are not offered (`kMaxFft`).
+* Small sizes do not regress: 4096 to 262144 bins at 10 and 20 Msps, ms per frame within noise of the old analyser (bench_specfft run
+  against both).
+
+**Fast waterfall rows** (Waterfall > Fast (Morse / CW), or the "CW / fast" button): a row every 1/50, 1/100, 1/200 or 1/500 s from the engine
+(`SpectrumAnalyzer::setFastRows`): its own windowed transforms of about 20 ms of signal (1024 to 65536 points, `fastRowFft`, kept under 8 M points
+a second), a row being the mean power of up to four of them spread over its hop. The screen takes whatever rows have arrived since the last frame
+(a batch) and writes all of them, so the speed does not depend on the 30 to 60 frames a second; the time scale and the "row from ... ago" readout
+use the exact row time. The window draws 60 frames a second while a focused, live fast waterfall is on (30 on battery power-saving).
+Cost on top of the ordinary frames (`bench_specfft`): 1 % to 2 % of a core at 2.4 and 10 Msps for 100 to 500 rows a second, 0.1 % at 48 ksps;
+the waterfall history is 512 rows, so 100 rows a second show the last 5 seconds.
+
 ## Looked at, not changed
 
 * Spectrum computation while the spectrum is not shown: the spectrum also feeds the waterfall, the auto labels, the bandwidth finder,

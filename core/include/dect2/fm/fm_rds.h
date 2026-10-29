@@ -78,6 +78,8 @@ public:
     int pty = 0;
     std::string ps, rt;
     bool rtComplete = false;
+    // Bytes 0x80..0xFF of PS / RadioText / PTYN / EON names: 0 EBU Latin only, 1 (default) GB2312 when the bytes pair up as Chinese characters, else EBU Latin, 2 GB2312 always (#350)
+    int charset = 1;
     TmcDecoder tmc;
     RdsInfo info;
 

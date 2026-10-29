@@ -525,6 +525,7 @@ public:
     double sampleRate() const override { return rate_; }
     bool realtime() const override { return true; }
     std::string name() const override { return dev_.name; }
+    bool takesIq() const override { return false; }
 
 private:
     DeviceInfo dev_;

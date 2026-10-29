@@ -19,6 +19,7 @@ struct SsdvPacketLog {
     int rsErrors = 0;          // bytes corrected by the Reed-Solomon code
     int baud = 0;
     bool async = false;        // 8N2 framed bytes (RTTY style) instead of a plain bit stream
+    bool wenet = false;        // came over a Wenet link (LDPC frames, 115.2 / 96 kbaud)
     bool inverted = false;     // found with the two frequencies swapped
     bool noFec = false;
     bool eoi = false;
@@ -51,6 +52,8 @@ struct SsdvTelemetry {
     double timeSec = 0, inputRate = 0;
     int baud = 0;              // the speed the last good packet came in at
     bool async = false;
+    bool wenet = false;        // the last good packet came over Wenet
+    uint64_t wenetOther = 0, wenetIdle = 0;   // Wenet frames that were not SSDV: telemetry / text, and idle fill (both count in blocksOk)
     int fixedBaud = 0;         // the speed chosen by hand (0: automatic)
     uint64_t corrected = 0;    // packets that needed the Reed-Solomon code
     uint64_t imagesDone = 0;
@@ -61,7 +64,7 @@ struct SsdvTelemetry {
 inline std::string ssdvSummary(const SsdvTelemetry& t) {
     char b[160];
     if (t.blocksOk) {
-        std::snprintf(b, sizeof b, "SSDV: %llu packets, %llu pictures done, %d baud", (unsigned long long)t.blocksOk, (unsigned long long)t.imagesDone, t.baud);
+        std::snprintf(b, sizeof b, "SSDV: %llu packets, %llu pictures done, %s%d baud", (unsigned long long)t.blocksOk, (unsigned long long)t.imagesDone, t.wenet ? "Wenet " : "", t.baud);
         return b;
     }
     if (t.state >= 1) return "SSDV: a carrier, no packet yet";

@@ -277,6 +277,166 @@ bool macDecode(bool facch, const uint8_t* dibits, uint8_t* mac, int* corrected) 
     return true;
 }
 
+
+// ---------------------------------------------------------------- MAC PDU codewords as on the air
+namespace {
+struct Gf64 {
+    uint8_t ex[126], lg[64];
+    Gf64() {
+        int x = 1;
+        for (int i = 0; i < 63; i++) { ex[i] = ex[i + 63] = (uint8_t)x; lg[x] = (uint8_t)i; x <<= 1; if (x & 64) x ^= 0x43; }
+        lg[0] = 0;
+    }
+    uint8_t mul(int a, int b) const { return a && b ? ex[lg[a] + lg[b]] : 0; }
+    uint8_t inv(int a) const { return ex[63 - lg[a]]; }
+};
+const Gf64& gf() { static const Gf64 g; return g; }
+constexpr int kRoots = 28;
+} // namespace
+
+bool rs63Decode(uint8_t sym[63], const int* erasures, int ne, int* errs) {
+    const Gf64& G = gf();
+    uint8_t r[63];
+    for (int i = 0; i < 63; i++) r[i] = sym[i] & 63;
+    for (int e = 0; e < ne; e++) r[erasures[e]] = 0;
+    uint8_t S[kRoots];   // S[j] = r(alpha^(j+1))
+    bool any = false;
+    for (int j = 0; j < kRoots; j++) {
+        uint8_t acc = 0;
+        const uint8_t a = G.ex[j + 1];
+        for (int i = 0; i < 63; i++) acc = (uint8_t)(G.mul(acc, a) ^ r[i]);
+        S[j] = acc;
+        any = any || acc;
+    }
+    if (errs) *errs = 0;
+    if (!any) { memcpy(sym, r, 63); return true; }
+    if (ne > kRoots) return false;
+    // error + erasure locator (Berlekamp-Massey started from the erasure locator)
+    uint8_t lam[kRoots + 2] = {1}, b[kRoots + 2] = {1};
+    for (int e = 0; e < ne; e++) {
+        const uint8_t X = G.ex[62 - erasures[e]];
+        for (int i = kRoots; i >= 1; i--) lam[i] ^= G.mul(lam[i - 1], X);
+    }
+    memcpy(b, lam, sizeof b);
+    int el = ne;
+    for (int rr = ne + 1; rr <= kRoots; rr++) {
+        uint8_t d = 0;
+        for (int i = 0; i < rr; i++) d ^= G.mul(lam[i], S[rr - i - 1]);
+        if (!d) { memmove(b + 1, b, kRoots); b[0] = 0; continue; }
+        uint8_t t[kRoots + 2];
+        t[0] = lam[0];
+        for (int i = 0; i < kRoots + 1; i++) t[i + 1] = (uint8_t)(lam[i + 1] ^ G.mul(d, b[i]));
+        if (2 * el <= rr + ne - 1) {
+            el = rr + ne - el;
+            const uint8_t di = G.inv(d);
+            for (int i = 0; i <= kRoots; i++) b[i] = G.mul(lam[i], di);
+        } else { memmove(b + 1, b, kRoots); b[0] = 0; }
+        memcpy(lam, t, sizeof lam);
+    }
+    int deg = 0;
+    for (int i = 0; i <= kRoots; i++) if (lam[i]) deg = i;
+    if (deg != el || deg > kRoots) return false;
+    // evaluator omega = S * lambda mod x^kRoots
+    uint8_t om[kRoots] = {};
+    for (int i = 0; i < kRoots; i++)
+        for (int j = 0; j <= i && j <= deg; j++) om[i] ^= G.mul(lam[j], S[i - j]);
+    int found = 0, corrected = 0;
+    for (int pos = 0; pos < 63; pos++) {
+        const int xi = (63 - (62 - pos)) % 63;   // log of X^-1 for X = alpha^(62 - pos)
+        uint8_t v = 0, xp = 1;
+        for (int i = 0; i <= deg; i++) { v ^= G.mul(lam[i], xp); xp = G.mul(xp, G.ex[xi]); }
+        if (v) continue;
+        found++;
+        uint8_t num = 0, den = 0, p1 = 1;
+        for (int i = 0; i < kRoots; i++) { num ^= G.mul(om[i], p1); p1 = G.mul(p1, G.ex[xi]); }
+        uint8_t p2 = 1;
+        for (int i = 1; i <= deg; i += 2) { den ^= G.mul(lam[i], p2); p2 = G.mul(p2, G.mul(G.ex[xi], G.ex[xi])); }
+        if (!den) return false;
+        r[pos] ^= G.mul(num, G.inv(den));
+        bool era = false;
+        for (int e = 0; e < ne; e++) era = era || erasures[e] == pos;
+        if (!era) corrected++;
+    }
+    if (found != deg) return false;
+    for (int j = 0; j < kRoots; j++) {   // the result must be a codeword
+        uint8_t acc = 0;
+        const uint8_t a = G.ex[j + 1];
+        for (int i = 0; i < 63; i++) acc = (uint8_t)(G.mul(acc, a) ^ r[i]);
+        if (acc) return false;
+    }
+    memcpy(sym, r, 63);
+    if (errs) *errs = corrected;
+    return true;
+}
+
+uint16_t crc12(const uint8_t* bits, int n) {
+    static const uint8_t poly[13] = {1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 1, 1};
+    uint8_t buf[256] = {};
+    if (n < 0 || n + 12 > (int)sizeof buf) return 0;
+    for (int i = 0; i < n; i++) buf[i] = bits[i] & 1;
+    for (int i = 0; i < n; i++)
+        if (buf[i]) for (int j = 0; j < 13; j++) buf[i + j] ^= poly[j];
+    uint16_t crc = 0;
+    for (int i = 0; i < 12; i++) crc = (uint16_t)((crc << 1) | buf[n + i]);
+    return (uint16_t)(crc ^ 0xFFF);
+}
+
+namespace {
+// payload index of the k-th codeword dibit
+int airIndex(bool facch, int k) { return facch && k >= 67 ? k + 21 : k; }
+}
+
+void macEncodeAir(bool facch, const uint8_t* mac, uint8_t payload[kPayloadDibits]) {
+    const int nBytes = facch ? kFacchAirBytes : kSacchAirBytes;
+    const int first = facch ? 9 : 5, nData = facch ? 26 : 30, nSent = facch ? 45 : 52;
+    uint8_t bits[180] = {};
+    for (int i = 0; i < nBytes * 8; i++) bits[i] = (uint8_t)((mac[i >> 3] >> (7 - (i & 7))) & 1);
+    const uint16_t crc = crc12(bits, nBytes * 8);
+    for (int i = 0; i < 12; i++) bits[nBytes * 8 + i] = (uint8_t)((crc >> (11 - i)) & 1);
+    uint8_t sym[63] = {};
+    for (int i = 0; i < nData; i++) {
+        int v = 0;
+        for (int b = 0; b < 6; b++) v = (v << 1) | bits[i * 6 + b];
+        sym[first + i] = (uint8_t)v;
+    }
+    p25::rsEncode(sym, 63, 35);
+    memset(payload, 0, kPayloadDibits);
+    for (int i = 0; i < nSent; i++)
+        for (int j = 0; j < 3; j++) payload[airIndex(facch, i * 3 + j)] = (uint8_t)((sym[first + i] >> (4 - 2 * j)) & 3);
+}
+
+bool macDecodeAir(bool facch, const uint8_t payload[kPayloadDibits], uint8_t* mac, int* corrected) {
+    const int nBytes = facch ? kFacchAirBytes : kSacchAirBytes;
+    const int first = facch ? 9 : 5, nData = facch ? 26 : 30, nSent = facch ? 45 : 52;
+    uint8_t rx[63] = {};
+    for (int i = 0; i < nSent; i++)
+        rx[first + i] = (uint8_t)(((payload[airIndex(facch, i * 3)] & 3) << 4) | ((payload[airIndex(facch, i * 3 + 1)] & 3) << 2) | (payload[airIndex(facch, i * 3 + 2)] & 3));
+    // erasures: the punctured parity at the end; first the shortened front symbols are taken as the zeros they are, then (if that fails) as erased too
+    for (int attempt = 0; attempt < 2; attempt++) {
+        int era[20], ne = 0;
+        for (int p = first + nSent; p < 63; p++) era[ne++] = p;
+        if (attempt) for (int p = 0; p < first; p++) era[ne++] = p;
+        uint8_t sym[63];
+        memcpy(sym, rx, 63);
+        int errs = 0;
+        if (!rs63Decode(sym, era, ne, &errs)) continue;
+        uint8_t bits[180];
+        for (int i = 0; i < nData; i++)
+            for (int b = 0; b < 6; b++) bits[i * 6 + b] = (uint8_t)((sym[first + i] >> (5 - b)) & 1);
+        uint16_t crc = 0;
+        for (int i = 0; i < 12; i++) crc = (uint16_t)((crc << 1) | bits[nBytes * 8 + i]);
+        if (crc != crc12(bits, nBytes * 8)) continue;
+        for (int i = 0; i < nBytes; i++) {
+            int v = 0;
+            for (int b = 0; b < 8; b++) v = (v << 1) | bits[i * 8 + b];
+            mac[i] = (uint8_t)v;
+        }
+        if (corrected) *corrected = errs;
+        return true;
+    }
+    return false;
+}
+
 // ---------------------------------------------------------------- MAC PDU
 const char* macOpName(int op) {
     switch (op) {
@@ -307,15 +467,12 @@ const char* macMsgName(int op) {
     }
 }
 
+// Lengths (bytes, opcode byte included) of the MAC messages by opcode byte: the two top bits say the family (0 TDMA's own, 1 the abbreviated form of a
+// TSBK, 2 manufacturer, 3 the extended / explicit forms). Collected from OP25's message length table (the lengths are facts of the layout).
 int macMsgLen(int op) {
-    switch (op) {
-    case kMsgNull: return 1;
-    case kMsgGrpVUser: return 7;
-    case kMsgUuVUser: return 8;
-    case kMsgGrpVGrant: case kMsgGrpVGrantUpd: case kMsgUuVGrant: case kMsgIdenUpVu:
-    case kMsgRfssSts: case kMsgNetSts: case kMsgAdjSts: case kMsgIdenUp: return 9;
-    default: return 0;
-    }
+    static const struct { uint8_t op, len; } kLen[] = {{0x01, 7}, {0x02, 8}, {0x03, 7}, {0x05, 16}, {0x21, 14}, {0x22, 15}, {0x25, 15}, {0x30, 5}, {0x31, 7}, {0x40, 9}, {0x41, 7}, {0x42, 9}, {0x44, 9}, {0x45, 8}, {0x46, 9}, {0x48, 10}, {0x49, 10}, {0x4A, 9}, {0x4C, 10}, {0x54, 9}, {0x55, 7}, {0x58, 10}, {0x5A, 7}, {0x5C, 10}, {0x5D, 8}, {0x5E, 14}, {0x5F, 7}, {0x60, 9}, {0x61, 9}, {0x64, 9}, {0x67, 9}, {0x68, 10}, {0x6A, 7}, {0x6B, 10}, {0x6C, 10}, {0x6D, 7}, {0x6F, 9}, {0x70, 9}, {0x71, 29}, {0x72, 9}, {0x73, 9}, {0x74, 9}, {0x75, 9}, {0x76, 10}, {0x77, 13}, {0x78, 9}, {0x79, 9}, {0x7A, 9}, {0x7B, 11}, {0x7C, 9}, {0x7D, 9}, {0x80, 8}, {0x83, 7}, {0x84, 11}, {0xA0, 16}, {0xA3, 11}, {0xA4, 13}, {0xA5, 11}, {0xA6, 11}, {0xA7, 11}, {0xA8, 10}, {0xC0, 11}, {0xC3, 8}, {0xC4, 15}, {0xC5, 12}, {0xC6, 15}, {0xC7, 32}, {0xC8, 12}, {0xC9, 12}, {0xCB, 27}, {0xCC, 14}, {0xCD, 29}, {0xCE, 29}, {0xCF, 32}, {0xD6, 9}, {0xD8, 14}, {0xD9, 29}, {0xDA, 11}, {0xDB, 27}, {0xDC, 14}, {0xDE, 40}, {0xDF, 11}, {0xE0, 28}, {0xE3, 14}, {0xE4, 17}, {0xE5, 14}, {0xE8, 16}, {0xE9, 8}, {0xEA, 11}, {0xEC, 13}, {0xED, 19}, {0xF2, 16}, {0xF3, 14}, {0xF6, 12}, {0xF8, 22}, {0xFA, 11}, {0xFB, 13}, {0xFC, 11}, {0xFE, 15}};
+    for (const auto& e : kLen) if (e.op == (op & 0xFF)) return e.len;
+    return 0;
 }
 
 namespace {
@@ -340,7 +497,7 @@ std::vector<uint8_t> macPtt(int n, int src, int group, int algId) {
 std::vector<uint8_t> macEndPtt(int n, int src, int group, int colorCode) {
     std::vector<uint8_t> v((size_t)kEndLen, 0);
     v[0] = macHeaderByte(kMacEndPtt, 0);
-    put16(&v[kEndColorOff], (uint32_t)(colorCode & 0xFFF) << 4);
+    put16(&v[kEndColorOff], (uint32_t)(colorCode & 0xFFF));
     put24(&v[kEndSrcOff], (uint32_t)src);
     put16(&v[kEndGrpOff], (uint32_t)group);
     return pad(v, n);

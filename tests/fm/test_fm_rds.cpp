@@ -3,6 +3,7 @@
 // multipath equaliser switching itself in and out, and the stereo blend.
 #include "dect2/fm/fm_gen.h"
 #include "dect2/fm/fm_rds.h"
+#include "dect2/common/text_charset.h"
 #include "dect2/fm/fm_rx.h"
 #include "../common/impair.h"
 #include <cmath>
@@ -255,7 +256,52 @@ static void testReceiver() {
     }
 }
 
+
+// #350: bytes 0x80..0xFF. EBU Latin (IEC 62106 Annex E) by default, GB2312 when a Chinese station sends it
+static void feedPs(RdsDecoder& d, const std::string& ps8) {
+    const uint8_t ok[4] = {0, 0, 0, 0};
+    for (int s = 0; s < 4; s++) {
+        const uint16_t g[4] = {kPi, B(0, 0, 8 | s), 0xCDCD, (uint16_t)((uint8_t)ps8[2 * s] << 8 | (uint8_t)ps8[2 * s + 1])};
+        d.onGroup(g, ok, 1e9);
+    }
+}
+static void feedRt(RdsDecoder& d, const std::string& rt) {
+    const uint8_t ok[4] = {0, 0, 0, 0};
+    std::string r = rt; r.push_back('\r'); while (r.size() % 4) r.push_back(' ');
+    for (size_t s = 0; s * 4 < r.size() && s < 16; s++) {
+        const uint16_t g[4] = {kPi, B(2, 0, (int)s), (uint16_t)((uint8_t)r[4 * s] << 8 | (uint8_t)r[4 * s + 1]), (uint16_t)((uint8_t)r[4 * s + 2] << 8 | (uint8_t)r[4 * s + 3])};
+        d.onGroup(g, ok, 1e9);
+    }
+}
+static void testCharset() {
+    {   // GB2312: the PS "中国之声" (4 characters = 8 bytes) and a RadioText mixing Chinese and ASCII
+        RdsDecoder d;
+        feedPs(d, "\xD6\xD0\xB9\xFA\xD6\xAE\xC9\xF9");
+        CHECK(d.ps == "\xE4\xB8\xAD\xE5\x9B\xBD\xE4\xB9\x8B\xE5\xA3\xB0", "GB2312 PS: got %s", d.ps.c_str());
+        feedRt(d, "FM 93.9 \xBD\xBB\xCD\xA8\xB5\xE7\xCC\xA8");
+        CHECK(d.rt == "FM 93.9 \xE4\xBA\xA4\xE9\x80\x9A\xE7\x94\xB5\xE5\x8F\xB0", "GB2312 RT: got %s", d.rt.c_str());
+    }
+    {   // the same bytes with the GB2312 reading off: EBU Latin letters, never '?'
+        RdsDecoder d; d.charset = 0;
+        feedPs(d, "\xD6\xD0\xB9\xFA\xD6\xAE\xC9\xF9");
+        CHECK(!d.ps.empty() && d.ps.find('?') == std::string::npos, "EBU Latin PS: %s", d.ps.c_str());
+    }
+    {   // a European station: EBU Latin accents stay accents (a byte of 0x80..0xFF alone is read as EBU Latin, never as '?')
+        RdsDecoder d;
+        const uint8_t eb[1] = {0x8A};
+        const std::string a = text::ebuLatin(eb, 1);
+        feedPs(d, std::string("B") + (char)0x8A + "R  FM ");
+        CHECK(d.ps == "B" + a + "R  FM ", "Latin PS: got %s", d.ps.c_str());
+    }
+    {   // plain ASCII untouched; a lone high byte (a partial text) does not turn the text into Chinese
+        RdsDecoder d;
+        feedPs(d, "TESTFM  ");
+        CHECK(d.ps == "TESTFM  ", "ASCII PS");
+    }
+}
+
 int main() {
+    testCharset();
     testCorrection();
     testGroups();
     testReceiver();

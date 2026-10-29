@@ -13,4 +13,8 @@ namespace dect2 {
 // everything else (short data, voice, other IP traffic). Never reads past `size`.
 bool parseDmrLrrp(const uint8_t* data, size_t size, DmrLocation& out);
 
+// True when `data` starts with an IPv4 header whose own 16-bit checksum is right. A message whose DMR packet CRC failed is still taken as a position
+// report when this holds (#335: the IP checksum is an independent check of the same bytes, so a wrong packet CRC alone is not a reason to drop it).
+bool dmrIpv4HeaderOk(const uint8_t* data, size_t size);
+
 } // namespace dect2

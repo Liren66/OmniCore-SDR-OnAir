@@ -207,6 +207,7 @@ public:
     virtual bool realtime() const { return true; }   // true: write() is paced by the hardware, so an empty queue is an underrun (zeros are sent); false: recording sinks (the queue waits)
     virtual bool fullDuplex() const { return false; }
     virtual std::string name() const { return "radio"; }
+    virtual bool takesIq() const { return true; }   // false: the samples are not what goes out (a Hamlib rig is keyed, its audio comes from elsewhere), so the mode's tuning offset must not move its frequency
 };
 // The transmit path of a radio, nullptr when it has none (DeviceInfo::canTransmit false) or the build lacks it
 std::unique_ptr<TxSink> makeTxSink(const DeviceInfo& d);

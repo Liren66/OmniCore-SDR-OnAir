@@ -79,6 +79,15 @@ struct WideLogCapture {
     static bool sink(const std::string& line) { auto* c = current(); if (!c) return false; c->push_back(line); return true; }
 };
 
+// The nearest channel centre of the raster origin + k * step. A signal a few kHz off its channel (transmitter drift, a rig a little off frequency)
+// is still that channel; one further than a quarter of the spacing from every centre sits on another raster (8.33 kHz in 25, a different offset)
+// and keeps its measured frequency.
+inline double snapToRaster(double hz, double origin, double step) {
+    if (!(step > 0)) return hz;
+    const double c = origin + std::round((hz - origin) / step) * step;
+    return std::fabs(hz - c) <= 0.25 * step ? c : hz;
+}
+
 template <class Rx, class Tel>
 struct WideOps {
     double outRate = 48000;                                  // the rate the receiver wants
@@ -394,7 +403,8 @@ private:
     }
     double hzOf(const Slot& s) const {   // the finder's frequency, refined by what the decoder measured on the carrier
         const double c = ops_.freqCorrection ? ops_.freqCorrection(s.tel) : 0.0;
-        return s.car.hz + (std::fabs(c) < 0.3 * cfg_.stepHz ? c : 0.0);
+        const double hz = s.car.hz + (std::fabs(c) < 0.3 * cfg_.stepHz ? c : 0.0);
+        return cfg_.snapReported ? snapToRaster(hz, cfg_.gridOriginHz, cfg_.stepHz) : hz;
     }
     void retireAll() { while (!live_.empty()) retire(live_.back()->car.id); }
     void applyAudio() { if (!ops_.audio) return; for (auto& s : live_) ops_.audio(*s->rx, !muted_ && s->car.id == effSel()); }

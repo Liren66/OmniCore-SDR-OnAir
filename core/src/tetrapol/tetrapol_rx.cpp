@@ -102,6 +102,7 @@ struct TetrapolReceiver::Impl {
     int stat[2][128] = {};
     std::deque<std::vector<uint8_t>> pending;   // 152-bit frames before the scrambling constant is known
     uint64_t frameNo = 0;
+    uint64_t telSeq = 0;       // report number: only ever counts up, also over reset() (the engine ignores a report numbered below the last one it took)
     double lastVoiceSec = -1e9;
 
     tp::BlockAssembler asmMain, asmVch;
@@ -526,7 +527,7 @@ struct TetrapolReceiver::Impl {
         if (tel.carriers.empty()) tel.carriers.push_back({centreHz, tel.levelDb, tel.synced});
         else { tel.carriers[0].freqHz = centreHz; tel.carriers[0].levelDb = tel.levelDb; tel.carriers[0].synced = tel.synced; }
         tel.polarityAuto = polMode == 0;
-        tel.seq++;
+        tel.seq = ++telSeq;
         tel.blocks++;
         tel.spacingHz = spacing;
         tel.centerHz = centreHz;
@@ -634,12 +635,18 @@ void TetrapolReceiver::reset() {
     std::lock_guard<std::mutex> lk(p_->mu);
     p_->resetDsp();
     p_->samp = 0;
+    // a retune restarts the search for the carrier, the cells and the log stay (cells are kept by frequency)
+    TetrapolTelemetry keep = std::move(p_->tel);
     p_->tel = TetrapolTelemetry();
+    p_->tel.cells = std::move(keep.cells);
+    p_->tel.events = std::move(keep.events);
     p_->tel.inputRate = p_->fs;
     p_->tel.centerHz = p_->centreHz;
     p_->tel.spacingHz = p_->spacing;
     p_->tel.polarityAuto = p_->polMode == 0;
     p_->tel.state = p_->rateSet ? 1 : 0;
+    p_->tel.seq = std::max(keep.seq, p_->telSeq) + 1;
+    p_->telSeq = p_->tel.seq;
 }
 void TetrapolReceiver::clearCells() {
     std::lock_guard<std::mutex> lk(p_->mu);
@@ -648,7 +655,7 @@ void TetrapolReceiver::clearCells() {
     p_->tel.carriers.clear();
     p_->tel.activations.clear();
     if (!p_->gate.active()) p_->tel.calls.clear();
-    p_->tel.seq++;
+    p_->tel.seq = ++p_->telSeq;
 }
 void TetrapolReceiver::feed(const cf32* x, size_t n) {
     if (!x || !n) return;
@@ -678,7 +685,7 @@ bool TetrapolReceiver::loadResults(const std::string& blob) {
     std::lock_guard<std::mutex> lk(p_->mu);
     p_->tel.cells = std::move(l.cells);
     p_->tel.events = std::move(l.events);
-    p_->tel.seq++;
+    p_->tel.seq = ++p_->telSeq;
     return true;
 }
 void TetrapolReceiver::setLogCallback(std::function<void(const std::string&)> cb) {

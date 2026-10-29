@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 set(ONAIR_ROOT ${CMAKE_CURRENT_SOURCE_DIR})   # the repository root (CMAKE_SOURCE_DIR is the bridge's folder when this is built as a subproject, as the Android app does)
 if(APPLE AND NOT DEFINED ANDROID_ABI)
-  project(OnAir VERSION 3.2.0 LANGUAGES C CXX OBJCXX)
+  project(OnAir VERSION 3.3.0 LANGUAGES C CXX OBJCXX)
   set(CMAKE_OBJCXX_STANDARD 20)
 else()
-  project(OnAir VERSION 3.2.0 LANGUAGES C CXX)
+  project(OnAir VERSION 3.3.0 LANGUAGES C CXX)
 endif()
 
 # A compiler cache, when one is installed, makes repeat builds take seconds (-DDECT2_CCACHE=OFF turns it off).
@@ -174,6 +174,7 @@ target_sources(dect2core PRIVATE core/src/backup/backup.cpp)   # Tools > Backup 
   list(APPEND DECT2_MODES pactor)   # PACTOR-I monitor (family 203): core/src/pactor, app/pactor, tests/pactor
   list(APPEND DECT2_MODES roshf ssdv ebicab)   # ROS (HF) detector (family 205), SSDV pictures (206), EBICab / Eurobalise up-link (207): core/src/<mode>, app/<mode>, tests/<mode>
   list(APPEND DECT2_MODES esubghz)   # Flipper Zero Sub-GHz chat, receive and send (family 204): core/src/esubghz, app/esubghz, tests/esubghz
+  list(APPEND DECT2_MODES inmsat)   # Inmarsat all-carriers mode (3.3, docs/INMARSAT-REVAMP.md): core/src/inmsat, tests/inmsat
   list(APPEND DECT2_MODES pskdsp)   # PSK demodulator and analyser (family 202, #282): core/src/pskdsp, app/pskdsp, tests/pskdsp
 target_sources(dect2core PRIVATE core/src/tv/mheg_render.cpp core/src/tv/ts_proto_rs.cpp core/src/common/text_charset_rs.cpp core/src/tv/dvb_text.cpp core/src/tv/dvb_text_rs.cpp core/src/tv/teletext_rs.cpp core/src/tv/dvbsub_rs.cpp core/src/tv/epg.cpp core/src/tv/subtitle_export.cpp core/src/tv/recorder.cpp core/src/tv/timeshift.cpp core/src/tv/playback.cpp core/src/tv/dsmcc.cpp core/src/tv/mheg.cpp core/src/tv/rcs.cpp core/src/tv/si_tables.cpp core/src/tv/ts_data.cpp core/src/tv/hd_pair.cpp) # MPEG-TS parsing layer (C++ or the Rust crate onair_ts) and the TV recorder (guide, schedule, timeshift, playback) (C++ or the Rust crate onair_ts)
 target_sources(dect2core PRIVATE core/src/fec/fec_proto.cpp core/src/fec/fec_proto_rs.cpp)   # Reed-Solomon (DVB-T, ATSC, DAB), DVB-T2 BCH and the LDPC tables (the Rust crate onair_fec), the K = 7 Viterbi decoder (C++)
@@ -228,7 +229,8 @@ target_sources(dect2core PRIVATE
   core/src/uat/uat_fec_bridge.c core/src/uat/uat_decode.c)
 target_include_directories(dect2core PRIVATE third_party/uat_fec)
 # Tools > Digital video generator (docs in videogen.h): encoder settings and estimate, overlay (stb_truetype from Dear ImGui), engine
-target_sources(dect2core PRIVATE core/src/tv/videogen_params.cpp core/src/tv/videogen_overlay.cpp core/src/tv/videogen.cpp)
+target_sources(dect2core PRIVATE core/src/tv/videogen_params.cpp core/src/tv/videogen_overlay.cpp core/src/tv/videogen.cpp
+                                 core/src/tv/dvb_modes.cpp)   # its tab "Digital Television Mode Selector" (dvb_modes.h)
 set_source_files_properties(core/src/tv/videogen_overlay.cpp PROPERTIES INCLUDE_DIRECTORIES "${ONAIR_ROOT}/third_party/imgui")
 set_source_files_properties(third_party/uat_fec/fec.c third_party/uat_fec/decode_rs_char.c third_party/uat_fec/init_rs_char.c
   core/src/uat/uat_fec_bridge.c core/src/uat/uat_decode.c PROPERTIES LANGUAGE C)
@@ -543,7 +545,7 @@ if(DECT2_BUILD_APP)
   set(APP_SOURCES app/panels/carousel_view.cpp app/main.cpp app/main_window.cpp app/main_start.cpp app/ui/draw_ui.cpp app/ui/touch.cpp app/ui/touch_sheets.cpp app/ui/touch_shell.cpp app/ui/main_tabs.cpp app/ui/light_theme.cpp app/state/app_state.cpp app/state/presets_app.cpp app/state/prefs.cpp app/ui/widgets.cpp app/ui/toolbar.cpp app/ui/toolbar_source.cpp app/ui/toolbar_rig.cpp app/ui/statusbar.cpp app/ui/mode_table.cpp app/ui/mode_select.cpp app/ui/mode_visibility.cpp app/ui/ui_common.cpp app/panels/radio_ui.cpp app/gfx/plots.cpp app/panels/analysis_tabs.cpp app/panels/tv.cpp app/panels/tv_hd.cpp app/panels/subs_ui.cpp app/scan/scan_outputs.cpp app/panels/antenna.cpp app/fm/fm_ui.cpp app/ui/ui2.cpp app/ui/ui2_theme.cpp app/ui/ui2_widgets.cpp app/ui/ui2_shell.cpp app/ui/command_palette.cpp app/ui/ui2_faces.cpp app/panels/modeui.cpp app/atsc3/atsc3_ui.cpp app/isdbt/isdbt_ui.cpp app/panels/update_ui.cpp app/scan/scan_db_ui.cpp app/panels/diag_ui.cpp app/ui/wizard.cpp app/gfx/plot.cpp app/gfx/gfx_png.cpp app/ui/popout.cpp app/panels/codec_help.cpp app/platform/discord_rpc.cpp app/panels/passes_ui.cpp app/panels/satnogs_ui.cpp app/df/df_ui.cpp app/panels/feeds_ui.cpp app/scan/scanner_ui.cpp app/scan/scan_view_ui.cpp app/memory/memory_options.cpp app/memory/memory_ui.cpp app/memory/memory_lists_ui.cpp app/memory/memory_edit.cpp app/memory/memory_selftest.cpp app/map/map_ui.cpp app/map/map_send.cpp app/panels/rotator_ui.cpp app/panels/results_ui.cpp app/state/rx_prefs.cpp app/state/receivers.cpp app/panels/fixit.cpp app/panels/gallery_ui.cpp app/panels/enhance_ui.cpp app/state/results_export.cpp app/state/results_export_ui.cpp app/vdl2/vdl2_log.cpp app/state/rx_width.cpp app/panels/credits_ui.cpp app/bandplan/bandplan_ui.cpp app/sweep/sweep_ui.cpp app/freqdb/freqdb_ui.cpp app/ui/tour.cpp app/ui/learn.cpp app/ui/autogain_firstrun.cpp app/clips/clips_core.cpp app/clips/clips_gen.cpp app/clips/clips_ui.cpp app/transcribe/transcribe_app.cpp app/panels/automation_ui.cpp app/panels/automation_sink.cpp app/panels/protolab_ui.cpp app/panels/modebuilder_ui.cpp app/panels/signallab_ui.cpp app/panels/msgdb_ui.cpp app/platform/spawn.cpp app/plugin/plugin_app.cpp app/panels/tvrec_ui.cpp app/panels/timemachine_ui.cpp app/panels/audio_cleanup_ui.cpp app/panels/audio_control_ui.cpp app/panels/voice_inversion_ui.cpp app/radar/passive_ui.cpp app/rfi/rfi_ui.cpp app/watchlist/watchlist_ui.cpp app/df/rfcam_ui.cpp app/rooms/rooms_send.cpp app/rooms/rooms_net.cpp app/panels/report_problem.cpp app/ui/listen_wizard.cpp app/ui/typography.cpp app/ui/meter_ui.cpp app/platform/proc_cpu.cpp app/state/workspace.cpp app/state/layout.cpp app/state/workspace_ui.cpp app/panels/recording_library_ui.cpp app/panels/backup_ui.cpp app/panels/scheduler_ui.cpp app/panels/recmgr_ui.cpp app/ui/dock_tree.cpp app/ui/ui2_dock.cpp app/ui/kit/kit.cpp app/ui/kit/kit_gallery.cpp app/panels/swarm_ui.cpp)
   list(APPEND APP_SOURCES app/ui/synth_group_ui.cpp)
   list(APPEND APP_SOURCES app/state/tune_worker.cpp)   # the radio retune off the UI thread, newest request wins
-  list(APPEND APP_SOURCES app/scan/fast_scan_ui.cpp)
+  list(APPEND APP_SOURCES app/scan/fast_scan_ui.cpp app/ui/input_map.cpp)
   list(APPEND APP_SOURCES app/ui/meter_ui.cpp app/platform/proc_cpu.cpp app/panels/picsave_ui.cpp)
   add_executable(test_picsave tests/app/test_picsave.cpp)   # picture save paths, names, collisions, delete with undo (app/state/picsave.h)
   add_test(NAME picsave COMMAND test_picsave)
@@ -627,7 +629,7 @@ if(DECT2_BUILD_APP)
   endforeach()
   string(APPEND _i18n_out "    {\"\", \"\"}};\n")
   file(CONFIGURE OUTPUT ${_i18n_inc} CONTENT "${_i18n_out}" @ONLY)
-  list(APPEND APP_SOURCES app/i18n/i18n.cpp app/platform/remote_api_app.cpp app/panels/gain_opt_ui.cpp app/panels/agc_ui.cpp app/panels/autogain_ui.cpp app/panels/station_health_ui.cpp app/panels/photo_links_ui.cpp app/panels/tx_ui.cpp app/panels/tx_payload_ui.cpp app/panels/tx_params.cpp app/panels/tx_panel.cpp app/panels/tx_step_signal.cpp app/panels/tx_step_settings.cpp app/panels/tx_step_send.cpp app/panels/tx_preview.cpp app/panels/tx_studio.cpp app/panels/videogen_ui.cpp)
+  list(APPEND APP_SOURCES app/i18n/i18n.cpp app/platform/remote_api_app.cpp app/panels/gain_opt_ui.cpp app/panels/agc_ui.cpp app/panels/autogain_ui.cpp app/panels/station_health_ui.cpp app/panels/photo_links_ui.cpp app/panels/tx_ui.cpp app/panels/tx_payload_ui.cpp app/panels/tx_params.cpp app/panels/tx_panel.cpp app/panels/tx_step_signal.cpp app/panels/tx_step_settings.cpp app/panels/tx_step_send.cpp app/panels/tx_preview.cpp app/panels/tx_studio.cpp app/panels/videogen_ui.cpp app/panels/videogen_modes_ui.cpp)
   list(APPEND APP_SOURCES app/gfx/autolabel.cpp)   # names drawn on the spectrum and waterfall (logic: app/gfx/autolabel_logic.h)
   list(APPEND APP_SOURCES app/gfx/wf3d_plot.cpp)   # the 3D waterfall (logic: app/gfx/wf3d.h, tested in tests/app/test_wf3d.cpp)
   list(APPEND APP_SOURCES app/gfx/wf_export.cpp)   # waterfall export: PNG frames and a timelapse into a folder (no video encoder)
@@ -639,6 +641,8 @@ if(DECT2_BUILD_APP)
   add_test(NAME gl_level COMMAND test_gl_level)
   add_executable(test_tex_shrink tests/app/test_tex_shrink.cpp)   # pictures over the GPU's texture limit (4096 on a Raspberry Pi, #284)
   add_test(NAME tex_shrink COMMAND test_tex_shrink)
+  add_executable(test_prefs_text tests/app/test_prefs_text.cpp)   # settings.conf values with line breaks on Linux and Windows (app/platform/prefs_text.h, #360)
+  add_test(NAME prefs_text COMMAND test_prefs_text)
   if(NOT WIN32)   # thread CPU clocks (POSIX)
     add_executable(bench_ui_power tests/bench/bench_ui_power.cpp app/i18n/i18n.cpp)   # docs/PERFORMANCE.md: frame pacing, ring wake-ups, tr(), RF camera
     target_include_directories(bench_ui_power PRIVATE app ${CMAKE_BINARY_DIR}/generated)
@@ -684,6 +688,13 @@ if(DECT2_BUILD_APP)
   add_test(NAME freq_model COMMAND test_freq_model)
   add_executable(test_spec_look tests/app/test_spec_look.cpp)
   add_test(NAME spec_look COMMAND test_spec_look)
+  add_executable(test_input_map tests/app/test_input_map.cpp)   # View > Controls: defaults = old behaviour, saved text, conflicts, wheel steps (app/ui/input_map.h)
+  target_link_libraries(test_input_map PRIVATE imgui)
+  target_include_directories(test_input_map PRIVATE third_party/imgui)
+  add_test(NAME input_map COMMAND test_input_map)
+  add_executable(test_wf_fast tests/app/test_wf_fast.cpp)   # the waterfall's fast rows (CW preset): rate threshold, exact row time, order, no averaging down the rows
+  target_link_libraries(test_wf_fast PRIVATE imgui)
+  add_test(NAME wf_fast COMMAND test_wf_fast)
   add_executable(test_typography tests/app/test_typography.cpp app/ui/typography.cpp)
   target_include_directories(test_typography PRIVATE app/ui)
   target_link_libraries(test_typography PRIVATE imgui dect2core)
@@ -833,6 +844,12 @@ if(DECT2_BUILD_TESTS)
   add_executable(test_spectrum_fastlog tests/dsp/test_spectrum_fastlog.cpp)
   target_link_libraries(test_spectrum_fastlog PRIVATE dect2core)
   add_test(NAME spectrum_fastlog COMMAND test_spectrum_fastlog)
+  add_executable(test_spectrum_fastrows tests/dsp/test_spectrum_fastrows.cpp)   # fast waterfall rows: count, spacing, keyed tone timing, level, bounded queue
+  target_link_libraries(test_spectrum_fastrows PRIVATE dect2core)
+  add_test(NAME spectrum_fastrows COMMAND test_spectrum_fastrows)
+  add_executable(test_spectrum_threads tests/dsp/test_spectrum_threads.cpp)   # the spectrum thread feeds while settings change from another: sizes, no stall (run under TSAN too)
+  target_link_libraries(test_spectrum_threads PRIVATE dect2core)
+  add_test(NAME spectrum_threads COMMAND test_spectrum_threads)
   add_executable(test_noise_blanker tests/dsp/test_noise_blanker.cpp)
   target_include_directories(test_noise_blanker PRIVATE core/include)
   add_test(NAME noise_blanker COMMAND test_noise_blanker)
@@ -862,6 +879,11 @@ if(DECT2_BUILD_TESTS)
   add_test(NAME viterbi_gpu COMMAND test_viterbi_gpu)
   add_executable(bench_spectrum tests/bench/bench_spectrum.cpp)
   target_link_libraries(bench_spectrum PRIVATE dect2core)
+  add_executable(bench_specfft tests/bench/bench_specfft.cpp)   # big spectrum FFTs: engine and app passes, ms per frame
+  target_include_directories(bench_specfft PRIVATE app)
+  target_link_libraries(bench_specfft PRIVATE dect2core)
+  add_executable(bench_fft tests/bench/bench_fft.cpp)   # the complex FFT alone, best time per size (build with DECT2_PORTABLE to time the portable kernels)
+  target_link_libraries(bench_fft PRIVATE dect2core)
   # sensitivity / lock-time sweep of every mode with a test signal (docs/SENSITIVITY.md; not a ctest test: minutes per mode)
   add_executable(sens_sweep tools/sens/sens_sweep.cpp)
   target_include_directories(sens_sweep PRIVATE tools/sens)
@@ -1278,6 +1300,10 @@ if(DECT2_BUILD_TESTS)
     target_link_libraries(test_ebicab_mode PRIVATE dect2core)
     target_compile_definitions(test_ebicab_mode PRIVATE DECT2_SOURCE_DIR="${ONAIR_ROOT}")
     add_test(NAME ebicab_mode COMMAND test_ebicab_mode)
+    add_executable(test_inmsat_mode tests/app/test_inmsat_mode.cpp)   # Inmsat: tuning, mode row, engine / panel wiring, honesty strings
+    target_link_libraries(test_inmsat_mode PRIVATE dect2core)
+    target_compile_definitions(test_inmsat_mode PRIVATE DECT2_SOURCE_DIR="${ONAIR_ROOT}")
+    add_test(NAME inmsat_mode COMMAND test_inmsat_mode)
     add_executable(test_esubghz_mode tests/app/test_esubghz_mode.cpp)   # Flipper Zero Sub-GHz chat: tuning, mode row, engine / panel / TX wiring, transmit rules
     target_link_libraries(test_esubghz_mode PRIVATE dect2core)
     target_compile_definitions(test_esubghz_mode PRIVATE DECT2_SOURCE_DIR="${ONAIR_ROOT}")
@@ -1686,6 +1712,9 @@ if(DECT2_BUILD_TESTS)
   add_executable(test_channel_db tests/channels/test_channel_db.cpp)
   target_link_libraries(test_channel_db PRIVATE dect2core)
   add_test(NAME channel_db COMMAND test_channel_db)
+  add_executable(test_swbc tests/general/test_swbc.cpp)   # shortwave broadcast bands: complete, sorted, no overlaps, in the HF range, same as the band plan
+  target_link_libraries(test_swbc PRIVATE dect2core)
+  add_test(NAME swbc COMMAND test_swbc)
   add_executable(test_bandplan tests/bandplan/test_bandplan.cpp)   # band plans: built-in channel tables, validation, CSV / JSON import and export, damaged files
   target_link_libraries(test_bandplan PRIVATE dect2core)
   target_compile_definitions(test_bandplan PRIVATE DECT2_SOURCE_DIR="${ONAIR_ROOT}")
@@ -1938,6 +1967,9 @@ if(DECT2_BUILD_TESTS)
   add_executable(test_videogen tests/tv/test_videogen.cpp)   # Digital video generator: bitrate estimate, encoder settings, overlay, .ts file, UDP / RTP
   target_link_libraries(test_videogen PRIVATE dect2core)
   add_test(NAME videogen COMMAND test_videogen WORKING_DIRECTORY ${ONAIR_ROOT})
+  add_executable(test_dvb_modes tests/tv/test_dvb_modes.cpp)   # its mode selector: DVB modes against the workbook, link fit, best mode
+  target_link_libraries(test_dvb_modes PRIVATE dect2core)
+  add_test(NAME dvb_modes COMMAND test_dvb_modes)
 
   add_executable(test_text_charset tests/common/test_text_charset.cpp)
   target_link_libraries(test_text_charset PRIVATE dect2core)

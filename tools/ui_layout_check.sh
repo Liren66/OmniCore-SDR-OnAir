@@ -113,6 +113,7 @@ esubghz	--mode esubghz	Overview|Flipper chat|Receiver|History
 roshf	--mode roshf	Overview|ROS|Receiver|History
 ssdv	--mode ssdv	Overview|SSDV|Receiver|History
 ebicab	--mode ebicab	Overview|Balise|Receiver|History
+inmsat	--mode inmsat	Overview|Inmarsat|Receiver|History
 pskd	--mode pskd	Overview|PSK|Receiver|History
 sigfox	--mode sigfox	Overview|Sigfox|Receiver|History
 mt63	--mode mt63	Overview|MT63|Receiver|History

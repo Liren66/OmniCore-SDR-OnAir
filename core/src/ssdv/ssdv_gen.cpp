@@ -1,6 +1,7 @@
 // SSDV test signal, see ssdv_gen.h
 #include "dect2/ssdv/ssdv_gen.h"
 #include "dect2/ssdv/ssdv_rx.h"
+#include "dect2/ssdv/wenet.h"
 #include "dect2/common/mathconst.h"
 #include <algorithm>
 #include <cmath>
@@ -15,10 +16,15 @@ struct SsdvGenerator::Impl {
     std::normal_distribution<double> nd{0.0, 1.0};
     std::deque<uint8_t> bits;
     size_t nextPacket = 0;
+    long slipCount = 0;
     double phase = 0, symPhase = 0, curBit = 1, smooth = 0, t = 0;
     double sigma = 0;
 
     explicit Impl(const SsdvGenConfig& cfg) : c(cfg), rng(cfg.seed) {
+        if (c.wenet) {
+            if (c.baud == 1200) c.baud = c.wenet == 2 ? wenet::kRawBaud : wenet::kUartBaud;
+            if (c.deviationHz <= 0) c.deviationHz = c.baud * 0.6233;   // 71.8 kHz at 115.2 kbaud
+        }
         if (c.deviationHz <= 0) c.deviationHz = c.async ? std::max(500.0, c.baud * 1.5) : std::max(1200.0, c.baud * 0.5);
         if (c.ebn0Db < 99) {
             const double n0 = c.amp * c.amp / (c.baud * std::pow(10.0, c.ebn0Db / 10.0));
@@ -33,6 +39,12 @@ struct SsdvGenerator::Impl {
     }
     void refill() {
         if (c.packets.empty()) { pushByte(0x55); return; }
+        if (c.wenet) {
+            const auto fb = wenet::frameBits(c.packets[nextPacket].data(), c.wenet == 2 ? wenet::Framing::Raw : wenet::Framing::Uart, c.preambleBytes);
+            for (uint8_t b : fb) bits.push_back(b);
+            nextPacket = (nextPacket + 1) % c.packets.size();
+            return;
+        }
         if (nextPacket == 0) for (int i = 0; i < c.preambleBytes; i++) pushByte(0x55);
         for (uint8_t v : c.packets[nextPacket]) pushByte(v);
         nextPacket = (nextPacket + 1) % c.packets.size();
@@ -51,6 +63,11 @@ struct SsdvGenerator::Impl {
                 if (bits.empty()) refill();
                 curBit = bits.front() ? 1.0 : -1.0;
                 bits.pop_front();
+                if (c.slipEveryBits != 0 && ++slipCount >= std::abs(c.slipEveryBits)) {
+                    slipCount = 0;
+                    if (c.slipEveryBits > 0) { if (bits.empty()) refill(); bits.pop_front(); }   // a bit is lost
+                    else bits.push_front(bits.empty() ? 1 : bits.front());                         // a bit is repeated
+                }
                 if (c.invert) curBit = -curBit;
             }
             smooth += (curBit - smooth) * alpha;

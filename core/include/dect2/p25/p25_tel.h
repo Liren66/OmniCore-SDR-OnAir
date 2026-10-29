@@ -44,6 +44,8 @@ struct P25Site {
 
 struct P25IdenRow {
     bool valid = false, vu = false;
+    bool tdma = false;           // IDEN_UP_TDMA (0x33): the channel number counts time slots, `slots` per carrier
+    int slots = 1;
     double baseHz = 0, spacingHz = 0, txOffsetHz = 0, bwHz = 0;
 };
 

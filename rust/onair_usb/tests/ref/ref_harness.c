@@ -7,7 +7,7 @@
  *   ref_harness <model> <command>...        see tests/golden/scenarios.txt
  *
  * model = comma separated: chip: r820t | r828d | e4000 | fc0013 | fc2580 | fc0012 | none
- *                          dongle strings: generic | blogv3 | blogv4
+ *                          dongle strings: generic | blogv3 | blogv4 | blogv4l
  *                          lock | nolock (PLL lock bit), vft0..vft3 (R82xx VCO fine tune), cal0..cal15 (filter calibration code), eepbt (EEPROM forces the bias-T),
  *                          failN (the Nth control OUT transfer fails with -1)
  * Not part of the build; tools: see tests/ref/gen_golden.sh. Compile: cc -I<rtl-sdr-blog>/include -I<libusb-1.0> ... (see the script).
@@ -66,6 +66,7 @@ static void model_init(const char *spec) {
         else if (!strcmp(t, "generic")) {}
         else if (!strcmp(t, "blogv3")) dev.vendor = "RTLSDRBlog", dev.product = "Blog V3";
         else if (!strcmp(t, "blogv4")) dev.vendor = "RTLSDRBlog", dev.product = "Blog V4";
+        else if (!strcmp(t, "blogv4l")) dev.vendor = "RTLSDRBlog", dev.product = "Blog V4L";
         else if (!strcmp(t, "lock")) lock = 1;
         else if (!strcmp(t, "nolock")) lock = 0;
         else if (!strncmp(t, "vft", 3)) vft = atoi(t + 3);

@@ -131,6 +131,7 @@ extern const ModeUi kEsubghzUi;
 extern const ModeUi kRoshfUi;
 extern const ModeUi kSsdvUi;
 extern const ModeUi kEbicabUi;
+extern const ModeUi kInmsatUi;
 extern const ModeUi kPskdUi;
 
 // ---- whole-span decoding ("wide decode"): the families whose receivers can decode everything in the visible span (widespan.h) ----
@@ -231,6 +232,7 @@ const ModeUi* modeUi(int family) {
     case 205: return &kRoshfUi;
     case 206: return &kSsdvUi;
     case 207: return &kEbicabUi;
+    case 208: return &kInmsatUi;
     case 202: return &kPskdUi;
     case 83: return &kUatUi;
     case 75: return &kMultitoneUi;
@@ -429,6 +431,20 @@ void wideSettingsPopup(App& a) {
     ImGui::SetNextItemWidth(160 * gUi); if (ImGui::SliderInt(tr("Carriers at most"), &w.maxCarriers, 1, 32)) ch = true;
     ImGui::SetNextItemWidth(160 * gUi); if (ImGui::SliderFloat(tr("CPU limit %"), &cpu, 0, 100, cpu <= 0 ? "off" : "%.0f")) { w.cpuBudget = cpu / 100.0; ch = true; }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("When the decoders take longer than this share of real time, the weakest carrier is dropped (never the one you listen to)"));
+    {   // the channel raster: automatic (the mode's own: 12.5 kHz for DMR) or a fixed one; found frequencies snap to its channel centres
+        static const float kSteps[] = {0.f, 6.25f, 12.5f, 25.f};
+        static const char* kNames[] = {"Automatic", "6.25 kHz", "12.5 kHz", "25 kHz"};
+        int cur = 0;
+        for (int i = 1; i < 4; i++) if (std::fabs(w.rasterKhz - kSteps[i]) < 0.01) cur = i;
+        ImGui::SetNextItemWidth(160 * gUi);
+        if (ImGui::BeginCombo(tr("Channel raster"), tr(kNames[cur]))) {
+            for (int i = 0; i < 4; i++) if (ImGui::Selectable(tr(kNames[i]), i == cur)) { w.rasterKhz = kSteps[i]; ch = true; }
+            ImGui::EndCombo();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Channel spacing of the search. Automatic uses the mode's own (12.5 kHz for DMR). The raster passes through the channel you are tuned to."));
+        if (ImGui::Checkbox(tr("Snap found frequencies to the raster"), &w.snapFreq)) ch = true;
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Show each carrier on its channel centre instead of the measured frequency, which wanders a few hundred Hz with the transmitter's drift."));
+    }
     if (ImGui::Checkbox(tr("Known channels first"), &w.usePriors)) ch = true;
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Channels of this mode in the frequency database are found at a 3 dB lower threshold"));
     if (w.usePriors) { ImGui::SameLine(); if (ImGui::Checkbox(tr("only"), &w.priorsOnly)) ch = true; }

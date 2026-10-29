@@ -160,7 +160,12 @@ int main(int argc, char** argv) {
         dect2::ShareServer::get().configure(sc);
         const dect2::ShareStatus ss = dect2::ShareServer::get().status();
         if (!ss.listening) fprintf(stderr, "onair-server: rtl_tcp share: %s\n", ss.lastError.c_str());
-        else printf("onair-server: sharing the samples as rtl_tcp on port %d (%s; no password)\n", sharePort, api.lan ? "whole network" : "this computer only");
+        else {
+            printf("onair-server: sharing the samples as rtl_tcp on port %d (%s; no password)\n", sharePort, api.lan ? "whole network" : "this computer only");
+            printf("onair-server: add it in another OnAir (or SDR++, SDR#) as an rtl_tcp radio: <this computer>:%d (port %d is the web page, not rtl_tcp)\n", sharePort, live.port);
+        }
+    } else {
+        printf("onair-server: to use this radio from another computer as an rtl_tcp radio, start with --share-rtltcp (port %d); port %d is only the web page and remote control\n", sharePort, live.port);
     }
     std::unique_ptr<onair_web::WebHub> hub;
     std::unique_ptr<onair_web::WebServer> web;

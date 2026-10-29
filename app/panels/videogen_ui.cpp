@@ -1,10 +1,12 @@
 // Tools > Digital video generator: a camera, a still picture or a video file encoded into an MPEG transport stream, written to a .ts
-// file or sent over UDP / RTP (port 5000 unless changed). Two tabs: "Sources and encoding" (inputs, output, every encoder parameter and
-// the bitrate estimate, which follows each change) and "Overlay" (a logo, parameter blocks, free text and rolling text, placed on the
-// picture by drag and drop, magnetic). A standalone tool: it does not touch the receiver or the transmitter; a .ts file it writes can
-// be given to the transmitter as its "MPEG-TS / video file". The engine is core/src/tv/videogen*.cpp.
+// file or sent over UDP / RTP (port 5000 unless changed). Three tabs: "Sources and encoding" (inputs, output, every encoder parameter and
+// the bitrate estimate, which follows each change), "Overlay" (a logo, parameter blocks, free text and rolling text, placed on the
+// picture by drag and drop, magnetic) and "Digital Television Mode Selector" (the DVB modes that carry the stream on a link,
+// videogen_modes_ui.cpp). A standalone tool: it does not touch the receiver or the transmitter; a .ts file it writes can be given to the
+// transmitter as its "MPEG-TS / video file". The engine is core/src/tv/videogen*.cpp.
 #include "../app.h"
 #include "../platform/platform.h"
+#include "videogen_modes_ui.h"
 #include "dect2/audio/audioin.h"
 #include "dect2/audio/videoin.h"
 #include "dect2/common/u8file.h"
@@ -66,7 +68,7 @@ const RowHelp kRowHelp[] = {
     {N_("Audio tracks"), N_("How many audio tracks, each at the audio bitrate below.")},
     {N_("Video codec"), N_("H.264 is widely supported and the safe choice for DVB-T. H.265 needs about 30 % less bitrate, but only newer receivers (DVB-T2 sets) decode it: check your whole chain. MPEG-2 works everywhere but needs about twice the bitrate of H.264. Only the encoders that work on this computer are listed; the bundled FFmpeg has MPEG-2 only.")},
     {N_("Rate control"), N_("CBR: a constant rate, predictable, what a broadcast link needs. Constrained VBR: the rate varies with the scene up to 1.5 times the bitrate, so the mux rate needs headroom for the peaks. VBR / CRF: a constant quality instead of a rate (x264 and x265 only), capped at twice the bitrate.")},
-    {N_("Video bitrate"), N_("More bitrate generally gives a better picture but uses more of the channel. Auto follows a rule of thumb for this codec, resolution, frame rate and frame types; the estimate on the right shows what the whole stream then needs. Untick Auto to set your own.")},
+    {N_("Video bitrate"), N_("More bitrate generally gives a better picture but uses more of the channel. Auto follows a rule of thumb for this codec, resolution, frame rate and frame types; the estimate on the right shows what the whole stream then needs. Untick Auto to set your own. MPEG-2 has a lowest bitrate for each picture size (about 160 bit/s per 16x16 block, e.g. 150 kbit/s at 640x360): a picture must reach the receiver within about 0.7 s.")},
     {N_("CRF"), N_("The quality level: lower is better and costs more bits. 18 is close to transparent, 23 is the x264 default, 28 is clearly softer.")},
     {N_("Frame rate"), N_("Pictures per second. Lower rates need less data for motion but look less smooth. Some equipment takes only certain rates: 25 fps in 50 Hz countries, 30 fps in 60 Hz countries.")},
     {N_("Resolution"), N_("The size of the encoded picture. Lower resolution needs less bitrate and less encoder time. Use a size your receiver supports: 720x576 is standard definition in Europe, 1280x720 and 1920x1080 are HD.")},
@@ -90,7 +92,7 @@ const RowHelp kRowHelp[] = {
     {N_("Audio PID"), N_("The packet ID of the first audio track; further tracks follow it.")},
 };
 
-const char* const kToolHelp = N_("Encodes a camera, a still picture or a video file, with the overlay of the second tab, into an MPEG transport stream: a .ts file, or a UDP / RTP stream to watch in VLC. A .ts file can be given to the transmitter as its \"MPEG-TS / video file\". The estimate on the right of the first tab shows the bitrate the settings need, so you can fit the stream to your DVB link before encoding. Each setting has its own (?). The whole guide: docs/VIDEO-GENERATOR.md.");
+const char* const kToolHelp = N_("Encodes a camera, a still picture or a video file, with the overlay of the second tab, into an MPEG transport stream: a .ts file, or a UDP / RTP stream to watch in VLC. A .ts file can be given to the transmitter as its \"MPEG-TS / video file\". The estimate on the right of the first tab shows the bitrate the settings need, so you can fit the stream to your DVB link before encoding; the tab Digital Television Mode Selector shows which DVB modes carry it in your bandwidth at your C/N. Each setting has its own (?). The whole guide: docs/VIDEO-GENERATOR.md.");
 
 struct DropItem { int kind; int param; };   // the drag-and-drop payload "VGBLOCK"
 
@@ -106,6 +108,7 @@ struct State {
     std::string msg;
     std::string savedCfg, savedLayout, sentLayout;
     double lastSave = 0;
+    double minRateNoticeUntil = 0;   // the video bitrate was raised to the MPEG-2 minimum: explain why until then
     // overlay editor
     int sel = -1;
     bool dragging = false, resizing = false, snap = true;
@@ -439,13 +442,25 @@ void encodingSection(State& s, float col, float w) {
     if (e.autoBitrate) e.videoKbps = sug;
     ImGui::BeginDisabled(e.autoBitrate);
     ImGui::SetNextItemWidth(130 * gUi);
+    const int minKbps = minVideoKbps(e);
     if (ImGui::InputInt("##vgvkbps", &e.videoKbps, 50, 500)) e.videoKbps = std::clamp(e.videoKbps, 10, 100000);
     ImGui::EndDisabled();
+    // asked below what MPEG-2 can send at this picture size (or a larger picture was chosen): raise it and say why
+    if (e.videoKbps < minKbps) {
+        e.videoKbps = minKbps;
+        s.minRateNoticeUntil = ImGui::GetTime() + 10;
+    }
     ImGui::SameLine();
     ImGui::TextUnformatted(tr("kbit/s"));
     ImGui::SameLine();
     ImGui::Checkbox(tr("Auto##vgvkbps"), &e.autoBitrate);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s (%d kbit/s)", tr("Follow the suggestion for this codec, resolution, frame rate and frame types"), sug);
+    if (ImGui::GetTime() < s.minRateNoticeUntil) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.65f, 0.2f, 1));
+        ImGui::TextWrapped("%s %dx%d: %d kbit/s.", tr("The lowest video bitrate for MPEG-2 at"), e.width, e.height, minKbps);
+        ImGui::TextWrapped("%s", tr("MPEG-2 tells the receiver with each picture how long to wait for it, at most about 0.7 s. Even at the lowest quality, a picture of this size needs about 160 bit/s per 16x16 block to arrive in time; below that the encoder cannot make a valid stream. For a lower bitrate, choose a smaller picture, or H.264 / H.265 if this FFmpeg has them."));
+        ImGui::PopStyleColor();
+    }
     if (e.rc == RateControl::Crf && caps.crf) {
         rowLabel(N_("CRF"), col);
         ImGui::SetNextItemWidth(w);
@@ -1017,6 +1032,7 @@ void videoGenWindow(App& a) {
     if (ImGui::BeginTabBar("##vgtabs")) {
         if (ImGui::BeginTabItem(trw("Sources and encoding"))) { sourcesTab(s); ImGui::EndTabItem(); }
         if (ImGui::BeginTabItem(trw("Overlay"))) { overlayTab(s); ImGui::EndTabItem(); }
+        if (ImGui::BeginTabItem(trw("Digital Television Mode Selector"))) { dvbModeSelectorTab(estimate(s.cfg.enc).mux); ImGui::EndTabItem(); }
         ImGui::EndTabBar();
     }
     ImGui::End();

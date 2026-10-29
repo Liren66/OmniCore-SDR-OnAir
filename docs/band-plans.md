@@ -126,3 +126,26 @@ The header may use `_khz` or `_mhz` instead of `_hz` for `start`, `end`, `step`,
 Plan fields: `name` (required), `region`, `itu_region` (1, 2 or 3), `countries` (ISO codes), `source`, `note`, `verified` (JSON: `false` shows the "not fully verified" note; CSV: `# verified: no`).
 
 Limits, so a damaged file cannot hurt: 4 MB per file, 500 bands, 5000 explicit channels per band, 200000 channels per raster. A common mistake is a step in MHz where Hz is expected; the message says "check step_hz (in Hz)".
+
+## Shortwave broadcast bands
+
+The `sw-bc-r1`, `sw-bc-r2` and `sw-bc-r3` templates (each plan uses the one for its ITU region) list the shortwave broadcasting bands in kHz, with the region's own edges. Widest range, with the differences:
+
+| Band | kHz | Region differences |
+|---|---|---|
+| 120 m | 2300-2495 | tropical zone only; Region 1 to 2498 |
+| 90 m | 3200-3400 | tropical zone only |
+| 75 m | 3900-4000 | Region 1 3950-4000, Region 2 none, Region 3 3900-4000 |
+| 60 m | 4750-5060 | tropical zone only; 4750-4995 and 5005-5060 (5000-5005 is the standard-frequency service) |
+| 49 m | 5900-6200 | |
+| 41 m | 7200-7450 | Region 2 7300-7400 only |
+| 31 m | 9400-9900 | |
+| 25 m | 11600-12100 | |
+| 22 m | 13570-13870 | |
+| 19 m | 15100-15800 | |
+| 16 m | 17480-17900 | |
+| 15 m | 18900-19020 | |
+| 13 m | 21450-21850 | |
+| 11 m | 25670-26100 | |
+
+Sources: ITU-R, Frequency bands allocated to terrestrial broadcasting services (https://www.itu.int/en/ITU-R/terrestrial/broadcast/Pages/bands.aspx, authoritative, used for every edge); Wikipedia, Shortwave bands (https://en.wikipedia.org/wiki/Shortwave_bands) and Shortwave radio (https://en.wikipedia.org/wiki/Shortwave_radio); hqshortwaveradio.com/bands (https://hqshortwaveradio.com/bands/, loose round-number edges, not used); Radio Regulations Art. 5 (https://search.itu.int/history/HistoryDigitalCollectionDocLibrary/1.49.48.en.101.pdf). The HFCC site (hfcc.org) was unreachable. Where Wikipedia differs (25 m to 12.2, 41 m to 7.6, 11 m from 25.6, 60 m end 4995) the ITU table wins; the third-party pages round the edges. The raster is 5 kHz. In the General receiver's AM broadcast entry each band is a button: it tunes the band centre, selects AM with the synchronous detector (when the detector is not on auto), a 9 kHz filter and a 5 kHz step; the tooltip shows each region's edges.

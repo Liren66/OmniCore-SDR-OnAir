@@ -227,9 +227,7 @@ static void testExtract() {
     ExtractReport r = extractTo(root.string(), ent, plan, false);
     CHECK(r.written == 1 && fs::exists(root / "layouts" / "a.ini") && !fs::exists(root / "memories.json"));
     CHECK(!fs::exists(root.parent_path() / "evil.txt"));
-    std::ifstream in(root / "layouts" / "a.ini"); std::string s((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    CHECK(s == "A");
-    in.close();   // Windows cannot replace a file that is still open
+    { std::ifstream in(root / "layouts" / "a.ini"); std::string s((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>()); CHECK(s == "A"); }   // closed: Windows cannot replace an open file
     CHECK(!fs::exists(root / "layouts" / "a.ini.onairtmp"));          // atomic: no temp file left
     // replace overwrites
     ent[0].data = "B";

@@ -102,6 +102,12 @@ RateCheck checkManualRate(const RateLimits& L, double modeMinHz, double hz) {
     return c;
 }
 
+double basebandFilterFor(double filterHz, double autoRateHz, double rateHz) {
+    if (!(filterHz > 0) || filterHz > rateHz) return 0;
+    if (autoRateHz > 0 && rateHz > autoRateHz * 1.01) return 0;
+    return filterHz;
+}
+
 static bool streamsCs8(const DeviceInfo& d, const TuneSettings& t) {
     for (const auto& r : d.settings) if (r.key == "iqformat") return radioOption(t, "iqformat", "cs16") == "cs8";
     return false;

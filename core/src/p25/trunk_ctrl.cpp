@@ -50,7 +50,7 @@ void Controller::onTsbk(const p25::Tsbk& t, int nac, double now) {
     follower.onControlSeen(now);
     std::vector<Grant> gs;
     pushMsg(sys.onTsbk(t, nac, now, &gs));
-    if (sys.site().valid && sys.site().ccHz > 0) follower.setControlChannel(sys.site().ccHz, sys.controlCandidates());
+    if (sys.site().valid && sys.site().ccHz > 0) follower.setControlChannel(sys.site().ccHz, sys.ownControlChannels());
     dispatch(gs, now);
 }
 

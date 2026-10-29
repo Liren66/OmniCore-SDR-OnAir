@@ -35,14 +35,21 @@ struct State {
 };
 State S;
 
-constexpr int kBauds[] = {0, 300, 600, 1200, 2400, 4800, 9600, 19200};
+constexpr int kBauds[] = {0, 300, 600, 1200, 2400, 4800, 9600, 19200, 115200, 96000};
+constexpr int kNumBauds = (int)(sizeof kBauds / sizeof kBauds[0]);
+
+std::string baudName(int b) {   // 115200 and 96000 are the two Wenet links
+    if (b == 115200) return "Wenet 115.2 kbaud";
+    if (b == 96000) return "Wenet 96 kbaud (I2S)";
+    return std::to_string(b) + " baud";
+}
 
 bool live(const App& a) { return a.rx.standard == 207; }   // the engine reports its standard code minus one
 
 void load() {
     if (S.loaded) return;
     S.loaded = true;
-    S.baudChoice = (int)std::max(0L, std::min(7L, plat::prefs().getI("ssdvBaud", 0)));
+    S.baudChoice = (int)std::max(0L, std::min((long)kNumBauds - 1, plat::prefs().getI("ssdvBaud", 0)));
 }
 
 void presets(App& a) {
@@ -134,7 +141,7 @@ void packetsView(App& a) {
         ImGui::TableNextColumn(); ImGui::TextUnformatted(p.call.c_str());
         ImGui::TableNextColumn(); ImGui::Text("%d", p.imageId);
         ImGui::TableNextColumn(); ImGui::Text("%d%s", p.packetId, p.eoi ? " end" : "");
-        ImGui::TableNextColumn(); ImGui::Text("%d%s", p.baud, p.async ? " 8N2" : "");
+        ImGui::TableNextColumn(); ImGui::Text("%d%s", p.baud, p.wenet ? " Wenet" : p.async ? " 8N2" : "");
         ImGui::TableNextColumn(); if (p.rsErrors > 0) ImGui::Text("%d", p.rsErrors); else ImGui::TextDisabled("-");
         ImGui::TableNextColumn(); ImGui::TextDisabled("%s%s%s", p.noFec ? "no FEC " : "", p.inverted ? "swapped " : "", p.snrDb > 0 ? "" : "");
     }
@@ -158,18 +165,18 @@ void tuner(App&, bool&) {
     if (ImGui::CollapsingHeader(trw("Advanced##ssdv"))) {
         ImGui::TextDisabled("%s", tr("Speed"));
         ImGui::SameLine();
-        char cur[24];
-        if (S.baudChoice == 0) snprintf(cur, sizeof cur, "%s", tr("Automatic")); else snprintf(cur, sizeof cur, "%d baud", kBauds[S.baudChoice]);
-        ImGui::SetNextItemWidth(130 * gUi);
+        char cur[32];
+        if (S.baudChoice == 0) snprintf(cur, sizeof cur, "%s", tr("Automatic")); else snprintf(cur, sizeof cur, "%s", baudName(kBauds[S.baudChoice]).c_str());
+        ImGui::SetNextItemWidth(190 * gUi);
         if (ImGui::BeginCombo("##ssdvbaud", cur)) {
-            for (int i = 0; i < 8; i++) {
-                char b[24];
-                if (i == 0) snprintf(b, sizeof b, "%s", tr("Automatic")); else snprintf(b, sizeof b, "%d baud", kBauds[i]);
+            for (int i = 0; i < kNumBauds; i++) {
+                char b[32];
+                if (i == 0) snprintf(b, sizeof b, "%s", tr("Automatic")); else snprintf(b, sizeof b, "%s", baudName(kBauds[i]).c_str());
                 if (ImGui::Selectable(b, i == S.baudChoice)) { S.baudChoice = i; plat::prefs().setI("ssdvBaud", (long)i); }
             }
             ImGui::EndCombo();
         }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Automatic tries 1200 - 19200 baud plain bits and 300 - 1200 baud RTTY-framed bytes at the same time. A fixed speed saves a little CPU."));
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Automatic tries 1200 - 19200 baud plain bits, 300 - 1200 baud RTTY-framed bytes and the two Wenet links (115.2 and 96 kbaud, LDPC) at the same time. Wenet needs a sample rate of 2 MHz or more. A fixed speed saves a little CPU."));
     }
 }
 
@@ -202,7 +209,8 @@ void receiver(App& a) {
     const dect2::SsdvTelemetry& t = a.rx.ssdv;
     auto kv = [&](const char* k, const char* fmt, auto... v) { ImGui::TextDisabled("%s", k); kvColumn(130 * gUi); ImGui::PushFont(a.mono, 0); ImGui::PushTextWrapPos(0); ImGui::Text(fmt, v...); ImGui::PopTextWrapPos(); ImGui::PopFont(); };
     kv(tr("state"), "%s", dect2::ssdvSummary(t).c_str());
-    if (t.baud) kv(tr("speed"), "%d baud%s", t.baud, t.async ? tr(", RTTY-framed bytes") : "");
+    if (t.baud) kv(tr("speed"), "%d baud%s", t.baud, t.wenet ? tr(", Wenet (LDPC)") : t.async ? tr(", RTTY-framed bytes") : "");
+    if (t.wenetOther || t.wenetIdle) kv(tr("Wenet other"), "%llu telemetry / text, %llu idle", (unsigned long long)t.wenetOther, (unsigned long long)t.wenetIdle);
     kv(tr("packets"), "%llu OK, %llu %s, %llu %s", (unsigned long long)t.blocksOk, (unsigned long long)t.blocksBad, tr("failed"), (unsigned long long)t.corrected, tr("corrected"));
     kv(tr("pictures"), "%zu (%llu %s)", t.images.size(), (unsigned long long)t.imagesDone, tr("complete"));
     kv(tr("carrier offset"), "%+.0f Hz", t.cfoHz);

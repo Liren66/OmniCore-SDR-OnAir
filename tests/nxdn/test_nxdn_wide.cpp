@@ -42,10 +42,10 @@ static void runMode(int a, const char* name, double step, std::function<std::vec
     CHECK(t.wide.size() == 2, "%s: %zu carriers in the table, expected 2", name, t.wide.size());
     for (auto& r : t.wide) printf("  %+9.0f Hz  level %.1f  snr %.1f  state %d %s\n", r.hz, r.levelDb, r.snrDb, r.state, r.info.c_str());
     for (int k = 0; k < 2; k++) {
-        const WideCarrier* row = nullptr; for (auto& r : t.wide) if (std::fabs(r.hz - hz[k]) < 700) row = &r;
+        const WideCarrier* row = nullptr; for (auto& r : t.wide) if (std::fabs(r.hz - hz[k]) < 1000) row = &r;
         CHECK(row != nullptr, "%s: carrier %d (%.0f Hz) not found", name, k, hz[k]);
         if (row) CHECK(row->state >= 1, "%s: carrier %d found but its decoder did not lock (state %d)", name, k, row->state);
-        int n = 0; for (auto& e : logOf(t)) if (e.first && std::fabs(e.second - hz[k]) < 700) n++;
+        int n = 0; for (auto& e : logOf(t)) if (e.first && std::fabs(e.second - hz[k]) < 1000) n++;
         printf("  carrier %d: %d log entries\n", k, n);
         CHECK(n > 0, "%s: carrier %d: nothing in the merged log", name, k);
     }

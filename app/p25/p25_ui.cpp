@@ -17,6 +17,8 @@
 #include "dect2/audio/audio_rec.h"
 #include "dect2/common/u8file.h"
 #include "platform/platform.h"
+#include "state/receivers.h"
+#include "state/tune_worker.h"
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -32,11 +34,11 @@
 
 namespace {
 
+struct Pushed { bool was = false; float vol = -1; bool mute = false; };   // per receiver: the voice radio's tick shares this file's state with the control radio's
 struct State {
     int view = 0;                        // 0 now, 1 calls, 2 trunking, 3 talkgroups, 4 messages, 5 follow
-    bool wasRunning = false;
     float hang = 2.0f;
-    float pushedVol = -1; bool pushedMute = false;
+    std::map<int, Pushed> pushed;
 };
 State S;
 
@@ -59,6 +61,21 @@ struct Trunk {
     bool p2Hop = false, p2Second = false;
     uint64_t p2Seq = 0;
     std::vector<double> wideList;        // the Phase 1 channels the whole-span bank decodes for the follower (whole-span decoding off)
+    // The follower belongs to one receiver (the one whose Follow calls box was ticked): the others, the voice radio above all, only decode
+    int owner = 0;
+    // The voice radio: a second receiver (RX n) in a P25 mode takes the calls outside the control radio's capture; the control radio never leaves.
+    int voicePick = 0;                   // 0 Auto (the first other receiver that runs P25), -1 Off, n = RX n
+    int voiceRx = 0;                     // the receiver the picker resolves to now (0 none)
+    std::string voiceWhy;                // why there is none
+    struct Remote {
+        int rx = 0;                      // the receiver that was borrowed (set from OpenRemote until the call is over and it is given back)
+        uint64_t call = 0;               // the call on it now
+        bool tdma = false, wasActive = false, hopped = false;
+        int slot = 0, hear = 0;          // Phase 2 slot; the receiver whose sound played before
+        double prevMhz = 0, openedAt = 0;
+        uint64_t seq = 0;
+        int p2Seed[3] = {0, 0, 0};
+    } rm;
 };
 Trunk T;
 
@@ -275,13 +292,133 @@ void messageView(App& a) {
     if (ev.empty()) ImGui::TextDisabled("no messages yet");
 }
 
+
+// ---------------------------------------------------------------- the voice radio (issue #349)
+constexpr int kP25p1Std = 52;                              // the engine standard of P25 Phase 1 (family 50)
+
+bool p25Family(const App& b) { return b.family == 50 || b.family == 180; }
+struct PrefRx {   // prefs written for a receiver other than the one being drawn go under its own keys
+    int old;
+    explicit PrefRx(int r) : old(plat::gPrefRx) { plat::gPrefRx = r; }
+    ~PrefRx() { plat::gPrefRx = old; }
+};
+
+// The receiver the picker resolves to for the control radio ctl: running, in a P25 mode, not ctl itself
+App* voiceRadioFor(const App& ctl, std::string* why) {
+    if (T.voicePick < 0) { if (why) *why = "off"; return nullptr; }
+    std::string reason = "no other receiver is open";
+    for (App* b : receiversAll()) {
+        if (b == &ctl) continue;
+        if (T.voicePick > 0 && b->rxId != T.voicePick) continue;
+        const std::string rx = "RX " + std::to_string(b->rxId);
+        if (!b->engine.running()) { reason = rx + " is not running"; continue; }
+        if (!p25Family(*b)) { reason = rx + " is not in a P25 mode"; continue; }
+        return b;
+    }
+    if (T.voicePick > 0 && !receiverById(T.voicePick)) reason = "RX " + std::to_string(T.voicePick) + " is not open";
+    if (why) *why = reason;
+    return nullptr;
+}
+
+// Tunes another receiver for a followed call: the same as tuneFreq() but nothing is saved (the hop is temporary; its settings stay as they were)
+void voiceTune(App& b, double mhz) {
+    mhz = std::min(dect2::kMaxTuneMhz, std::max(0.001, mhz));
+    b.engine.setDecodeShiftHz(0);
+    b.freqMhz = mhz;
+    b.tune.centerHz = mhz * 1e6;
+    if (b.engine.running()) { tunework::post(b.engine, b.tune, true); b.peak.clear(); }
+}
+
+// The call on the voice radio is over (or never started): the radio goes back to the mode, frequency and sound it had
+void voiceRelease() {
+    if (T.rm.rx) {
+        if (App* b = receiverById(T.rm.rx)) {
+            if (T.rm.hopped && b->engine.running()) b->engine.setStandard(engineStd(*b));
+            if (T.rm.prevMhz > 0 && b->engine.running()) voiceTune(*b, T.rm.prevMhz);
+            if (T.rm.hear && receiverHeard() && receiverHeard()->rxId == b->rxId && receiverById(T.rm.hear)) receiverHear(T.rm.hear);
+        }
+    }
+    T.rm = Trunk::Remote();
+}
+
+// Makes receiver b a P25 receiver (one click from the panel): the mode is set and, if it was not running, started
+void voiceSetup(App& b) {
+    PrefRx ps(b.rxId);
+    if (!p25Family(b)) selectMode(b, 50);
+    if (!b.engine.running()) startReceiver(b);
+}
+
+// What the voice radio hears keeps its call open, and its terminator or encryption ends it
+void voiceFeed(double now) {
+    if (!T.rm.call) return;
+    App* b = receiverById(T.rm.rx);
+    if (!b || !b->engine.running()) {
+        T.ctl.onRemoteFailed(T.rm.call, "the second radio stopped or was closed", now);
+        return;
+    }
+    if (now - T.rm.openedAt < 0.4) return;   // what it reported before the hop is not this call's
+    if (!T.rm.tdma) {
+        const dect2::P25Telemetry& t = b->rx.p25;
+        if (b->rx.standard != kP25p1Std - 1 || t.seq == T.rm.seq) return;
+        T.rm.seq = t.seq;
+        if (t.now.active) {
+            T.rm.wasActive = true;
+            if (t.now.encrypted) T.ctl.onEncrypted(T.rm.call, now);   // left at once
+            else T.ctl.onVoice(T.rm.call, now);
+        } else if (T.rm.wasActive) { T.rm.wasActive = false; T.ctl.onTerminator(T.rm.call, now); }
+    } else {
+        const dect2::P25p2Telemetry& p = b->rx.p25p2;
+        if (b->rx.standard != kP25p2Std - 1 || p.seq == T.rm.seq || p.followTag != T.rm.call) return;
+        T.rm.seq = p.seq;
+        dect2::P25p2Receiver& r = b->engine.p25p2();
+        r.setListenSlot(T.rm.slot + 1);
+        r.setVolume(b->volume); r.setMuted(b->muted);
+        if (p.wacn != T.rm.p2Seed[0] || p.sysId != T.rm.p2Seed[1] || p.colorCode != T.rm.p2Seed[2]) r.setSystem(T.rm.p2Seed[0], T.rm.p2Seed[1], T.rm.p2Seed[2]);
+        const dect2::P25p2Call& c = p.now[T.rm.slot];
+        if (c.active && c.cryptoKnown && c.encrypted) T.ctl.onEncrypted(T.rm.call, now);
+        else if (p.timeSec - p.voiceSec[T.rm.slot] < 0.6) T.ctl.onVoice(T.rm.call, now);
+    }
+}
+
+void voiceOpen(App& ctl, const dect2::trunk::Action& ac, double now) {
+    std::string why;
+    App* b = voiceRadioFor(ctl, &why);
+    if (!b) { T.ctl.onRemoteFailed(ac.callId, why.empty() ? "no second radio" : why, now); return; }
+    if (!T.rm.rx) {   // first call: remember what the radio was doing
+        T.rm.prevMhz = b->freqMhz;
+        if (const App* h = receiverHeard()) T.rm.hear = h->rxId;
+    }
+    T.rm.rx = b->rxId; T.rm.call = ac.callId; T.rm.tdma = ac.tdma; T.rm.slot = ac.slot & 1; T.rm.seq = 0; T.rm.openedAt = now; T.rm.wasActive = false;
+    if (ac.tdma) {   // seeded with the site's WACN / system / NAC like the follower's own Phase 2 receiver
+        const dect2::trunk::SiteInfo& si = T.ctl.sys.site();
+        T.rm.p2Seed[0] = si.wacn < 0 ? 0 : si.wacn;
+        T.rm.p2Seed[1] = si.sysId < 0 ? 0 : si.sysId;
+        T.rm.p2Seed[2] = si.nac >= 0 ? si.nac : T.rm.p2Seed[1];
+    }
+    b->engine.setStandard(ac.tdma ? kP25p2Std : kP25p1Std);
+    T.rm.hopped = true;
+    if (ac.tdma) {
+        dect2::P25p2Receiver& r = b->engine.p25p2();
+        r.setSystem(T.rm.p2Seed[0], T.rm.p2Seed[1], T.rm.p2Seed[2]);
+        r.setListenSlot(ac.slot + 1);
+        r.startFollow(ac.callId);
+        r.setCallHint(1, -1, -1, true, 0); r.setCallHint(2, -1, -1, true, 0);
+        if (const dect2::trunk::CallRecord* cr = T.ctl.log.byId(ac.callId)) r.setCallHint(ac.slot + 1, cr->src, cr->tg, cr->group, cr->freqHz);
+        r.setVolume(b->volume); r.setMuted(b->muted);
+    }
+    voiceTune(*b, ac.freqHz / 1e6);
+    receiverHear(b->rxId);   // the control channel has nothing to hear: the sound is the voice radio's for now
+}
+
 // ---------------------------------------------------------------- hooks
 
 void trunkTick(App& a) {
     if (!T.loaded) { T.loaded = true; if (std::filesystem::exists(std::filesystem::u8path(tgFile()))) tgLoad(tgFile(), false); }
+    if (T.owner && a.rxId != T.owner) return;   // the follower belongs to another receiver; this one (the voice radio) only decodes
     // Following without whole-span decoding: the whole-span bank runs for the granted Phase 1 channels only (a decoder per call, none for the rest)
     const bool wantFollow = T.on && live(a) && !a.wideDecode;
     if (wantFollow != a.wideFollow) { a.wideFollow = wantFollow; if (!wantFollow) a.engine.setWideFollow(false, {}); T.wideList.clear(); }
+    if (!T.on && T.rm.rx && (!T.owner || a.rxId == T.owner)) { T.ctl.onRemoteFailed(T.rm.call, "following was turned off", nowSec()); voiceRelease(); }
     if (!T.on && T.p2Hop) { a.engine.setStandard(engineStd(a)); T.p2Hop = false; T.p2Call = 0; }   // following turned off on a Phase 2 channel
     if (!T.on || (!live(a) && !T.p2Hop)) return;   // on a Phase 2 voice channel the Phase 2 receiver is the first mode
     using namespace dect2::trunk;
@@ -290,13 +427,16 @@ void trunkTick(App& a) {
     for (const auto& r : t.tsbks) {
         if (r.seq <= T.tsbkSeen) continue;
         T.tsbkSeen = r.seq;
+        // history: the receiver keeps the last 96 messages, and following may have been off (or the screen stalled) for a while. Site and identifier
+        // messages are as good as new; an old grant is a call long over, and following it would hop the radio away for nothing
+        if (t.timeSec - r.sigSec > 3.0 && r.opcode >= 0x00 && r.opcode <= 0x06) continue;
         dect2::p25::Tsbk k; k.opcode = r.opcode; k.mfid = r.mfid; k.args = r.args;
         T.ctl.onTsbk(k, r.nac, now);
     }
     // the whole capture counts for Phase 2 calls (the second mode takes any channel in it); Phase 1 calls in it need whole-span decoding
     T.ctl.setCapture(a.engine.captureCentreHz(), a.engine.sampleRate(), wideActive(a));
     // the radio is on a voice channel: what it hears keeps the call open (no grant repeats reach it there)
-    if (T.hopCall && !T.p2Hop && live(a) && t.seq != T.hopSeq) { T.hopSeq = t.seq; if (t.now.active) T.ctl.onVoice(T.hopCall, now); }
+    if (T.hopCall && !T.p2Hop && live(a) && t.seq != T.hopSeq) { T.hopSeq = t.seq; if (t.now.active) { if (t.now.encrypted) T.ctl.onEncrypted(T.hopCall, now); else T.ctl.onVoice(T.hopCall, now); } }   // the voice channel says encrypted (a grant does not always): left at once, back to the control channel
     if (T.p2Call) {
         const dect2::P25p2Telemetry& p = T.p2Second ? a.second.rx.p25p2 : a.rx.p25p2;
         if (p.seq != T.p2Seq && p.followTag == T.p2Call && (T.p2Second || a.rx.standard == kP25p2Std - 1)) {   // reports of this call only
@@ -312,6 +452,15 @@ void trunkTick(App& a) {
             if (c.active && c.cryptoKnown && c.encrypted) T.ctl.onEncrypted(T.p2Call, now);   // the ESS says encrypted, whatever the grant said
             else if (p.timeSec - p.voiceSec[T.p2Slot] < 0.6) T.ctl.onVoice(T.p2Call, now);
         }
+    }
+    // the voice radio: ready when a second receiver in a P25 mode is there; what it hears goes to the follower like the hopped radio's does
+    {
+        std::string why;
+        const App* vb = voiceRadioFor(a, &why);
+        T.voiceRx = vb ? vb->rxId : 0; T.voiceWhy = why;
+        dect2::trunk::FollowConfig vc = T.ctl.follower.config();
+        if (vc.voiceRadio != (vb != nullptr)) { vc.voiceRadio = vb != nullptr; T.ctl.follower.setConfig(vc); }
+        voiceFeed(now);
     }
     T.ctl.tick(now);
     // a Phase 2 call: seed the receiver with the site's WACN / system / NAC (the descrambler) and pick the slot. a.engine.p25p2() is the receiver
@@ -333,6 +482,7 @@ void trunkTick(App& a) {
         if (T.p2Second) { setSecondMode(a, -1, 0); a.engine.setSecondarySound(a.second.audio); }
         T.p2Second = false; T.p2Call = 0;
     };
+    bool voiceClosed = false;
     for (const Action& ac : T.ctl.takeActions()) {
         switch (ac.kind) {
         case Action::Retune:
@@ -363,6 +513,11 @@ void trunkTick(App& a) {
         case Action::CloseSlice:
             if (ac.tdma && ac.callId == T.p2Call) p2Stop();
             break;
+        case Action::OpenRemote: voiceOpen(a, ac, now); break;
+        case Action::CloseRemote:
+            if (ac.callId == T.rm.call) T.rm.call = 0;
+            voiceClosed = true;
+            break;
         case Action::Notice: T.ctl.messages.push_back(ac.text); break;
         case Action::RecordStart: {
             dect2::AudioRecorder& rec = dect2::AudioRecorder::instance();
@@ -386,6 +541,7 @@ void trunkTick(App& a) {
         default: break;
         }
     }
+    if (voiceClosed && !T.rm.call) voiceRelease();   // not when the next call took the radio in the same step
     if (a.wideFollow) {   // the bank decodes the control channel and the Phase 1 calls followed now: it takes the whole input, nothing else decodes them
         std::vector<double> v{a.freqMhz * 1e6};   // the control channel the receiver is tuned to
         const double cc = T.ctl.follower.currentControlHz();
@@ -406,9 +562,60 @@ void trunkTick(App& a) {
     if (T.dirty) { T.dirty = false; tgSave(tgFile()); }
 }
 
+
+// The "Voice radio" row: which second receiver takes the calls outside the control radio's capture (Auto, Off, or one receiver)
+void voicePicker(App& a) {
+    const std::vector<App*> all = receiversAll();
+    std::string cur = T.voicePick < 0 ? "Off" : T.voicePick == 0 ? "Auto" : "RX " + std::to_string(T.voicePick);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted("Voice radio");
+    ImGui::SameLine(0, 8 * gUi);
+    ImGui::SetNextItemWidth(130 * gUi);
+    if (ImGui::BeginCombo("##voiceradio", cur.c_str())) {
+        if (ImGui::Selectable("Auto", T.voicePick == 0)) T.voicePick = 0;
+        if (ImGui::Selectable("Off", T.voicePick < 0)) T.voicePick = -1;
+        for (const App* b : all) {
+            if (b == &a) continue;
+            char l[96];
+            snprintf(l, sizeof l, "RX %d%s", b->rxId, !b->engine.running() ? " (not running)" : p25Family(*b) ? "" : " (not P25)");
+            if (ImGui::Selectable(l, T.voicePick == b->rxId)) T.voicePick = b->rxId;
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine(0, 10 * gUi);
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("A second receiver for the voice channel while this one stays on the control channel. When a call is granted on a\n"
+                          "frequency outside this receiver's capture, the voice radio (in a P25 mode, Phase 1 or Phase 2) tunes there, plays the\n"
+                          "call and goes back to what it was doing. Auto: the first other receiver that runs P25. Off: one radio, as before.\n"
+                          "Calls inside this receiver's capture never need it. Encrypted calls are left at once. See docs/trunking.md.");
+    if (T.voicePick < 0) { ImGui::TextDisabled("one radio: calls outside the capture need a wider capture or the radio retune"); return; }
+    if (T.voiceRx) {
+        const App* b = receiverById(T.voiceRx);
+        if (T.rm.call) {
+            const dect2::trunk::CallRecord* r = T.ctl.log.byId(T.rm.call);
+            ImGui::TextColored(pal::okGreen(), "RX %d is on talkgroup %d at %s", T.voiceRx, r ? r->tg : 0, r ? mhz(r->freqHz).c_str() : "-");
+        } else ImGui::TextDisabled("RX %d is the voice radio (idle%s)", T.voiceRx, b && b->family == 180 ? ", Phase 2" : "");
+        return;
+    }
+    ImGui::TextDisabled("no voice radio: %s", T.voiceWhy.c_str());
+    // one click to make a second receiver ready: a receiver that is open but not in a P25 mode or not running
+    for (App* b : all) {
+        if (b == &a || (T.voicePick > 0 && b->rxId != T.voicePick) || (b->engine.running() && p25Family(*b))) continue;
+        ImGui::SameLine(0, 10 * gUi);
+        char l[96]; snprintf(l, sizeof l, "Use RX %d for P25###usevr", b->rxId);
+        if (ImGui::SmallButton(l)) voiceSetup(*b);
+        break;
+    }
+}
+
 void followView(App& a) {
     using namespace dect2::trunk;
-    ImGui::Checkbox("Follow calls", &T.on);
+    const bool otherOwns = T.on && T.owner && T.owner != a.rxId;
+    if (otherOwns) ImGui::BeginDisabled();
+    if (ImGui::Checkbox("Follow calls", &T.on)) T.owner = T.on ? a.rxId : 0;
+    if (otherOwns) ImGui::EndDisabled();
+    if (otherOwns) { ImGui::SameLine(0, 10 * gUi); ImGui::TextDisabled("RX %d is following (this receiver is its voice radio)", T.owner); }
     ImGui::SameLine(0, 10 * gUi);
     ImGui::TextDisabled("(?)");
     if (ImGui::IsItemHovered())
@@ -445,6 +652,7 @@ void followView(App& a) {
     bool so = T.ctl.tgs.scanOnly();
     if (ImGui::Checkbox("scan list only", &so)) T.ctl.tgs.setScanOnly(so);
     if (ch) T.ctl.follower.setConfig(fc);
+    voicePicker(a);
     ImGui::Spacing();
     ImGui::TextDisabled("Now talking");
     const auto nt = T.ctl.nowTalking();
@@ -520,14 +728,15 @@ void followView(App& a) {
 void tick(App& a) {
     if (live(a)) appcodec::voiceCodecTick("imbe");   // the user's codec plug-in (docs/CODECS.md), loaded whichever tab is shown
     trunkTick(a);
-    if (!a.engine.running()) { S.wasRunning = false; return; }
+    Pushed& ps = S.pushed[a.rxId];
+    if (!a.engine.running()) { ps.was = false; return; }
     dect2::P25Receiver& r = a.engine.p25();
-    if (!S.wasRunning || a.volume != S.pushedVol || a.muted != S.pushedMute) {   // the sound controls are shared with the other modes
+    if (!ps.was || a.volume != ps.vol || a.muted != ps.mute) {   // the sound controls are shared with the other modes
         r.setVolume(a.volume); r.setMuted(a.muted);
         a.engine.p25p2().setVolume(a.volume); a.engine.p25p2().setMuted(a.muted);   // the followed Phase 2 calls
-        S.pushedVol = a.volume; S.pushedMute = a.muted;
+        ps.vol = a.volume; ps.mute = a.muted;
     }
-    S.wasRunning = true;
+    ps.was = true;
 }
 
 void tab(App& a) {

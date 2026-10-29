@@ -110,7 +110,7 @@ bool IqFileTxSink::open(const TxTune& t, std::string& err) {
     if (!(t.sampleRate > 0)) { err = "the IQ file needs a sample rate"; return false; }
     if (cfg_.path.empty()) { err = "no folder or file name was chosen for the IQ file"; return false; }
     rate_ = t.sampleRate;
-    if (cfg_.centerHz == 0) cfg_.centerHz = t.centerHz;
+    if (cfg_.centerHz == 0) cfg_.centerHz = txRadioHz(t);   // the radio's centre: a mode's signal sits its tuning offset away from it
     try {
         const std::filesystem::path p = dect2::u8file(cfg_.path);
         if (p.has_parent_path()) std::filesystem::create_directories(p.parent_path());

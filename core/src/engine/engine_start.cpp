@@ -253,6 +253,8 @@ void Engine::placeNarrowReceivers(const DeviceInfo& dev, const TuneSettings& tun
         rxRoshf_.setSignalOffset(o);
         rxSsdv_.setSignalOffset(o);
         rxEbi_.setSignalOffset(o);
+        rxInmsat_.setSignalOffset(o);
+        rxInmsat_.setCenterFrequency(dev.kind != DeviceInfo::File ? radioTune(tune).centerHz : 0.0);
         rxPskd_.setSignalOffset(o);
         rxLs_.setCenterHz(dev.kind != DeviceInfo::File ? radioTune(tune).centerHz : 0.0);
         rxWs_.setSignalOffset(o);
@@ -562,6 +564,8 @@ void Engine::configureDataReceivers(const DeviceInfo& dev, const TuneSettings& t
     rxSsdv_.setLogCallback([this](const std::string& s) { log(s); });
     rxEbi_.configure(rate_);
     rxEbi_.setLogCallback([this](const std::string& s) { log(s); });
+    rxInmsat_.configure(rate_);
+    rxInmsat_.setLogCallback([this](const std::string& s) { log(s); });
     rxEsg_.setLogCallback([this](const std::string& s) { log(s); });
     rxPskd_.configure(rate_);
     rxPskd_.setLogCallback([this](const std::string& s) { log(s); });

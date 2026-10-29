@@ -88,7 +88,7 @@ Plain `key=value` lines, `#` for comments. Default place: `~/.config/onair/serve
 ## From the desktop app or a script
 
 * **Control:** any program that speaks the remote-control API (`/api/v1/status`, `/devices`, `/modes`, `/start`, `/stop`, `/mode`, `/frequency`, `/samplerate`, `/gain`, `/ws`; see the README) can drive the server with the token. The server adds `GET /api/v1/x/server`, `POST /api/v1/x/demod` and `POST /api/v1/x/autostart`.
-* **Samples:** start the server with `--share-rtltcp` and add it in OnAir (or SDR++, SDR#) as an rtl_tcp network radio: you get the samples at the server's own rate as 8-bit IQ, and the desktop app does the decoding. The server then must run in a mode where the radio is open (receiver started).
+* **Samples:** start the server with `--share-rtltcp` and add it in OnAir (or SDR++, SDR#) as an rtl_tcp network radio with the **share port (1234 unless `share_port` says otherwise), not 8765** (8765 is the web page and remote control; it answers HTTP, not rtl_tcp, and needs the token; the rtl_tcp share needs no token): you get the samples at the server's own rate as 8-bit IQ, and the desktop app does the decoding. The server then must run in a mode where the radio is open (receiver started).
 
 The desktop app has no "remote server" screen of its own yet.
 

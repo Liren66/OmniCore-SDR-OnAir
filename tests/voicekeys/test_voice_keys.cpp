@@ -9,6 +9,7 @@
 #include "dect2/mesh/mesh_crypto.h"
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <cstring>
 #include <random>
@@ -176,7 +177,7 @@ static void testKeychainLoss() {
     int sets = 0;
     setSecretProvider([&](const std::string&, std::vector<uint8_t>& out) { if (failReads || stored.empty()) return false; out = stored; return true; },
                       [&](const std::string&, const std::vector<uint8_t>& d) { stored = d; sets++; return true; });
-    const std::string path = std::string(::getenv("TMPDIR") ? ::getenv("TMPDIR") : "/tmp") + "/onair_vk_test_keys.oavk";
+    const std::string path = (std::filesystem::temp_directory_path() / "onair_vk_test_keys.oavk").string();
     std::remove(path.c_str());
     CHECK(saveToFile(path).empty() && sets == 1 && stored.size() == 32, "first save makes the key");
     const std::vector<uint8_t> first = stored;

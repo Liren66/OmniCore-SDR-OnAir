@@ -2,6 +2,7 @@
 #include "command_palette.h"
 #include "../i18n/i18n.h"
 #include "scale.h"
+#include "input_map.h"
 #include "../voice/voice_monitor_ui.h"
 #include "dect2/engine/updater.h"
 #include <algorithm>
@@ -45,6 +46,7 @@ std::vector<Cmd> collect(App& a) {
         x.muted = !x.muted; x.engine.player().setMuted(x.muted); x.engine.dabAudio().setMuted(x.muted);
     }});
     for (const Panel& p : kPanels) c.push_back({p.name, "Panel", [p](App& x) { x.*p.on = !(x.*p.on); }});
+    c.push_back({"Controls (keys and mouse)", "Action", [](App&) { inputmap::windowOpen() = true; }});
     c.push_back({"Modes shown", "Action", [](App& x) { x.modeVisOpen = true; }});
     for (int i = 0; i < kNumModes; i++) c.push_back({modeHiddenNow(a, kModes[i]) ? std::string(kModes[i].name) + " (hidden)" : std::string(kModes[i].name), "Mode", [f = kModes[i].family, s = kModes[i].subId](App& x) { selectMode(x, f, s); }, modeHiddenNow(a, kModes[i])});
     c.push_back({"Voice codecs", "Action", [](App& x) { x.voiceCodecsOpen = true; }});

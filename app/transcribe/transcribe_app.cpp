@@ -345,6 +345,9 @@ std::string statusLine(int* level) {
 
 bool indicator(std::string& text) {
     if (!C.enabled && !C.cap) return false;
+    // Transcription is on by default but does nothing until a speech model is installed: that is not news worth a line in every
+    // user's status bar. The installer stays in View > Transcripts and in the airband panel; the line shows once a model is there.
+    if (!dect2::whisperAvailable() || (!modelPresent(C.model) && !backendReady())) return false;
     int lv = 0;
     text = statusLine(&lv);
     (void)lv;
@@ -582,7 +585,12 @@ void captions(App& a) {
     std::string ind;
     if (!C.enabled || !backendReady()) {
         ImGui::AlignTextToFramePadding();
-        { int lv = 0; const std::string sl = C.enabled ? statusLine(&lv) : std::string(tr("Live captions: off.")); ImGui::TextColored(lv == 2 ? pal::warnAmber() : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "%s", sl.c_str()); }
+        {   // no model installed is the normal state: say "off" quietly, never a warning (the button below opens the installer)
+            int lv = 0;
+            const bool noModel = !dect2::whisperAvailable() || (!modelPresent(C.model) && !backendReady());
+            const std::string sl = C.enabled && !noModel ? statusLine(&lv) : std::string(tr("Live captions: off."));
+            ImGui::TextColored(lv == 2 ? pal::warnAmber() : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "%s", sl.c_str());
+        }
         ImGui::SameLine();
         if (ImGui::SmallButton(tr("Set up transcripts"))) gWindowOpen = true;
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Turns what is said on the airband channels into text as it is heard. It needs a speech model that you download or put in the models folder."));

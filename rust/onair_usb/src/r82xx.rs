@@ -291,7 +291,7 @@ impl<T: UsbTransfer> RtlSdr<T> {
         if rc < 0 {
             return rc;
         }
-        if self.r82.chip == Chip::R828D {
+        if self.r82.chip == Chip::R828D || self.check_dongle_model("RTLSDRBlog", "Blog V4L") {
             vco_power_ref = 1;
         }
         let vco_fine_tune = (data[4] & 0x30) >> 4;
@@ -745,9 +745,9 @@ impl<T: UsbTransfer> RtlSdr<T> {
     /// Tunes to `freq` Hz, switching the inputs of an RTL-SDR Blog V4 or an R828D (`r82xx_set_freq`).
     pub(crate) fn r82_set_freq(&mut self, freq: u32) -> i32 {
         let is_v4 = self.check_dongle_model("RTLSDRBlog", "Blog V4");
-        // an RTL-SDR Blog V4 upconverts by 28.8 MHz when tuned to HF
-        let upconvert_freq = if is_v4 && freq < 28_800_000 { freq.wrapping_add(28_800_000) } else { freq };
-        self.r82.rf_freq = upconvert_freq;
+        let is_v4l = self.check_dongle_model("RTLSDRBlog", "Blog V4L");
+        // an RTL-SDR Blog V4 or V4 Lite (R820T / R828S tuner, USB product "Blog V4L") upconverts by 28.8 MHz when tuned to HF
+        let upconvert_freq = if (is_v4 || is_v4l) && freq < 28_800_000 { freq.wrapping_add(28_800_000) } else { freq };
         let lo_freq = upconvert_freq.wrapping_add(self.r82.int_freq);
 
         let mut rc = self.r82_set_mux(lo_freq);
@@ -781,6 +781,17 @@ impl<T: UsbTransfer> RtlSdr<T> {
             } else {
                 UHF
             };
+            // bypass the tracking filter on HF: the upconverter path does not use it (set_mux re-applies it on every frequency change)
+            if band == HF {
+                rc = self.r82_write_reg_mask(0x1a, 0x40, 0xc3);
+                if rc < 0 {
+                    return rc;
+                }
+                rc = self.r82_write_reg(0x1b, 0x00);
+                if rc < 0 {
+                    return rc;
+                }
+            }
             // switch between tuner inputs on the RTL-SDR Blog V4
             if band != self.r82.input {
                 self.r82.input = band;
@@ -802,6 +813,37 @@ impl<T: UsbTransfer> RtlSdr<T> {
                     return rc;
                 }
                 // activate air_in (UHF input)
+                let air_in = if band == UHF { 0x00 } else { 0x20 };
+                rc = self.r82_write_reg_mask(0x05, air_in, 0x20);
+                if rc < 0 {
+                    return rc;
+                }
+            }
+        } else if is_v4l {
+            // the V4 Lite has the HF input on cable 1 and the UHF input on air-in only
+            let band = if freq <= 28_800_000 { HF } else { UHF };
+            if band == HF {
+                rc = self.r82_write_reg_mask(0x1a, 0x40, 0xc3);
+                if rc < 0 {
+                    return rc;
+                }
+                rc = self.r82_write_reg(0x1b, 0x00);
+                if rc < 0 {
+                    return rc;
+                }
+            }
+            if band != self.r82.input {
+                self.r82.input = band;
+                let cable_1_in = if band == HF { 0x40 } else { 0x00 };
+                // upconverter GPIO switch on newer batches
+                rc = self.set_bias_tee_gpio(5, cable_1_in == 0);
+                if rc < 0 {
+                    return rc;
+                }
+                rc = self.r82_write_reg_mask(0x05, cable_1_in, 0x40);
+                if rc < 0 {
+                    return rc;
+                }
                 let air_in = if band == UHF { 0x00 } else { 0x20 };
                 rc = self.r82_write_reg_mask(0x05, air_in, 0x20);
                 if rc < 0 {

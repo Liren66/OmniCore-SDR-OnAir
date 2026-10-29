@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace dect2 {
@@ -25,6 +26,9 @@ struct P25GenTx {
     int wacn = 0xBEE00, sysId = 0x3A1, rfss = 1, site = 5, ctrlChannel = 0x1001;
     int adjSite = 6, adjChannel = 0x1009;
     double idenBaseHz = 851006250, idenSpacingHz = 12500;   // identifier 1
+    // a control channel of the test's own making: one entry per frame (up to three TSBKs: opcode, 64 argument bits), sent in turn for durSec.
+    // Empty: the built-in schedule above.
+    std::vector<std::vector<std::pair<int, uint64_t>>> script;
     int grantTg = 1201, grantSrc = 1234567, grantChannel = 0x1010;
     // voice
     int src = 1234567, dst = 1201;
