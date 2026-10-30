@@ -12,6 +12,7 @@
 // OnAir needs nothing from OmniCore Host.
 #include "native_common.h"
 #include "dect2/source/omnicore.h"
+#include "dect2/source/usb_fd.h"
 #include <functional>
 #include <map>
 
@@ -80,6 +81,7 @@ struct OchApi {
     void (DECT2_CALL* default_stream_args)(och::stream_args*, int) = nullptr;
     int (DECT2_CALL* list)(och::device_info*, size_t, size_t*) = nullptr;
     int (DECT2_CALL* open)(const char*, och::device**) = nullptr;
+    int (DECT2_CALL* open_android_fd)(int, const char*, och::device**) = nullptr;
     int (DECT2_CALL* close)(och::device*) = nullptr;
     int (DECT2_CALL* get_info)(och::device*, och::device_info*) = nullptr;
     int (DECT2_CALL* configure)(och::device*, const och::config*) = nullptr;
@@ -106,7 +108,7 @@ struct OchApi {
 #if defined(_WIN32)
         // the OmniCore Host installer's folder (it also puts itself on the PATH, which the bare name above covers)
         if (const char* pf = getenv("ProgramFiles")) names.insert(names.end() - 1, std::string(pf) + "\\OmniCore Host\\bin\\omnicore.dll");
-#elif !defined(__APPLE__)
+#elif !defined(__APPLE__) && !defined(__ANDROID__)
         // tools/build-linux.sh + cmake --install --prefix /opt/omnicore/<version>
         for (auto& p : versionedLibs("omnicore", {"/opt/omnicore/lib/"})) names.push_back(p);
         {
@@ -128,6 +130,7 @@ struct OchApi {
         lib.opt(set_rx_iq_correction, "och_set_rx_iq_correction");
         lib.opt(get_rx_rssi, "och_get_rx_rssi");
         lib.opt(set_rx_rssi_enabled, "och_set_rx_rssi_enabled");
+        lib.opt(open_android_fd, "och_open_android_fd");
         if (ok) {
             fprintf(stderr, "OmniCore Host: library %s\n", version());
             fflush(stderr);
@@ -446,7 +449,14 @@ std::shared_ptr<OmniRadio> openRadio(const std::string& serial, std::string& err
     if (auto r = gRadios[serial].lock()) return r;
     auto r = std::make_shared<OmniRadio>();
     r->serial = serial;
-    if (const int rc = a.open(serial.empty() ? nullptr : serial.c_str(), &r->dev); rc != och::OK || !r->dev) {
+    int rc;
+    if (usbFdPlatform()) {
+        UsbFdRadio fd;
+        if (!usbFdPick("omnicore", serial, fd, err)) { final = true; return {}; }
+        if (!a.open_android_fd) { err = "OmniCore Host lacks Android USB descriptor support; install the OmniCore Android build"; final = true; return {}; }
+        rc = a.open_android_fd(fd.fd, fd.serial.c_str(), &r->dev);
+    } else rc = a.open(serial.empty() ? nullptr : serial.c_str(), &r->dev);
+    if (rc != och::OK || !r->dev) {
         r->dev = nullptr;
         err = "OmniCoreSDR " + serial + ": cannot open the radio: " + a.why(rc) +
               (rc == och::BUSY ? " (another program, such as och.exe, has it open)" : "") +
@@ -792,12 +802,25 @@ private:
 void listOmnicore(std::vector<DeviceInfo>& out) {
     auto& a = ochApi();
     if (!a.ok) return;
-    size_t n = 0;
-    if (a.list(nullptr, 0, &n) != och::OK || n == 0) return;
-    std::vector<och::device_info> v(std::min<size_t>(n, 16));
-    for (auto& i : v) { i = {}; i.struct_size = sizeof i; }
-    if (a.list(v.data(), v.size(), &n) != och::OK) return;
-    v.resize(std::min(n, v.size()));
+    std::vector<och::device_info> v;
+    if (usbFdPlatform()) {
+        if (!a.open_android_fd) return;
+        for (const auto& fd : usbFdList("omnicore")) {
+            och::device_info i{};
+            i.struct_size = sizeof i;
+            snprintf(i.serial, sizeof i.serial, "%s", fd.serial.c_str());
+            snprintf(i.name, sizeof i.name, "OmniCore SDR");
+            i.max_sample_rate = 61440000; // radio capability; the phone's transport may sustain less
+            v.push_back(i);
+        }
+    } else {
+        size_t n = 0;
+        if (a.list(nullptr, 0, &n) != och::OK || n == 0) return;
+        v.resize(std::min<size_t>(n, 16));
+        for (auto& i : v) { i = {}; i.struct_size = sizeof i; }
+        if (a.list(v.data(), v.size(), &n) != och::OK) return;
+        v.resize(std::min(n, v.size()));
+    }
     static size_t logged = (size_t)-1;
     if (v.size() != logged) {
         logged = v.size();
@@ -814,6 +837,7 @@ void listOmnicore(std::vector<DeviceInfo>& out) {
         d.name = (nm.empty() ? std::string("OmniCoreSDR") : nm) + (d.serial.empty() ? "" : " " + d.serial) + " (native, experimental)";
         d.minRateHz = kMinRateHz; d.maxRateHz = i.max_sample_rate ? std::min<double>(i.max_sample_rate, kMaxRateHz) : kMaxRateHz;
         if (i.usb_speed_mbps == 480) d.steadyRateHz = kUsb2RateHz;
+        if (usbFdPlatform()) d.steadyRateHz = 4e6; // start conservatively until real-phone throughput is measured
         d.gainMinDb = 0; d.gainMaxDb = 73;
         d.gainNote = "the AD9361's RX gain: at most 73 dB to 1.3 GHz, 71 dB to 4 GHz, 62 dB above";
         d.minFreqHz = kMinFreqHz; d.maxFreqHz = kMaxFreqHz;

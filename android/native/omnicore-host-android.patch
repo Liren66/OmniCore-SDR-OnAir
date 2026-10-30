@@ -1,0 +1,85 @@
+--- a/src/core/device.cpp
++++ b/src/core/device.cpp
+@@ -44,10 +44,13 @@
+ }
+ void och_device::open(const DeviceInfo& d) {
+     fill_info(info,d);
++#ifndef __ANDROID__
+     std::wstring name=L"Local\\OmniCoreHost_"+wide(info.serial);
+     owner.h=CreateMutexW(nullptr,FALSE,name.c_str());auto existed=GetLastError()==ERROR_ALREADY_EXISTS;
+     require(owner.h!=nullptr,OCH_IO,"device mutex unavailable");
+     require(!existed,OCH_BUSY,"device already owned by another OmniCore Host process");
++#endif
++    // Android owns permissions; the USB interface claim provides exclusivity.
+     usb.open(d.path);require(usb.has(0x82)&&usb.has(0x02),OCH_PROTOCOL,"control endpoints 02/82 missing");
+     const auto packet_size=usb.pipes.at(0x81).MaximumPacketSize;
+     info.usb_speed_mbps=packet_size==1024?5000:packet_size==512?480:12;
+--- a/src/transport/libusb.hpp
++++ b/src/transport/libusb.hpp
+@@ -67,6 +67,9 @@
+     std::set<LinuxTransfer*> active;
+     std::array<ULONG,256> timeouts{};
+     bool control_stopping=false;
++#ifdef __ANDROID__
++    int android_fd=-1; // our duplicate; UsbManager retains its original descriptor
++#endif
+     Usb()=default;Usb(const Usb&)=delete;Usb& operator=(const Usb&)=delete;
+     ~Usb(){close();}
+     static void LIBUSB_CALL completion(libusb_transfer* t){
+@@ -147,6 +150,9 @@
+         }
+         if(h&&api.free)api.free(h);
+         h=nullptr;if(context)libusb_exit(context);context=nullptr;pipes.clear();api={};
++#ifdef __ANDROID__
++        if(android_fd>=0){::close(android_fd);android_fd=-1;}
++#endif
+     }
+     void open(const std::wstring& path);
+     void stop_control(){
+@@ -198,7 +204,21 @@
+ inline void Usb::open(const std::wstring& path){
+     close();
+     try{
++#ifdef __ANDROID__
++        libusb_set_option(nullptr,LIBUSB_OPTION_NO_DEVICE_DISCOVERY);
++#endif
+         int rc=libusb_init(&context);if(rc)throw std::runtime_error(libusb_error_name(rc));
++#ifdef __ANDROID__
++        const std::string fd_path=utf8(path);
++        if(fd_path.rfind("android-fd:",0)!=0)throw std::runtime_error("Android requires a UsbManager descriptor");
++        android_fd=::fcntl(std::stoi(fd_path.substr(11)),F_DUPFD_CLOEXEC,0);
++        if(android_fd<0)throw std::runtime_error("Cannot duplicate Android USB descriptor");
++        rc=libusb_wrap_sys_device(context,static_cast<intptr_t>(android_fd),&device);
++        if(rc)throw std::runtime_error(libusb_error_name(rc));
++        libusb_device_descriptor identity{};
++        if(libusb_get_device_descriptor(libusb_get_device(device),&identity)||identity.idVendor!=0x1a86||identity.idProduct!=0x5537)
++            throw std::runtime_error("The descriptor is not an OmniCore SDR device");
++#else
+         DeviceList list(context);
+         for(ssize_t i=0;i<list.count;++i)if(device_path(list.p[i])==path){
+             rc=libusb_open(list.p[i],&device);
+@@ -206,6 +226,7 @@
+                 (rc==LIBUSB_ERROR_ACCESS?"; install packaging/60-omnicore.rules and replug the device":""));
+             break;
+         }
++#endif
+         if(!device)throw std::runtime_error("USB device disappeared; enumerate again");
+         libusb_config_descriptor* raw=nullptr;
+         rc=libusb_get_active_config_descriptor(libusb_get_device(device),&raw);
+--- a/src/core/api.cpp
++++ b/src/core/api.cpp
+@@ -78,6 +78,14 @@
+     require(match.size()==1,OCH_INVALID,"multiple devices; specify a serial number");
+     auto d=std::make_unique<och_device>();d->open(match.front());*out=d.release();return OCH_OK;
+ });}
++#ifdef __ANDROID__
++extern "C" OCH_API int och_open_android_fd(int fd,const char* serial,och_device** out){return protect([&]{
++    require(out!=nullptr,OCH_INVALID,"null device output");*out=nullptr;
++    require(fd>=0 && serial && *serial,OCH_INVALID,"Android USB descriptor and identity are required");
++    och::transport::DeviceInfo info{L"android-fd:"+std::to_wstring(fd),L"OmniCore SDR",och::transport::wide(serial)};
++    auto d=std::make_unique<och_device>();d->open(info);*out=d.release();return OCH_OK;
++});}
++#endif
+ int och_close(och_device* d){return protect([&]{device(d);{std::lock_guard<std::mutex> lock(d->state_mutex);require(!d->rx&&!d->tx,OCH_BUSY,"destroy RX/TX streams before closing device");}delete d;return OCH_OK;});}
+ int och_get_info(och_device* d,och_device_info* i){return protect([&]{device(d);out_struct(i);*i=d->info;return OCH_OK;});}
+ int och_configure(och_device* d,const och_config* c){return protect([&]{device(d);require(c!=nullptr,OCH_INVALID,"null config");std::lock_guard<std::mutex> lock(d->state_mutex);d->configure(*c);return OCH_OK;});}

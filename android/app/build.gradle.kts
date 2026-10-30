@@ -46,7 +46,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "io.github.adswill.onair"
+        applicationId = "io.github.liren66.omnicore.onair"
         minSdk = 28
         targetSdk = 35
         versionCode = onairVersionCode
@@ -119,6 +119,9 @@ val syncOnAirAssets by tasks.registering(Sync::class) {
     from(File(repoRoot, "tools")) { include("credits_data.tsv", "contributors.tsv"); into("credits") }
     from(File(repoRoot, "app/panels")) { include("supporters_data.h"); into("credits") }
     from(File(repoRoot, "LICENSES")) { include("OFL-1.1.txt"); into("credits") }
+    from(repoRoot) { include("LICENSE", "THIRD_PARTY.md"); into("licenses") }
+    from(File(repoRoot, "LICENSES")) { include("GPL-3.0.txt", "LGPL-2.1-or-later.txt"); into("licenses") }
+    from(rootProject.file("docs/OMNICORE-SOURCES.txt")) { into("licenses") }
 }
 tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }.configureEach { dependsOn(syncOnAirAssets) }
 tasks.matching { it.name == "preBuild" || it.name.contains("lint", ignoreCase = true) }.configureEach { dependsOn(syncOnAirAssets) }

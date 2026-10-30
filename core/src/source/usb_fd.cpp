@@ -49,6 +49,7 @@ std::string usbFdKindForId(int vid, int pid) {
     if (vid == 0x1d50 && (pid == 0xcc15 || pid == 0x604b)) return "hackrf";   // rad1o, Jawbreaker
     if (vid == 0x1d50 && pid == 0x60a1) return "airspy";                      // Airspy R2 and Mini
     if (vid == 0x03eb && pid == 0x800c) return "airspyhf";                    // Airspy HF+ (Dual, Discovery)
+    if (vid == 0x1a86 && pid == 0x5537) return "omnicore";
     return "";
 }
 
@@ -63,7 +64,7 @@ bool usbFdPlatform() {
 
 bool usbFdPick(const std::string& kind, const std::string& serialWish, UsbFdRadio& out, std::string& err) {
     const auto v = usbFdList(kind);
-    const std::string what = kind == "hackrf" ? "HackRF" : kind == "airspy" ? "Airspy" : kind == "airspyhf" ? "Airspy HF+" : kind == "rtlsdr" ? "RTL-SDR" : "radio";
+    const std::string what = kind == "hackrf" ? "HackRF" : kind == "airspy" ? "Airspy" : kind == "airspyhf" ? "Airspy HF+" : kind == "rtlsdr" ? "RTL-SDR" : kind == "omnicore" ? "OmniCore SDR" : "radio";
     if (v.empty()) {
         err = "No " + what + " is connected, or Android has not given OnAir permission for it yet: plug it in (through an OTG adapter) and tap Allow";
         return false;

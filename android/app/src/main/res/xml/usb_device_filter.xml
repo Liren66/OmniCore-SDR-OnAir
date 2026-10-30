@@ -3,6 +3,8 @@
      Used by MainActivity's USB_DEVICE_ATTACHED filter: plugging one in offers to open OnAir, with "always open OnAir for this device".
      Ids in decimal (vendor-id / product-id), hex in the comments. SDRplay is not supported (closed API, no Android build). -->
 <resources>
+    <!-- OmniCore SDR: 1a86:5537 -->
+    <usb-device vendor-id="6790" product-id="21815" />
     <!-- RTL2832U: 0bda:2832, 0bda:2838 (generic, RTL-SDR Blog V3 / V4 / V4L, NooElec NESDR) -->
     <usb-device vendor-id="3034" product-id="10290" />
     <usb-device vendor-id="3034" product-id="10296" />

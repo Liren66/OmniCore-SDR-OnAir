@@ -7,6 +7,7 @@ input through `AudioRecord`. The UI screens (`android-ui-030`) draw it; this lay
 
 | Radio | USB id(s) | Driver on the phone | Needs in the build | Notes |
 | --- | --- | --- | --- | --- |
+| OmniCore SDR | `1a86:5537` | Bundled OmniCore Host 0.4.8 with `och_open_android_fd`, using libusb on the descriptor granted by UsbManager | `LIBUSB_SRC`; pinned Host source is downloaded or supplied as `OMNICORE_HOST_SRC` | RX only in the upstream Android UI; start at 4 MSPS; real-phone validation pending |
 | RTL-SDR (R820T/R820T2/R828D): generic sticks, RTL-SDR Blog V3, V4, V4L, NooElec NESDR | `0bda:2832`, `0bda:2838` + the DVB-T sticks of librtlsdr's list (Terratec, Compro, GTek, Twintech, Dexatek, Genius, HanfTek) | the core's Rust RTL2832U driver over usbfs ioctls (`rtl_fd_shim.h`, `rust/onair_usb`), no libusb | nothing extra (`DECT2_RUST_USB=ON` is set by `native/CMakeLists.txt`) | up to 2.4 Msps on phones (2.56 max); bias tee on the Blog sticks |
 | HackRF One, HackRF Pro (and Jawbreaker, rad1o) | `1d50:6089`, `1d50:604b`, `1d50:cc15` | OnAir's own HackRF driver (`core/src/source/hackrf_usb.cpp`) on libusb, the descriptor wrapped with `libusb_wrap_sys_device` | `LIBUSB_SRC` (libusb ≥ 1.0.24 source) | the board id tells One from Pro once opened; one gain slider split over LNA/VGA/amp |
 | Airspy R2 / Mini | `1d50:60a1` | libairspy (`airspy_open_fd`) loaded by `source_airspy.cpp` | `LIBUSB_SRC` + `AIRSPY_SRC` | a libairspy without `airspy_open_fd` is refused on Android |

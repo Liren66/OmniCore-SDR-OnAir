@@ -72,13 +72,14 @@ std::vector<UsbEntry> usbEntries(std::string& err) {
     std::vector<DeviceInfo> all;
     if (!usbFdList("hackrf").empty()) for (auto& d : listHackrfDevices(err)) all.push_back(d);
     std::string e2;
-    for (auto& d : listNativeDevices(e2)) if (d.board == "rtlsdr" || d.board == "airspy" || d.board == "airspyhf") all.push_back(d);
+    for (auto& d : listNativeDevices(e2)) if (d.board == "rtlsdr" || d.board == "airspy" || d.board == "airspyhf" || d.board == "omnicore") all.push_back(d);
     if (err.empty()) err = e2;
     const auto rtl = usbFdList("rtlsdr");
     for (const UsbFdRadio& r : usbFdList()) {
         for (const DeviceInfo& d : all) {
             bool match = false;
             if (r.kind == "hackrf") match = d.kind == DeviceInfo::HackRF && d.serial == r.serial;
+            else if (r.kind == "omnicore") match = d.board == "omnicore" && d.serial == r.serial;
             else if (r.kind == "rtlsdr") {   // the RTL driver numbers the registry's RTL radios in order
                 const auto it = std::find_if(rtl.begin(), rtl.end(), [&](const UsbFdRadio& x) { return x.name == r.name; });
                 match = d.board == "rtlsdr" && it != rtl.end() && d.nativeArgs == std::to_string(it - rtl.begin());
@@ -156,6 +157,7 @@ RFN(jboolean, nativeUsbAttach)(JNIEnv* e, jobject, jstring name, jstring kind, j
     r.name = jstr(e, name); r.kind = jstr(e, kind); r.fd = fd; r.vid = vid; r.pid = pid;
     r.manufacturer = jstr(e, manufacturer); r.product = jstr(e, product); r.serial = jstr(e, serial);
     if (r.kind.empty()) r.kind = usbFdKindForId(vid, pid);
+    if (r.kind == "omnicore" && r.serial.empty()) r.serial = r.name;
     if (r.kind.empty()) return JNI_FALSE;
     return usbFdAttach(r) ? JNI_TRUE : JNI_FALSE;
 }

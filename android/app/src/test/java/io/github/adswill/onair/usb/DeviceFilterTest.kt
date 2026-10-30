@@ -54,6 +54,8 @@ class DeviceFilterTest {
     }
 
     @Test fun identifiesModels() {
+        assertEquals(UsbCatalog.Family.OMNICORE, UsbCatalog.identify(0x1a86, 0x5537, null, null)?.family)
+        assertNull(UsbCatalog.identify(0x1a86, 0x5538, "OmniCore", "OmniCore SDR"))
         assertEquals("RTL-SDR Blog V4", UsbCatalog.identify(0x0bda, 0x2838, "RTLSDRBlog", "Blog V4")?.name)
         assertEquals("RTL-SDR Blog V4L", UsbCatalog.identify(0x0bda, 0x2838, "RTLSDRBlog", "Blog V4L")?.name)
         assertEquals("RTL-SDR Blog V3", UsbCatalog.identify(0x0bda, 0x2838, "RTLSDRBlog", "Blog V3")?.name)

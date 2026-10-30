@@ -51,6 +51,56 @@ endif()
 
 add_subdirectory("${ONAIR_SRC}" "${CMAKE_BINARY_DIR}/onair-core" EXCLUDE_FROM_ALL)
 
+# Linux pkg-config points at /usr/include/libhackrf, while core includes
+# <libhackrf/hackrf.h>. Stage only that header instead of exposing host libc.
+find_file(_android_hackrf_header hackrf.h HINTS ${HACKRF_INCLUDE_DIRS} PATH_SUFFIXES libhackrf NO_CMAKE_FIND_ROOT_PATH REQUIRED)
+file(COPY "${_android_hackrf_header}" DESTINATION "${CMAKE_BINARY_DIR}/android-host-headers/libhackrf")
+target_include_directories(dect2core PRIVATE "${CMAKE_BINARY_DIR}/android-host-headers")
+
+option(ONAIR_ANDROID_OMNICORE "Build OmniCore Host with Android USB descriptor support" ON)
+set(OMNICORE_HOST_SRC "" CACHE PATH "Unmodified OmniCore Host 0.4.8 source; downloaded when empty")
+if(ONAIR_ANDROID_OMNICORE)
+  if(NOT _have_libusb)
+    message(FATAL_ERROR "OmniCore Android needs LIBUSB_SRC; its USB transport cannot use stubs")
+  endif()
+  if(NOT OMNICORE_HOST_SRC)
+    include(FetchContent)
+    FetchContent_Declare(omnicore_host_source
+      URL https://github.com/Liren66/OmniCore-SDR-Host/archive/894ffd073ba0cf80312376f90e16e40ba1d88351.tar.gz
+      DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    FetchContent_GetProperties(omnicore_host_source)
+    if(NOT omnicore_host_source_POPULATED)
+      FetchContent_Populate(omnicore_host_source)
+    endif()
+    set(OMNICORE_HOST_SRC "${omnicore_host_source_SOURCE_DIR}")
+  endif()
+  set(_och "${CMAKE_BINARY_DIR}/omnicore-host-android")
+  # Patch a build-local copy. Never modify the user's desktop Host checkout.
+  file(COPY "${OMNICORE_HOST_SRC}/src" "${OMNICORE_HOST_SRC}/include" DESTINATION "${_och}")
+  foreach(_file src/core/api.cpp src/core/device.cpp src/transport/libusb.hpp)
+    file(READ "${_och}/${_file}" _text)
+    string(REPLACE "\r\n" "\n" _text "${_text}")
+    file(WRITE "${_och}/${_file}" "${_text}")
+  endforeach()
+  find_program(PATCH_EXECUTABLE patch REQUIRED)
+  execute_process(COMMAND "${PATCH_EXECUTABLE}" --batch -p1 -i "${CMAKE_CURRENT_SOURCE_DIR}/omnicore-host-android.patch"
+    WORKING_DIRECTORY "${_och}" RESULT_VARIABLE _och_patch_result)
+  if(NOT _och_patch_result EQUAL 0)
+    message(FATAL_ERROR "OmniCore Android patch failed; use the pinned unmodified Host source")
+  endif()
+  add_library(omnicore SHARED
+    ${_och}/src/core/api.cpp ${_och}/src/core/device.cpp ${_och}/src/core/configuration.cpp
+    ${_och}/src/core/reconfigure.cpp ${_och}/src/core/stream.cpp ${_och}/src/core/rf.cpp
+    ${_och}/src/core/power.cpp ${_och}/src/core/board.cpp
+    ${_och}/src/dsp/codec.cpp ${_och}/src/dsp/framer.cpp)
+  target_include_directories(omnicore PRIVATE "${_och}/include" "${_och}/src")
+  target_compile_definitions(omnicore PRIVATE OCH_BUILD)
+  target_compile_features(omnicore PRIVATE cxx_std_17)
+  set_target_properties(omnicore PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
+  target_link_libraries(omnicore PRIVATE usb1.0 log)
+  target_link_options(omnicore PRIVATE -Wl,-z,max-page-size=16384 -Wl,--build-id=none)
+endif()
+
 if(_have_libusb AND AIRSPY_SRC)
   set(_as "${AIRSPY_SRC}/libairspy/src")
   add_library(airspy SHARED ${_as}/airspy.c ${_as}/iqconverter_float.c ${_as}/iqconverter_int16.c)

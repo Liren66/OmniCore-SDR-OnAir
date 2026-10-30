@@ -10,7 +10,7 @@ package io.github.adswill.onair.usb
 object UsbCatalog {
     /** The driver families; [kind] is the core's driver name (UsbFdRadio::kind). */
     enum class Family(val kind: String, val label: String) {
-        RTLSDR("rtlsdr", "RTL-SDR"), HACKRF("hackrf", "HackRF"), AIRSPY("airspy", "Airspy"), AIRSPYHF("airspyhf", "Airspy HF+");
+        RTLSDR("rtlsdr", "RTL-SDR"), HACKRF("hackrf", "HackRF"), AIRSPY("airspy", "Airspy"), AIRSPYHF("airspyhf", "Airspy HF+"), OMNICORE("omnicore", "OmniCore SDR");
 
         companion object { fun ofKind(k: String): Family? = entries.firstOrNull { it.kind == k } }
     }
@@ -55,6 +55,7 @@ object UsbCatalog {
     val hackrfIds: List<UsbId> = listOf(UsbId(0x1d50, 0x6089), UsbId(0x1d50, 0x604b), UsbId(0x1d50, 0xcc15))
     val airspyIds: List<UsbId> = listOf(UsbId(0x1d50, 0x60a1))
     val airspyHfIds: List<UsbId> = listOf(UsbId(0x03eb, 0x800c))
+    val omniCoreIds: List<UsbId> = listOf(UsbId(0x1a86, 0x5537))
 
     /** Every supported id with its family. */
     val all: Map<UsbId, Family> = buildMap {
@@ -62,6 +63,7 @@ object UsbCatalog {
         hackrfIds.forEach { put(it, Family.HACKRF) }
         airspyIds.forEach { put(it, Family.AIRSPY) }
         airspyHfIds.forEach { put(it, Family.AIRSPYHF) }
+        omniCoreIds.forEach { put(it, Family.OMNICORE) }
     }
 
     fun family(vid: Int, pid: Int): Family? = all[UsbId(vid, pid)]
@@ -78,6 +80,8 @@ object UsbCatalog {
         val m = (manufacturer ?: "").trim()
         val pl = p.lowercase()
         return when (f) {
+            Family.OMNICORE -> Model("OmniCore SDR", f, 70e6, 6000e6, 4e6, false, 0,
+                "Android USB RX: start at 4 MSPS. Use a powered USB hub if the phone cannot supply the board. USB-C alone does not imply USB 3.")
             Family.RTLSDR -> when {
                 // RTL-SDR Blog: V4 (R828D, HF through its built-in upconverter), V4L (the low-power V4), V3 (R820T2, HF by direct sampling)
                 pl.contains("v4l") -> Model("RTL-SDR Blog V4L", f, 0.5e6, 1766e6, 2.4e6, true, 200, "Low-power V4: HF through its upconverter")

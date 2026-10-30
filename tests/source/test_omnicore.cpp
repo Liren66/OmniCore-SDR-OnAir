@@ -4,6 +4,7 @@
 // rate, the RX RSSI the interface shows, and the radio being released after stop. test_omnicore <path of the fake library>
 #include "../../core/src/source/native_common.h"
 #include "dect2/source/omnicore.h"
+#include "dect2/source/usb_fd.h"
 #include <cstdio>
 
 using namespace dect2;
@@ -382,6 +383,41 @@ int main(int argc, char** argv) {
         CHECK(fget("open") == 0);
     }
 
+    // Android must use only the permission-granted registry, never host enumeration.
+#ifdef _WIN32
+    _putenv_s("DECT2_USB_FD", "1");
+#else
+    setenv("DECT2_USB_FD", "1", 1);
+#endif
+    const double listCalls = fget("list_calls");
+    std::vector<DeviceInfo> phoneDevices;
+    native::listOmnicore(phoneDevices);
+    CHECK(phoneDevices.empty() && fget("list_calls") == listCalls);
+    UsbFdRadio phone;
+    phone.name = "/dev/bus/usb/001/002"; phone.kind = "omnicore"; phone.serial = "FAKE0001"; phone.fd = 81;
+    phone.vid = 0x1a86; phone.pid = 0x5537;
+    CHECK(usbFdKindForId(phone.vid, phone.pid) == "omnicore");
+    CHECK(usbFdAttach(phone));
+    native::listOmnicore(phoneDevices);
+    CHECK(phoneDevices.size() == 1 && fget("list_calls") == listCalls);
+    if (!phoneDevices.empty()) {
+        auto phoneRx = native::makeOmnicore(phoneDevices.front());
+        err.clear();
+        CHECK(phoneRx->start(t, ring, err));
+        CHECK(fget("android_opens") == 1 && fget("android_fd") == 81);
+        CHECK(receive(ring, 60).n > 0);
+        phoneRx->stop();
+        usbFdDetach(phone.name);
+        err.clear();
+        CHECK(!phoneRx->start(t, ring, err));
+        CHECK(fget("android_opens") == 1 && fget("open") == 0);
+        CHECK(err.find("permission") != std::string::npos);
+    }
+#ifdef _WIN32
+    _putenv_s("DECT2_USB_FD", "");
+#else
+    unsetenv("DECT2_USB_FD");
+#endif
     printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
     return failures ? 1 : 0;
 }

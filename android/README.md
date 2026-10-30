@@ -1,5 +1,21 @@
 # OnAir for Android
 
+This fork adds direct OmniCore SDR USB reception (VID `1a86`, PID `5537`) to the upstream Android app.
+The package id is `io.github.liren66.omnicore.onair`, separate from the upstream app; debug builds add `.debug`.
+The current upstream Android UI is receive-only, so this adaptation does not add Android TX controls.
+Desktop TX and full-duplex support remain unchanged.
+
+OmniCore uses Android's per-device USB permission and a bundled ARM64 OmniCore Host library patched to open that descriptor.
+No root, WinUSB, libusbK or separate USB driver app is required. The phone must support USB Host/OTG;
+use a powered hub when needed, and start at 4 MSPS. A USB-C connector does not guarantee USB 3 speed.
+Android 17 real-device operation, detach/reconnect and sustained throughput still need phone validation.
+
+For this fork, set `LIBUSB_SRC` to libusb 1.0.27 source when building. OmniCore support defaults to ON;
+`OMNICORE_HOST_SRC` may point to the unmodified Host source at commit `894ffd073ba0cf80312376f90e16e40ba1d88351`,
+otherwise CMake downloads it. The Android patch is applied only to a build-local copy.
+`ONAIR_ANDROID_OMNICORE=OFF` restores the upstream build without this additional library.
+The native build enables 16 KB page compatibility for Android 15+ devices.
+
 The OnAir receiver on a phone: the same C++/Rust decoder core as the desktop program (built as `libonair.so`), with a Kotlin +
 Jetpack Compose user interface in the OnAir look (dark theme, OnAir colours, monospaced type). **Receive only**: nothing is
 transmitted and nothing is sent to any server.
@@ -58,7 +74,7 @@ Steps, from the repository root:
 ```sh
 android/tools/build_native.sh          # libonair.so -> android/app/src/main/jniLibs/arm64-v8a/ (ONAIR_SRC defaults to this checkout)
 cd android
-./gradlew assembleDebug                # app/build/outputs/apk/debug/app-debug.apk  (id io.github.adswill.onair.debug)
+./gradlew assembleDebug                # app/build/outputs/apk/debug/app-debug.apk  (id io.github.liren66.omnicore.onair.debug)
 ./gradlew assembleRelease              # app/build/outputs/apk/release/app-release.apk (signed when a key is supplied)
 ```
 
@@ -90,7 +106,7 @@ supplies it in one of two ways:
 2. **Environment variables** (what the CI uses): `ONAIR_STORE_FILE`, `ONAIR_STORE_PASSWORD`, `ONAIR_KEY_ALIAS`, `ONAIR_KEY_PASSWORD`.
 
 Without either, `assembleRelease` gives an unsigned APK. Every update must be signed with the same key as the installed app
-(the permanent key of 0.2.7 onwards); keep the keystore and its password backed up offline. Debug builds use the SDK's debug key and
+(use this fork's own key, not the upstream signing identity); keep the keystore and its password backed up offline. Debug builds use the SDK's debug key and
 install next to the release app (`.debug` id suffix).
 
 **GitHub Actions** (`.github/workflows/android.yml`): add these repository secrets (Settings → Secrets and variables → Actions):

@@ -107,6 +107,7 @@ EXPORT void och_default_stream_args(stream_args* a, int dir) {
     *a = {}; a->struct_size = sizeof *a; a->direction = (uint32_t)dir; a->format = 1; a->transfer_bytes = 196608; a->usb_queue_depth = 32; a->host_buffer_bytes = 64u << 20;
 }
 EXPORT int och_list(device_info* out, size_t cap, size_t* count) {
+    bump("list_calls");
     if (!count || (cap && !out)) return fail(-2, "invalid device list output");
     const bool present = get("gone") == 0;
     *count = present ? 1 : 0;
@@ -129,6 +130,12 @@ EXPORT int och_open(const char* serial, device** out) {
     rec("open", 1);
     *out = gOpen;
     return 0;
+}
+EXPORT int och_open_android_fd(int fd, const char* serial, device** out) {
+    if (fd < 0) return fail(-2, "invalid Android descriptor");
+    rec("android_fd", fd);
+    bump("android_opens");
+    return och_open(serial, out);
 }
 EXPORT int och_close(device* d) {
     std::lock_guard<std::mutex> lk(gDevMu);
