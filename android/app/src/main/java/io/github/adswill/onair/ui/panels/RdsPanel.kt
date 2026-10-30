@@ -38,7 +38,7 @@ object RdsPanel : ModePanel {
         val t by vm.telemetry.collectAsStateWithLifecycle()
         val v = RdsView.of(t?.fm)
         Column(modifier.verticalScroll(rememberScrollState()).padding(12.dp)) {
-            if (v == null) { Label(stringResource(R.string.results_waiting)); return }
+            if (v == null) { Label(stringResource(R.string.results_waiting)); return@Column }
             Column(Modifier.fillMaxWidth().background(p.panel).padding(14.dp)) {
                 Label(stringResource(R.string.fm_station))
                 Text(v.ps, color = p.accent, fontFamily = Mono, fontSize = 32.sp)

@@ -52,8 +52,8 @@ object AircraftPanel : ModePanel {
                 sorts.forEachIndexed { i, _ -> Chip(names[i], color = p.accent, selected = sortIx == i) { sortIx = i } }
             }
             Label(stringResource(R.string.panel_count, rows.size, all.size), Modifier.padding(vertical = 3.dp), size = 11)
-            if (all.isEmpty()) { Label(stringResource(R.string.panel_nothing)); return }
-            if (rows.isEmpty()) { Label(stringResource(R.string.panel_no_match)); return }
+            if (all.isEmpty()) { Label(stringResource(R.string.panel_nothing)); return@Column }
+            if (rows.isEmpty()) { Label(stringResource(R.string.panel_no_match)); return@Column }
             LazyColumn(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 items(rows, key = { it.icao }) { a ->
                     Column(Modifier.fillMaxWidth().background(p.panel).padding(horizontal = 10.dp, vertical = 6.dp)) {
@@ -92,8 +92,8 @@ object VesselPanel : ModePanel {
         Column(modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
             PanelSearch(query, { query = it })
             Label(stringResource(R.string.panel_count, rows.size, all.size), Modifier.padding(vertical = 3.dp), size = 11)
-            if (all.isEmpty()) { Label(stringResource(R.string.panel_nothing)); return }
-            if (rows.isEmpty()) { Label(stringResource(R.string.panel_no_match)); return }
+            if (all.isEmpty()) { Label(stringResource(R.string.panel_nothing)); return@Column }
+            if (rows.isEmpty()) { Label(stringResource(R.string.panel_no_match)); return@Column }
             LazyColumn(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 items(rows, key = { it.mmsi + it.name }) { v ->
                     Column(Modifier.fillMaxWidth().background(p.panel).padding(horizontal = 10.dp, vertical = 6.dp)) {

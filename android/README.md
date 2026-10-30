@@ -18,6 +18,11 @@ press Start to open the radio and begin receiving. The source-picker fix also ha
 The public version follows upstream without a fork suffix. The same package id and signing key are retained;
 `versionCode=3030099` is greater than the early APKs' `3030001` and `3030002`, so updates preserve settings.
 
+The release also corrects non-local returns inside Compose layout lambdas: opening Tables with no data,
+or filtering out every row, must display an empty message without unbalancing the composition stack.
+The same pattern is corrected in Messages, aircraft/vessel lists and RDS. Tables rendering is covered
+by offline Robolectric tests for empty, populated and filtered states; these do not require a phone or radio.
+
 For this fork, set `LIBUSB_SRC` to libusb 1.0.27 source when building. OmniCore support defaults to ON;
 `OMNICORE_HOST_SRC` may point to the unmodified Host source at commit `894ffd073ba0cf80312376f90e16e40ba1d88351`,
 otherwise CMake downloads it. The Android patch is applied only to a build-local copy.

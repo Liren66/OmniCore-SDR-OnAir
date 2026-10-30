@@ -97,7 +97,10 @@ android {
     // Shared data from the repository (one source for desktop and phone), copied by syncOnAirAssets below
     sourceSets["main"].assets.srcDir(project.layout.buildDirectory.dir("generated/onairAssets").get().asFile)
 
-    testOptions { unitTests.isReturnDefaultValues = true }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+        unitTests.isIncludeAndroidResources = true
+    }
 
     packaging {
         jniLibs {
@@ -156,5 +159,8 @@ dependencies {
     // JVM unit tests (src/test: UI logic, navigation, deep links, USB device filter, permission/hot-plug flow with fakes, network radio forms): ./gradlew testDebugUnitTest
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 }
