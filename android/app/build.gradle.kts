@@ -155,5 +155,6 @@ dependencies {
 
     // JVM unit tests (src/test: UI logic, navigation, deep links, USB device filter, permission/hot-plug flow with fakes, network radio forms): ./gradlew testDebugUnitTest
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 }

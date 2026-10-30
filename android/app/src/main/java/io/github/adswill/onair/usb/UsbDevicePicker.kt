@@ -45,7 +45,7 @@ fun UsbDevicePicker(
             when {
                 !hostSupported -> Text("This phone has no USB host (OTG) support. Use a network radio (rtl_tcp, SpyServer, KiwiSDR) instead.")
                 radios.isEmpty() -> Text(
-                    "No supported radio is plugged in.\n\nConnect an RTL-SDR, HackRF or Airspy through a USB OTG adapter. " +
+                    "No supported radio is plugged in.\n\nConnect an OmniCore SDR, RTL-SDR, HackRF or Airspy through a USB OTG adapter. " +
                         "Android then asks whether OnAir may use it.\n\nSDRplay radios cannot be used on Android (their driver does not exist for it).",
                 )
                 else -> LazyColumn {

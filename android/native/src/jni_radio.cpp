@@ -137,7 +137,7 @@ bool radioDevice(int kind, const std::string& key, DeviceInfo& out, std::string&
 
 #define RFN(ret, name) extern "C" JNIEXPORT ret JNICALL Java_io_github_adswill_onair_usb_RadioNative_##name
 
-// what this build of the library can drive: {"rtlsdr":true,"hackrf":bool,"airspy":bool,"airspyhf":bool}
+// What this build can drive; keep in step with model/RadioModels.kt UsbFeatures.
 RFN(jstring, nativeUsbFeatures)(JNIEnv* e, jobject) {
 #ifdef ONAIR_REAL_LIBUSB
     const bool lu = true;
@@ -147,8 +147,12 @@ RFN(jstring, nativeUsbFeatures)(JNIEnv* e, jobject) {
     // the Airspy libraries are loaded at run time by the core: present when the app ships them (native/CMakeLists.txt AIRSPY_SRC)
     auto has = [](const char* lib) { void* h = dlopen(lib, RTLD_LAZY | RTLD_LOCAL); if (h) dlclose(h); return h != nullptr; };
     const bool as = lu && has("libairspy.so"), ahf = lu && has("libairspyhf.so");
+    // Require the Android descriptor entry point, not just a desktop Host library.
+    void* och = lu ? dlopen("libomnicore.so", RTLD_NOW | RTLD_LOCAL) : nullptr;
+    const bool omni = och && dlsym(och, "och_open_android_fd");
+    if (och) dlclose(och);
     std::string s = std::string("{\"rtlsdr\":true,\"hackrf\":") + (lu ? "true" : "false") + ",\"airspy\":" + (as ? "true" : "false") +
-                    ",\"airspyhf\":" + (ahf ? "true" : "false") + "}";
+                    ",\"airspyhf\":" + (ahf ? "true" : "false") + ",\"omnicore\":" + (omni ? "true" : "false") + "}";
     return mk(e, s);
 }
 

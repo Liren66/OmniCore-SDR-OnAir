@@ -1,5 +1,6 @@
 package io.github.adswill.onair.usb
 
+import io.github.adswill.onair.model.UsbFeatures
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -46,6 +47,31 @@ class UsbRadioControllerTest {
     private val rtl = UsbDeviceRef("/dev/bus/usb/001/004", 0x0bda, 0x2838, "RTLSDRBlog", "Blog V4")
     private val hackrf = UsbDeviceRef("/dev/bus/usb/001/005", 0x1d50, 0x6089, "Great Scott Gadgets", "HackRF One", maxPowerMa = 500)
     private val mouse = UsbDeviceRef("/dev/bus/usb/001/006", 0x046d, 0xc52b)
+
+    @Test fun omniCoreFeatureReportAllowsPermissionAndDescriptorAttach() = runTest {
+        val dev = UsbDeviceRef("/dev/bus/usb/002/002", 0x1a86, 0x5537)
+        val log = ArrayList<String>()
+        val b = FakeBackend(log).apply { plugged[dev.name] = dev }
+        val core = FakeCore(log)
+        val features = UsbFeatures.parse("""{"rtlsdr":true,"hackrf":true,"airspy":false,"airspyhf":false,"omnicore":true}""")
+        val link = object : NativeUsbLink by core {
+            override suspend fun supports(kind: String) = features.supports(kind)
+        }
+        val c = UsbRadioController(b, link)
+        c.rescan(askPermission = true)
+        assertEquals(UsbRadioStatus.ASKING, c.radio(dev.name)!!.status)
+        b.granted += dev.name
+        c.onPermissionResult(dev.name, true)
+        assertEquals(UsbRadioStatus.READY, c.radio(dev.name)!!.status)
+        assertEquals(40, core.attached[dev.name])
+        assertTrue(log.any { it.contains("omnicore fd 40") })
+    }
+
+    @Test fun missingOmniCoreFeatureDoesNotPretendTheDriverIsAvailable() {
+        assertEquals(false, UsbFeatures.parse("""{"rtlsdr":true}""").supports("omnicore"))
+        assertEquals(false, UsbFeatures.parse("""{"omnicore":false}""").supports("omnicore"))
+        assertEquals(false, UsbFeatures.parse("invalid").supports("omnicore"))
+    }
 
     @Test fun grantedDeviceOpensAndItsDescriptorGoesToTheCore() = runTest {
         val log = ArrayList<String>()

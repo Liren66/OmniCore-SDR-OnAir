@@ -10,6 +10,11 @@ No root, WinUSB, libusbK or separate USB driver app is required. The phone must 
 use a powered hub when needed, and start at 4 MSPS. A USB-C connector does not guarantee USB 3 speed.
 Android 17 real-device operation, detach/reconnect and sustained throughput still need phone validation.
 
+Android build `3.3.0-omnicore.android.2` fixes the missing OmniCore native feature report and connects
+the live USB device list to the source picker. Install it over `.android.1`, reconnect the radio and allow USB access,
+then select the **OmniCore SDR** row in the Radio screen. `Ready` means Android has handed its USB descriptor to the app;
+press Start to open the radio and begin receiving. This update has offline regression coverage but has not been verified on a phone.
+
 For this fork, set `LIBUSB_SRC` to libusb 1.0.27 source when building. OmniCore support defaults to ON;
 `OMNICORE_HOST_SRC` may point to the unmodified Host source at commit `894ffd073ba0cf80312376f90e16e40ba1d88351`,
 otherwise CMake downloads it. The Android patch is applied only to a build-local copy.
