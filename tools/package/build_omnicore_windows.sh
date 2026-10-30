@@ -4,7 +4,8 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 [[ ${MSYSTEM:-} == UCRT64 ]] || { echo 'Use an MSYS2 UCRT64 shell.' >&2; exit 1; }
 build=build-release
-version=$(sed -nE 's/^project\(OnAir VERSION ([0-9.]+).*/\1/p' CMakeLists.txt)
+version=$(grep -m1 -oE 'project\(OnAir VERSION [0-9.]+' CMakeLists.txt | awk '{print $3}')
+[[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Cannot read upstream version' >&2; exit 1; }
 prefix="$PWD/$build/deps/ffmpeg"
 [[ -f "$prefix/lib/libavcodec.a" ]] || { echo 'Build the LGPL FFmpeg first (README.md).' >&2; exit 1; }
 cmake -S . -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
