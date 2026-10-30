@@ -31,6 +31,9 @@ def main():
     parser.add_argument('--skip-checks', action='store_true', help='Skip optional package audits; do not run any executable tests.')
     args = parser.parse_args()
     build = ROOT / 'build-release'
+    built_version = re.search(r'^ONAIR_VERSION:STRING=(.*)$', (build / 'CMakeCache.txt').read_text(), re.M)
+    if not built_version or built_version.group(1).strip() != VERSION:
+        raise SystemExit('Build version does not match upstream: reconfigure and rebuild before packaging.')
     host = args.host_build.resolve()
     source = args.host_source.resolve()
     if not (source / 'include').is_dir() or not (host / 'CMakeCache.txt').is_file():

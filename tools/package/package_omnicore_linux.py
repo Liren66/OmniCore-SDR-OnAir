@@ -3,6 +3,9 @@ from pathlib import Path
 root=Path(__file__).resolve().parents[2]
 version=re.search(r'project\(OnAir VERSION ([0-9.]+)', (root/'CMakeLists.txt').read_text()).group(1)
 build=root/'build-release'
+built_version=re.search(r'^ONAIR_VERSION:STRING=(.*)$', (build/'CMakeCache.txt').read_text(), re.M)
+if not built_version or built_version.group(1).strip() != version:
+    raise SystemExit('Build version does not match upstream: reconfigure and rebuild before packaging.')
 release=root/'release'
 release.mkdir(exist_ok=True)
 out=release/f'OmniCore-SDR-OnAir-{version}-linux-x86_64'
