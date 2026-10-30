@@ -1,10 +1,10 @@
-# OmniCore-SDR-OnAir
+# OmniCore-SDR-OnAir 3.3.0
 
-**本项目是从 [adswill/OnAir](https://github.com/adswill/OnAir) fork 的独立项目，已接入 OmniCore SDR（AD9361）。** 通过 OmniCore Host 原生设备接口，支持 OmniCore SDR 的接收（RX）、发射（TX）和全双工收发，并保留上游电视、广播和数字信号解码功能。
+**本项目是从 [adswill/OnAir](https://github.com/adswill/OnAir) fork 的独立项目，已接入 OmniCore SDR（AD9361）。** 桌面版通过 OmniCore Host 原生设备接口，支持接收（RX）、发射（TX）和全双工收发，并保留上游电视、广播和数字信号解码功能。Android 版支持 USB 直连接收，沿用上游的仅接收界面，暂不提供 TX。
 
 This is an independent fork of OnAir with native OmniCore SDR integration, including RX, TX and full-duplex operation.
 
-- [下载 Windows x64 / Linux x86-64 发布包](https://github.com/Liren66/OmniCore-SDR-OnAir/releases/latest)
+- [下载 Windows / Linux / Android 3.3.0](https://github.com/Liren66/OmniCore-SDR-OnAir/releases/tag/v3.3.0)
 - [OmniCore Host 驱动库](https://github.com/Liren66/OmniCore-SDR-Host)
 - [OmniCore 设备使用说明](DEVICES.md#omnicoresdr-omnicore-host)
 - [上游完整说明与致谢](README.upstream.md)
@@ -16,7 +16,15 @@ This is an independent fork of OnAir with native OmniCore SDR integration, inclu
 - 无线电设置面板显示 RX RSSI；控制链路失效后重新打开设备。
 - 更新检查指向本仓库，不会自动替换成上游发行包。
 
-首次版本 `3.3.0-omnicore.1` 合并上游 `main` 提交 `8ee15736`（2026-10-29 拉取）。保留上游 Git 历史和本地 OmniCore 功能提交。
+版本号跟随上游，当前统一为 **3.3.0**，不再添加 `-omnicore.*` 或 Android 后缀。程序名称保留 **OmniCore-SDR-OnAir**，以区分本分支和上游。2026-10-30 再次拉取上游，`main` 仍为已合并的 `8ee15736`；保留上游 Git 历史和本地 OmniCore 功能提交。
+
+| 发布包 | 平台 | OmniCore 功能 |
+| --- | --- | --- |
+| `OmniCore-SDR-OnAir-3.3.0-windows-x64.zip` | Windows x64 | RX / TX / 全双工 |
+| `OmniCore-SDR-OnAir-3.3.0-linux-x86_64.tar.gz` | Ubuntu 24.04 x86-64 | RX / TX / 全双工 |
+| `OmniCore-SDR-OnAir-3.3.0-android-arm64-v8a.apk` | Android 9+ ARM64，需 USB Host/OTG | USB RX |
+
+发布附件仅包含这三个程序包及 `SHA256SUMS` 校验和，不单独上传日志、测试报告或源码压缩包；源码可从本仓库的版本标签获取。macOS 暂不发布。
 
 ## Windows 使用
 
@@ -54,6 +62,14 @@ OmniCore Host 可以另行安装，或在同一构建树中从它的源码构建
 
 排查启动溢出时，可以增加 `--steady-secs 30`：在首次接收后保持同一个 RX 流连续运行，并逐秒输出接收结果和累计溢出计数，便于区分启动阶段与稳定运行阶段的故障。该检查本身不会打开 TX。
 
+## Android 使用
+
+安装 APK 后，通过 USB Host/OTG 连接 OmniCore SDR，允许系统 USB 授权，在 **Radio** 页面选择 **OmniCore SDR** 并启动接收。建议先使用 4 MSPS；需要时使用带电源的 USB 集线器。无需 root，也无需安装 WinUSB、libusbK 或额外 USB 驱动应用。
+
+已修复早期 APK 的驱动能力登记和 USB 设备列表未接入主界面问题，用户已在 Android 17 设备上确认修复版可以使用。持续吞吐性能取决于手机、USB 接口和供电；本次版本统一不额外进行射频测试。
+
+对外版本为 `3.3.0`；Android 内部安装版本号为 `3030099`，高于早期 APK 的 `3030001` / `3030002`。应用包名和签名保持一致，可以直接覆盖安装并保留设置。环境配置、构建步骤和签名说明见 [Android README](android/README.md)。
+
 ## 许可证与来源
 
-代码按 [GPL-3.0-or-later](LICENSE) 发布。上游作者为 Kristijonas Adomaitis 与 OnAir contributors，第三方依赖见 [THIRD_PARTY.md](THIRD_PARTY.md)。本项目是独立分支，不代表上游背书。`3.3.0-omnicore.2` 恢复使用上游 OnAir 图标；图标的独立版权声明保留在 THIRD_PARTY.md 中，不属于代码的 GPL 授权范围。源码内保留上游版权和历史记录。
+代码按 [GPL-3.0-or-later](LICENSE) 发布。上游作者为 Kristijonas Adomaitis 与 OnAir contributors，第三方依赖见 [THIRD_PARTY.md](THIRD_PARTY.md)。本项目是独立分支，不代表上游背书。程序沿用上游 OnAir 图标；图标的独立版权声明保留在 THIRD_PARTY.md 中，不属于代码的 GPL 授权范围。源码内保留上游版权和历史记录。

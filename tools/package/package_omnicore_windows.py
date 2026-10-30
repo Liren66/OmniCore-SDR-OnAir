@@ -12,7 +12,7 @@ import sys
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
-VERSION = '3.3.0-omnicore.2'
+VERSION = re.search(r'project\(OnAir VERSION ([0-9.]+)', (ROOT / 'CMakeLists.txt').read_text()).group(1)
 
 
 def run(*args, cwd=ROOT):
