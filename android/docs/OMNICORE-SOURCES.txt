@@ -1,0 +1,17 @@
+OmniCore-SDR-OnAir is an independent fork of OnAir.
+Application source and build scripts: https://github.com/Liren66/OmniCore-SDR-OnAir
+Upstream OnAir: https://github.com/adswill/OnAir
+The original OnAir icon has separate copyright terms described in THIRD_PARTY.md.
+
+This Android package includes OmniCore Host 0.4.8 (GPL-3.0).
+Original source: https://github.com/Liren66/OmniCore-SDR-Host/tree/894ffd073ba0cf80312376f90e16e40ba1d88351
+Android changes: android/native/omnicore-host-android.patch in the application source.
+The patch accepts Android's permission-granted USB descriptor and does not require root.
+
+libusb 1.0.27 is included under LGPL-2.1-or-later.
+Source: https://github.com/libusb/libusb/tree/v1.0.27
+Build: android/native/CMakeLists.txt and android/tools/build_native.sh.
+The application source permits rebuilding and relinking with a modified libusb.
+
+This build follows the upstream receive-only Android interface. Android TX is not implemented.
+Real-device Android 17 USB operation and sustained throughput have not been validated.
