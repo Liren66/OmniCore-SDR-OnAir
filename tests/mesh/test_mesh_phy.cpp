@@ -1,6 +1,7 @@
 // Mesh (LoRa) physical layer: known answers of the coding chain, encode -> decode for every SF / CR / LDRO, error correction,
 // and modulation -> channelizer -> demodulator bit-exact at a clean SNR for SF 7..12 and the four bandwidths.
 #include "../data/mesh/testutil.h"
+#include <chrono>
 #include <cstring>
 using namespace dect2;
 using namespace meshtest;
@@ -88,6 +89,134 @@ static void coding() {
                 }
 }
 
+// Sample jumps (#386): samples lost before the demodulator shift every later symbol by the same number of bins. recoverJumps undoes up
+// to 3 of them on the bins, leaves clean frames and plain symbol errors alone, and the demodulator applies it to a frame with 96
+// samples cut out at 2.048 Msps (what an RTL-SDR drops), which fails its CRC without it.
+static void jumps() {
+    std::mt19937 g(11);
+    const double q = 11.7;
+    for (int sf : {7, 9, 11})
+        for (int cr : {5, 8})
+            for (int ldro = 0; ldro <= 1; ldro++) {
+                lora::Params p; p.sf = sf; p.cr = cr; p.ldro = ldro; p.crc = true;
+                const int n = 1 << sf;
+                const auto pay = randomBytes(g, 40);
+                const auto sym = lora::encode(p, pay.data(), pay.size());
+                auto shift = [&](std::vector<uint16_t> b, size_t from, int d) {
+                    for (size_t i = from; i < b.size(); i++) b[i] = (uint16_t)(((int)b[i] + d + 4 * n) % n);
+                    return b;
+                };
+                std::vector<uint8_t> out;
+                CHECK(lora::recoverJumps(sf, ldro, sym, q, out) == 0 && out.empty(), "sf%d cr%d ldro%d: clean frame left alone", sf, cr, ldro);
+                const size_t a = 8 + (size_t)cr * 2 + 1, b2 = 8 + (size_t)cr * 5 + 3;
+                out.clear();
+                const int one = lora::recoverJumps(sf, ldro, shift(sym, a, 12), q, out);
+                CHECK(one == 1 && out == pay, "sf%d cr%d ldro%d: one jump of 12 bins -> %d", sf, cr, ldro, one);
+                out.clear();
+                const int two = lora::recoverJumps(sf, ldro, shift(shift(sym, a, -23), b2, 35), q, out);
+                CHECK(two == 2 && out == pay, "sf%d cr%d ldro%d: jumps of -23 and +35 bins -> %d", sf, cr, ldro, two);
+                auto bad = sym;
+                bad[a] = (uint16_t)((bad[a] + n / 3) % n);
+                out.clear();
+                CHECK(lora::recoverJumps(sf, ldro, bad, q, out) == 0 && out.empty(), "sf%d cr%d ldro%d: a wrong symbol is not a jump", sf, cr, ldro);
+            }
+    // stress: a valid header followed by noise (the worst case, every block fails) gives up, quickly, with nothing
+    {
+        lora::Params p; p.sf = 12; p.cr = 8; p.crc = true;
+        const auto pay = randomBytes(g, 255);
+        auto sym = lora::encode(p, pay.data(), pay.size());
+        for (size_t i = 8; i < sym.size(); i++) sym[i] = (uint16_t)(g() % 4096);
+        std::vector<uint8_t> out;
+        const auto t0 = std::chrono::steady_clock::now();
+        const int r = lora::recoverJumps(12, false, sym, q, out);
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        CHECK(r == 0 && out.empty() && ms < 2000, "noise after the header: %d jumps, %.0f ms", r, ms);
+        printf("jump search on noise (SF12, 255 bytes, 4/8): %.1f ms\n", ms);
+    }
+    // through the demodulator: SF11 / 250 kHz at 2.048 Msps, 96 samples cut out in the middle of the payload
+    lora::Params p; p.sf = 11; p.bwHz = 250e3; p.cr = 5; p.preamble = 16; p.syncWord = 0x2B;
+    const double rate = 2.048e6;
+    lora::TxFrame f; f.p = p;
+    const auto pay = randomBytes(g, 40);
+    f.data = lora::encode(p, pay.data(), pay.size());
+    f.startSec = 0.05; f.amp = 0.3f;
+    auto x = render({f}, f.endSec() + 0.1, rate, 0.01);
+    const double ts = lora::symbolSeconds(p.sf, p.bwHz);
+    const size_t cut = (size_t)((f.startSec + (p.preamble + 4.25 + 8 + 20.5) * ts) * rate);
+    x.erase(x.begin() + (long)cut, x.begin() + (long)cut + 96);
+    for (double jc : {0.0, 11.7}) {
+        p.jumpChips = jc;
+        Chain ch(rate, 0, p);
+        ch.feedAll(x, 8192);
+        const bool got = ch.frames.size() == 1 && ch.frames[0].crcOk && ch.frames[0].payload == pay;
+        if (jc > 0) CHECK(got && ch.frames[0].jumpsFixed == 1, "demodulator: 96 lost samples undone (%zu frames, crc %d, jumps %d)", ch.frames.size(),
+                          ch.frames.empty() ? -1 : (int)ch.frames[0].crcOk, ch.frames.empty() ? -1 : ch.frames[0].jumpsFixed);
+        else CHECK(!got, "demodulator: without the search the frame fails its CRC (else the test does not test anything)");
+    }
+}
+
+// Lost samples of any count and place (#386): a USB or network link drops whatever it drops, not only 96 samples; two drops in one frame, a
+// drop with noise on the signal, other bandwidths. Reported per case; a frame that stays bad is not asserted unless the case is one the
+// search is meant to cover (a drop in the payload).
+static void jumpsAnyCount() {
+    std::mt19937 g(31);
+    struct Case { int sf; double bw, rate; int cr; };
+    const Case cases[] = {{11, 250e3, 2.048e6, 5}, {9, 250e3, 2.048e6, 8}, {8, 125e3, 2.048e6, 6}, {10, 500e3, 2.4e6, 5}};
+    int tried = 0, fixedN = 0;
+    for (const auto& c : cases) {
+        lora::Params p; p.sf = c.sf; p.bwHz = c.bw; p.cr = c.cr; p.preamble = 16; p.syncWord = 0x2B;
+        const double ts = lora::symbolSeconds(p.sf, p.bwHz);
+        const double chipSamples = c.rate / c.bw;
+        for (int lost : {20, 50, 96, 130, 211, 333}) {
+            for (int two = 0; two < 2; two++) {
+                lora::TxFrame f; f.p = p;
+                const auto pay = randomBytes(g, 40);
+                f.data = lora::encode(p, pay.data(), pay.size());
+                f.startSec = 0.05; f.amp = 0.3f;
+                auto x = render({f}, f.endSec() + 0.1, c.rate, 0.02);
+                const size_t base = (size_t)((f.startSec + (p.preamble + 4.25) * ts) * c.rate);
+                const size_t total = f.data.size();
+                size_t at2 = base + (size_t)((8 + (total - 8) * 0.7) * ts * c.rate);
+                size_t at1 = base + (size_t)((8 + (total - 8) * 0.3) * ts * c.rate);
+                if (two) x.erase(x.begin() + (long)at2, x.begin() + (long)at2 + lost / 2 + 7);
+                x.erase(x.begin() + (long)at1, x.begin() + (long)at1 + lost);
+                p.jumpChips = chipSamples > 0 ? 11.7 : 0;
+                Chain ch(c.rate, 0, p);
+                ch.feedAll(x, 8192);
+                const bool got = ch.frames.size() == 1 && ch.frames[0].crcOk && ch.frames[0].payload == pay;
+                tried++; fixedN += got;
+                printf("  lost-sample SF%d bw %.0fk rate %.3fM lost %d%s: %s (%.1f chips)\n", c.sf, c.bw / 1e3, c.rate / 1e6, lost, two ? " + " : "",
+                       got ? "recovered" : "NOT recovered", lost / chipSamples);
+                if (got) CHECK(ch.frames[0].payload == pay, "wrong payload accepted");
+                else if (!ch.frames.empty() && ch.frames[0].crcOk) CHECK(false, "a frame with the wrong payload passed its CRC");
+            }
+        }
+    }
+    printf("lost-sample recovery: %d of %d cases\n", fixedN, tried);
+    CHECK(fixedN >= tried - 4, "lost-sample recovery fell to %d of %d (two drops at SF10/500k are known gaps)", fixedN, tried);
+    {   // false recoveries: damaged frames (symbol noise after a valid header) never come back as a different payload
+        int accepted = 0, trials = 0;
+        double worstMs = 0;
+        for (int sf = 7; sf <= 12; sf++)
+            for (int cr = 5; cr <= 8; cr += 3)
+                for (int k = 0; k < 15; k++) {
+                    lora::Params p; p.sf = sf; p.cr = cr; p.crc = true;
+                    const auto pay = randomBytes(g, 20 + (int)(g() % 100));
+                    auto sym = lora::encode(p, pay.data(), pay.size());
+                    for (size_t i = 8; i < sym.size(); i++) if (g() % 5 == 0) sym[i] = (uint16_t)(g() % (1u << sf));
+                    std::vector<uint8_t> out;
+                    const auto t0 = std::chrono::steady_clock::now();
+                    const int r = lora::recoverJumps(sf, false, sym, 11.7, out);
+                    worstMs = std::max(worstMs, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+                    trials++;
+                    if (r > 0 && out != pay) accepted++;
+                }
+        printf("false recoveries on damaged frames: %d of %d, slowest search %.0f ms\n", accepted, trials, worstMs);
+        CHECK(accepted == 0, "%d damaged frames came back as a wrong payload", accepted);
+        CHECK(worstMs < 1500, "jump search took %.0f ms", worstMs);
+    }
+}
+
 static void modem() {
     std::mt19937 g(7);
     struct Case { int sf; double bw; int cr; bool ldro; double rate; double off; };
@@ -128,6 +257,8 @@ static void modem() {
 int main() {
     kats();
     coding();
+    jumps();
+    jumpsAnyCount();
     modem();
     if (fails) { printf("%d failures\n", fails); return 1; }
     printf("ok\n");

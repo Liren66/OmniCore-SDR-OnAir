@@ -12,6 +12,7 @@ Transmit is only possible through the Arm + licence confirmation + band-plan che
 | SoapySDR radios with a TX channel | yes | Soapy TX stream | yes |
 | SDRplay RSP* | no | the hardware is receive-only | no |
 | Airspy R2/Mini, Airspy HF+ | no | the hardware is receive-only | no |
+| HydraSDR RFOne (native, libhydrasdr) | no | receive-only; three RF inputs (ANT with the bias tee, CABLE1, CABLE2, the radio's "RF input" setting). USB id 1d50:60a1 with firmware before 1.0.2, 38af:0001 since; Windows binds WinUSB by itself | no |
 | RTL-SDR (also rtl_tcp) | no | "RTL-SDR dongles can only receive" | no |
 | KiwiSDR, SpyServer, RX888, Fobos | no | receive-only | no |
 | Hamlib rigs | CAT only | handled by the Hamlib sink | yes |
@@ -27,3 +28,6 @@ as an ordinary RTL-SDR (the ids are in the RTL tables of the Linux udev rules, t
 list and work in every mode that takes raw samples; DVB-T and DVB-T2 are decoded by OnAir's own software demodulator. The stick's own hardware demodulator (the
 separate demodulator chip of the DVB-T2/C models) is **not** used. On Linux the kernel DVB driver may grab the stick first: blacklist `dvb_usb_rtl28xxu`.
 Sticks with another id: report the `lsusb` line. Needs a user test on the DVB-T2/C model.
+
+## HackRF baseband filter
+HackRF One / Pro: Advanced > Baseband filter. Auto (default) follows the sample rate (about half of it, wider for a wide channel, the mode's own narrow filter when running at the mode's rate); or pick one of 1.75, 2.5, 3.5, 5, 5.5, 6, 7, 8, 9, 10, 12, 14, 15, 20, 24, 28 MHz. The choice applies at once and is not limited by the sample rate.

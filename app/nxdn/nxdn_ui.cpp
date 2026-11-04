@@ -2,7 +2,14 @@
 // decoded control messages, the site information, and a "?" about the mbelib library the voice needs (docs/CODECS.md).
 #include "dect2/common/time_fmt.h"
 #include "app.h"
+#include "ui/voice_why_ui.h"
+#include "dect2/voice/voice_why_modes.h"
+#include "ui/kit/mode_panel.h"
+#include "ui/kit/mode_frame.h"
+#include "ui/kit/session_list.h"
 #include "voice/voice_monitor_ui.h"
+#include "voice/watch_ui.h"
+#include "voice/radioid_ui.h"
 #include "dect2/codec/codec_registry.h"
 #include "../codec/speech_codec_ui.h"
 #include "dect2/nxdn/nxdn_ambe.h"
@@ -33,6 +40,8 @@ std::string clock(int64_t t) {
 }
 
 std::string dstOf(const dect2::NxdnCall& c) { return (c.callType == 1 ? "TG " : "") + dect2::nxdnId(c.dst); }
+// the unit id, with the name from the radio ID list when one is loaded
+std::string unitOf(int id) { return radioidui::withName(dect2::RadioIdKind::Nxdn, dect2::nxdnId(id), id > 0 ? (uint32_t)id : 0); }
 const char* kindOf(const dect2::NxdnCall& c) { return c.kind == 1 ? "status" : c.kind == 2 ? "data" : "voice"; }
 
 void kvRow(const App& a, const char* k, const char* fmt, ...) {
@@ -59,7 +68,7 @@ void nowView(App& a) {
     const dect2::NxdnCall& n = t.now;
     if (n.wallTime == 0) { ImGui::TextDisabled("no call heard yet"); return; }
     ImGui::PushFont(a.mono, 0);
-    ImGui::TextColored(n.active ? pal::okGreen() : pal::grey(0.6f), "%s  %s  ->  %s", n.active ? "ON AIR" : "last", dect2::nxdnId(n.src).c_str(), dstOf(n).c_str());
+    ImGui::TextColored(n.active ? pal::okGreen() : pal::grey(0.6f), "%s  %s  ->  %s", n.active ? "ON AIR" : "last", unitOf(n.src).c_str(), dstOf(n).c_str());
     ImGui::PopFont();
     kvRow(a, "call", "%s, NXDN%d, RAN %d%s", dect2::nxdn::callTypeName(n.callType), n.baud == 4800 ? 96 : 48, n.ran, n.lateEntry ? ", joined late" : "");
     if (n.cipher) {
@@ -97,7 +106,7 @@ void callsView(App& a) {
         const ImVec4 c = on ? pal::okGreen() : ImGui::GetStyleColorVec4(ImGuiCol_Text);
         ImGui::TableNextColumn(); ImGui::TextColored(c, "%s", on ? "on air" : clock(e.wallTime).c_str());
         ImGui::TableNextColumn(); ImGui::TextUnformatted(kindOf(e));
-        ImGui::TableNextColumn(); ImGui::PushFont(a.mono, 0); ImGui::TextColored(c, "%s", dect2::nxdnId(e.src).c_str()); ImGui::PopFont();
+        ImGui::TableNextColumn(); ImGui::PushFont(a.mono, 0); ImGui::TextColored(c, "%s", unitOf(e.src).c_str()); ImGui::PopFont();
         ImGui::TableNextColumn(); ImGui::PushFont(a.mono, 0); ImGui::TextUnformatted(dstOf(e).c_str()); ImGui::PopFont();
         ImGui::TableNextColumn(); ImGui::TextUnformatted(dect2::nxdn::callTypeName(e.callType));
         ImGui::TableNextColumn(); ImGui::Text("%d", e.ran);
@@ -138,6 +147,8 @@ void siteView(App& a) {
 // ---------------------------------------------------------------- hooks
 
 void tick(App& a) {
+    watchui::tick(a);
+    radioidui::tick(dect2::RadioIdKind::Nxdn);
     if (live(a)) appcodec::voiceCodecTick("ambe2");   // the user's codec plug-in (docs/CODECS.md), loaded whichever tab is shown
     if (!a.engine.running()) { S.wasRunning = false; return; }
     dect2::NxdnReceiver& r = a.engine.nxdn();
@@ -148,16 +159,23 @@ void tick(App& a) {
     S.wasRunning = true;
 }
 
-void tab(App& a) {
+void voiceBar(App& a) {
     {   // the voice monitor's strip, the same in every voice mode
         const dect2::NxdnTelemetry& t = a.rx.nxdn;
         voiceui::Link l;
         l.live = live(a); l.locked = l.live && t.state >= 1; l.codecName = "AMBE+2"; l.codecId = "ambe2";
-        l.codecReady = t.ambe || dect2::codec::pluginLoaded("ambe2");
+        l.codecReady = t.ambe || dect2::nxdnAmbeAvailable();
         l.errorRate = l.locked ? t.berPct / 100.f : -1.f;
         voiceui::strip(a, "nxdn", "NXDN", l);
     }
-    subNav("nxdnv", S.view, {"Now", "Calls", "Messages", "Site"});
+}
+
+void tab(App& a) {
+    voiceBar(a);
+    kit::modeHeader({38, "NXDN", live(a) ? 1 : a.engine.running() ? 2 : 0, -1000.f, a.freqMhz * 1e6});
+    kit::modeNav("nxdnv", S.view, {{tr("Live"), 0}, {tr("Calls"), 4}, {tr("Call list"), 1, true}, {tr("Messages"), 2, true}, {tr("Site"), 3, true}, {tr("Watch"), 90, true}});
+    if (S.view == 90) { watchui::watchView(a, "nxdn"); return; }
+    if (S.view == 4) { kit::sessionItems(38, 1, "nxdn"); return; }
     if (S.view == 0) nowView(a); else if (S.view == 1) callsView(a); else if (S.view == 2) messageView(a); else siteView(a);
 }
 
@@ -170,7 +188,7 @@ void list(App& a) {
     const auto& n = a.rx.nxdn.now;
     if (n.active) {
         ImGui::TableNextRow();
-        ImGui::TableNextColumn(); ImGui::PushFont(a.mono, 0); ImGui::TextColored(pal::okGreen(), "%s", dect2::nxdnId(n.src).c_str()); ImGui::PopFont();
+        ImGui::TableNextColumn(); ImGui::PushFont(a.mono, 0); ImGui::TextColored(pal::okGreen(), "%s", unitOf(n.src).c_str()); ImGui::PopFont();
         ImGui::TableNextColumn(); ImGui::TextColored(pal::okGreen(), "on air -> %s", dstOf(n).c_str());
     }
     std::vector<int> seen;
@@ -178,16 +196,18 @@ void list(App& a) {
         if (std::find(seen.begin(), seen.end(), e.src) != seen.end()) continue;
         seen.push_back(e.src);
         ImGui::TableNextRow();
-        ImGui::TableNextColumn(); ImGui::PushFont(a.mono, 0); ImGui::TextUnformatted(dect2::nxdnId(e.src).c_str()); ImGui::PopFont();
+        ImGui::TableNextColumn(); ImGui::PushFont(a.mono, 0); ImGui::TextUnformatted(unitOf(e.src).c_str()); ImGui::PopFont();
         ImGui::TableNextColumn(); ImGui::TextDisabled("%s  -> %s", clock(e.wallTime).c_str(), dstOf(e).c_str());
     }
     ImGui::EndTable();
 }
 
 void receiver(App& a) {
+    radioidui::section(dect2::RadioIdKind::Nxdn);
     wideCarriersTable(a, 0);
     if (!live(a)) { ImGui::TextDisabled("%s", a.engine.running() ? "starting" : "stopped"); return; }
     const dect2::NxdnTelemetry& t = a.rx.nxdn;
+    voiceWhyRow(a, dect2::nxdnWhy(t));
     kvRow(a, "state", "%s", dect2::nxdnSummary(t).c_str());
     kvRow(a, "signal", "NXDN%d, symbol SNR %.1f dB, +3 deviation %.0f Hz, offset %+.0f Hz%s", t.baud == 4800 ? 96 : 48, t.snrDb, t.deviationHz, t.cfoHz, t.inverted ? ", inverted" : "");
     kvRow(a, "bit errors", "%.2f %% (control channels before their FEC)", t.berPct);
@@ -223,6 +243,16 @@ void summary(const App& a, std::string& l1, std::string& l2) {
 
 } // namespace
 
+// Simple view: the voice strip, then what is on air, the call list and the site side by side
+static void command(App& a) {
+    voiceBar(a);
+    kit::modeHeader({38, "NXDN", live(a) ? 1 : a.engine.running() ? 2 : 0, -1000.f, a.freqMhz * 1e6});
+    if (live(a)) voiceWhyRow(a, dect2::nxdnWhy(a.rx.nxdn));
+    modepanel::panes({{"##nxcnow", tr("On air"), [&a] { nowView(a); }, 0.9f, 220.f},
+                      {"##nxccalls", tr("Calls"), [&a] { callsView(a); }, 1.5f, 240.f},
+                      {"##nxcsite", tr("Site"), [&a] { siteView(a); }, 0.9f, 200.f}}, 300.f);
+}
+
 extern const ModeUi kNxdnUi;
 const ModeUi kNxdnUi = {
     .sideTitle = "UNITS",
@@ -234,4 +264,5 @@ const ModeUi kNxdnUi = {
     .status = status,
     .summary = summary,
     .tick = tick,
+    .command = command,
 };

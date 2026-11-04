@@ -2,6 +2,9 @@
 // list, receiver, panels, status, summary, tuner, decoder, synth, meters). The table views are in adsb_table_ui.cpp, the
 // radar and map in adsb_map_ui.cpp.
 #include "adsb_internal.h"
+#include "ui/kit/session_list.h"
+#include "ui/kit/mode_frame.h"
+#include "ui/kit/mode_panel.h"
 void vdl2NoteAdsb(const dect2::AdsbTelemetry& t);   // vdl2_ui.cpp: VDL2 links its aircraft to what ADS-B heard
 
 using namespace adsbui;
@@ -153,7 +156,8 @@ void tick(App& a) {
 // ---------------------------------------------------------------- the hooks
 
 void tab(App& a) {
-    subNav("adsbv", S.viewMode, {"Map", "Table", "Radar", tr("Range"), "Range stats"});
+    kit::modeHeader({11, "ADS-B", live(a) ? 1 : a.engine.running() ? 2 : 0, -1000.f, a.freqMhz * 1e6});
+    kit::modeNav("adsbv", S.viewMode, {{tr("Live"), 1}, {tr("Tracks"), 5}, {tr("Map"), 0}, {tr("Radar"), 2, true}, {tr("Range"), 3, true}, {tr("Range stats"), 4, true}});
     const float W = ImGui::GetContentRegionAvail().x, H = ImGui::GetContentRegionAvail().y;
     const float dw = std::min(250.f * gUi, W * 0.26f);
     // the readout beside the map and radar; beside the table only once an aircraft is picked (its ACARS messages are in it)
@@ -166,6 +170,7 @@ void tab(App& a) {
     else if (S.viewMode == 1) aircraftTable(a, false);
     else if (S.viewMode == 2) radar(a, ImGui::GetContentRegionAvail());
     else if (S.viewMode == 3) rangeView(S.range, ImGui::GetContentRegionAvail(), au::distOut(S.units, 1.0 / 1.852), au::distUnit(S.units), "adsb", receiverLocationSet());
+    else if (S.viewMode == 5) kit::sessionItems(11, 3, "adsb");
     else statsView(a);
     ImGui::EndChild();
     if (pane) {
@@ -174,6 +179,19 @@ void tab(App& a) {
         detail(a);
         ImGui::EndChild();
     }
+}
+
+// Simple view: the aircraft table and the map side by side; the readout of a picked aircraft as a third pane
+void command(App& a) {
+    kit::modeHeader({11, "ADS-B", live(a) ? 1 : a.engine.running() ? 2 : 0, -1000.f, a.freqMhz * 1e6});
+    const bool picked = S.sel != 0xFFFFFFFFu;
+    if (picked)
+        modepanel::panes({{"##adsbcmdt", tr("Aircraft"), [&a] { aircraftTable(a, false); }, 1.3f, 240.f},
+                          {"##adsbcmdm", tr("Map"), [&a] { mapView(a, ImGui::GetContentRegionAvail()); }, 1.2f, 260.f},
+                          {"##adsbcmdd", tr("Selected"), [&a] { detail(a); }, 0.9f, 220.f}}, 300.f);
+    else
+        modepanel::panes({{"##adsbcmdt", tr("Aircraft"), [&a] { aircraftTable(a, false); }, 1.3f, 240.f},
+                          {"##adsbcmdm", tr("Map"), [&a] { mapView(a, ImGui::GetContentRegionAvail()); }, 1.2f, 260.f}}, 330.f);
 }
 
 void list(App& a) {
@@ -376,6 +394,7 @@ const ModeUi kAdsbUi = {
     .synth = synth,
     .tick = tick,
     .meters = meters,
+    .command = command,
 };
 
 // The receiver's position, shared by every screen that needs one (ADS-B ranges, the pass planner): the ADS-B antenna position
@@ -397,3 +416,11 @@ double receiverAltitudeM() { loadState(); return S.refAltM; }
 void setReceiverLocation(App& a, double lat, double lon) { loadState(); setReference(a, lat, lon); }
 
 void receiverPositionFields(App& a) { loadState(); pollLocate(a); positionFields(a); }
+
+std::string adsbTypeOfIcao(uint32_t icao) {
+    adsbui::loadState();
+    const dect2::AdsbRegEntry* e = icao >> 24 ? nullptr : adsbui::S.db.find(icao);
+    return e ? e->type : "";
+}
+std::string adsbDistText(double nm) { adsbui::loadState(); return adsbui::au::fmt(adsbui::au::distOut(adsbui::S.units, nm), 0); }
+const char* adsbDistUnit() { adsbui::loadState(); return adsbui::au::distUnit(adsbui::S.units); }

@@ -5,7 +5,9 @@
 // matched filter that also decimates to about 10 ksps (r2), Gardner timing recovery with a cubic interpolator, soft symbols. Frames are found by
 // their 128 unique word symbols (spread over the whole frame, every 162 symbols), which also gives the polarity; then deinterleave, soft Viterbi,
 // descramble, packets (inmc_pkt.cpp). Everything runs in feed(): at 2 Msps the cost is a few multiplications per input sample.
+#include "dect2/session/mode_adapters.h"
 #include "dect2/inmc/inmc_rx.h"
+#include "dect2/automation/engine.h"
 #include "dect2/results/results_io.h"
 #include "dect2/dsp/fftutil.h"
 #include "dect2/inmc/inmc_code.h"
@@ -16,6 +18,7 @@
 #include <complex>
 #include <cstring>
 #include <mutex>
+#include <set>
 #include "dect2/common/timecompat.h"
 
 namespace dect2 {
@@ -105,6 +108,7 @@ struct Chan {
     double sinceCfo = 0;
     int cfoN = 0;
     size_t lastMsgCount = 0;
+    std::set<uint64_t> emittedMsgs;   // messages already handed to the automation engine
     int consecBad = 0;
     int lockHeld = 0;
 
@@ -503,6 +507,18 @@ struct Chan {
             }
             lastMsgCount = tel.messageCount;
         }
+        if (automation::wants(automation::FMsg)) {   // every message once, when it is complete ("Save decoded messages", Integrations, automations)
+            for (const auto& m : tel.messages) {
+                if (!m.complete || m.text.empty()) continue;
+                const uint64_t key = ((uint64_t)m.frameNo << 20) ^ ((uint64_t)m.id << 4) ^ (uint64_t)m.channel;
+                if (!emittedMsgs.insert(key).second) continue;
+                if (emittedMsgs.size() > 4000) emittedMsgs.clear();
+                automation::Event ex;
+                ex.num("id", m.id).str("service", m.serviceText).str("subject", m.subject).str("navarea", m.navarea).str("ident", m.ident).num("priority", m.priority)
+                  .num("packets", m.packets).num("les_id", m.lesId).flag("complete", m.complete);
+                automation::emitMessage("inmarsat_c", "Inmarsat-C", 0, m.ident.empty() ? std::to_string(m.id) : m.ident, m.text, tel.snrDb, std::move(ex));
+            }
+        }
         const bool fresh = tracking && announcedFrameLock;
         tel.state = fresh ? 2 : (carrierLock ? 1 : 0);
         if (tel.state == 2) sinceGood = 0; else sinceGood += dt;
@@ -602,6 +618,7 @@ struct InmcReceiver::Impl {
     std::vector<int> ids;                      // number of each channel, for the log
     int nextId = 1;
     bool searchOn = true;
+    double searchSpan = 0;
     WideSearch ws;
     struct Black { double f, until; };
     std::vector<Black> black;
@@ -712,7 +729,8 @@ struct InmcReceiver::Impl {
     }
 
     void search() {
-        const std::vector<double> cands = ws.candidates();
+        std::vector<double> cands = ws.candidates();
+        if (searchSpan > 0) cands.erase(std::remove_if(cands.begin(), cands.end(), [this](double f) { return std::fabs(f) > searchSpan; }), cands.end());
         moveTuned(cands);
         std::vector<double> keep;
         for (double f : cands) {
@@ -788,6 +806,10 @@ void InmcReceiver::setSignalOffset(double hz) {
     p_->offsetHz = hz;
     if (!p_->ch.empty()) { p_->ch[0]->offsetHz = hz; p_->ch[0]->setOffset(); }
 }
+void InmcReceiver::setSearchSpan(double hz) {
+    std::lock_guard<std::mutex> lk(p_->mu);
+    p_->searchSpan = hz;
+}
 void InmcReceiver::setChannelSearch(bool on) {
     std::lock_guard<std::mutex> lk(p_->mu);
     p_->searchOn = on;
@@ -815,6 +837,7 @@ bool InmcReceiver::telemetry(InmcTelemetry& out, uint64_t lastSeq) {
     std::lock_guard<std::mutex> lk(p_->mu);
     if (p_->tel.seq <= lastSeq) return false;
     out = p_->tel;
+    sess::observeInmc(out);
     return true;
 }
 void InmcReceiver::clearResults() {

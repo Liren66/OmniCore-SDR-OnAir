@@ -4,6 +4,7 @@
 // a sync pattern: the POCSAG sync word at the three baud rates (the symbol sampling instants follow from the baud rate) and the FLEX sync 1 marker.
 // The first that finds its pattern locks on (in either polarity) and reads the transmission; the symbol timing follows the data. The protocol layers
 // are in pager_proto.cpp.
+#include "dect2/session/mode_adapters.h"
 #include "dect2/pager/pager_rx.h"
 #include "dect2/dsp/baseband_filter.h"
 #include "dect2/automation/engine.h"
@@ -11,6 +12,7 @@
 #include "dect2/dmr/dmr_dsp.h"
 #include "dect2/dsp/exact_resampler.h"
 #include "dect2/pager/pager_proto.h"
+#include "dect2/tones/seq_decoder.h"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -155,6 +157,14 @@ struct PagerReceiver::Impl {
     std::deque<double> afcBlocks;
     std::vector<cf32> afcBuf;
 
+    // five-tone selective calls on the discriminator audio (setSelcall)
+    std::atomic<bool> selOn{false};
+    SeqToneDecoder selDec;
+    dmr::Fir<float> sel8;
+    std::vector<float> selIn, selOut;
+    double selPrevPhase = 0;
+    bool selWasOn = false;
+
     // discriminator
     cf32 prev = cf32(0, 0);
     double phase = 0;
@@ -182,6 +192,8 @@ struct PagerReceiver::Impl {
     int speed = 0;
     // POCSAG
     pager::PocsagParser parser;
+    pager::FlexPhaseCombiner flexComb;     // multi-copy combining of repeated FLEX phases (#20)
+    std::atomic<bool> combineOn{true};     // setCombineCopies(): both protocols
     int wi = 0, bi = 0; uint32_t curWord = 0; bool inSync = false;
     float wordRel[32] = {};                // the reliability of each bit of curWord, relative to the outer amplitude
     bool firstBatch = false;               // the batch after a searched sync: held until enough of its words are valid
@@ -253,11 +265,12 @@ struct PagerReceiver::Impl {
             design();
         }
         (void)off;
-        prev = cf32(0, 0); phase = 0; cur = -1;
+        prev = cf32(0, 0); phase = 0; cur = -1; selPrevPhase = 0; selWasOn = false;
         std::fill(ring.begin(), ring.end(), 0.0);
         blkPow = 0; blkN = 0; noiseFloor = 0; snrEma = 0; sigHold = 0; haveFloor = false;
         peakH = -1; locked = false; lockH = -1; hold = 0;
         parser.reset();
+        parser.combine = combineOn.load();
         {
             std::lock_guard<std::mutex> lk(mu);
             for (auto& m : list) m.timeSec -= t0;   // the messages stay (clearResults)
@@ -353,6 +366,8 @@ struct PagerReceiver::Impl {
         prev = z;
         cur++;
         ring[(size_t)cur & kMask] = phase;
+        if (selOn.load(std::memory_order_relaxed)) selIn.push_back((float)((phase - selPrevPhase) * (kWork / (2 * kPi))));
+        selPrevPhase = phase;
         step();
     }
 
@@ -675,7 +690,10 @@ struct PagerReceiver::Impl {
                 if (fixedW != words[i])
                     for (int j = 0; j < 32; j++) fb[p][(size_t)((i / 8) * 256 + j * 8 + i % 8)] = (uint8_t)((fixedW >> (31 - j)) & 1u);
             }
+            const size_t g0 = got.size();
+            const int recovered = combineOn.load() ? flexComb.process(fmode->speed * 4 + p, fb[p].data(), (int64_t)std::time(nullptr)) : 0;
             pager::flexDecodePhase(fb[p].data(), got, st[p]);
+            if (recovered > 0) for (size_t k = g0; k < got.size(); k++) { got[k].combined = true; got[k].copies = 2; }
             any |= st[p].biwOk;
             ok += st[p].ok; fixed += st[p].fixed; failed += st[p].failed;
         }
@@ -686,6 +704,44 @@ struct PagerReceiver::Impl {
     }
 
     // ---- the chain
+    // ---- five-tone selective calls: the discriminator at 48 kHz, down to 8 kHz, into the sequential decoder
+    void runSelcall() {
+        const bool on = selOn.load();
+        if (on != selWasOn) {
+            selWasOn = on;
+            sel8.reset(); selDec.reset();
+            if (on) {
+                sel8.design(dmr::lowpassTaps(3200.0, 4600.0, kWork, 50, 9), 6);
+                selDec.setCallback([this](const SeqCall& c) { emitSelcall(c); });
+            }
+        }
+        if (!on || selIn.empty()) return;
+        selOut.clear();
+        sel8.process(selIn.data(), selIn.size(), selOut);
+        if (!selOut.empty()) selDec.feed(selOut.data(), selOut.size());
+    }
+    void emitSelcall(const SeqCall& c) {
+        PagerMessage pm;
+        pm.selcall = true;
+        pm.selStd = c.standard;
+        pm.text = c.digits;
+        pm.type = kPagerNumeric;
+        pm.address = 0;
+        pm.function = -1;
+        pm.wallTime = (int64_t)std::time(nullptr);
+        {
+            std::lock_guard<std::mutex> lk(mu);
+            pm.serial = ++serial;
+            pm.timeSec = nowSec();
+            list.push_front(pm);
+            if (list.size() > kMaxMessages) list.pop_back();
+            listDirty = true;
+        }
+        tel.messagesTotal++;
+        tel.dataValid = true;
+        say("Pagers: " + c.standard + " selective call " + c.digits);
+    }
+
     void feed(const cf32* x, size_t n) {
         if (!built || n == 0) return;
         for (size_t i = 0; i < n; i++) power += (double)std::norm(x[i]);
@@ -734,7 +790,9 @@ struct PagerReceiver::Impl {
         fin.process(c, cn, finOut);
         // the report instants are in input samples; the decoding runs a little ahead of them
         nIn += (int64_t)n;
+        selIn.clear();
         for (const cf32& z : finOut) onSample(z);
+        runSelcall();
         while ((double)nIn >= nextReport) {
             nextReport += 0.25 * curRate;
             report();
@@ -807,6 +865,7 @@ bool PagerReceiver::telemetry(PagerTelemetry& out, uint64_t lastSeq) {
     std::lock_guard<std::mutex> lk(p_->mu);
     if (p_->pub.seq <= lastSeq) return false;
     out = p_->pub;
+    sess::observePager(out);
     return true;
 }
 void PagerReceiver::setProtocols(int mask) { p_->protoMask = mask & 3; }
@@ -818,6 +877,10 @@ void PagerReceiver::setNarrowChannel(bool on) {
     if (p_->narrow.exchange(on) != on) p_->resetReq = true;   // the filter is rebuilt by the receiver thread
 }
 bool PagerReceiver::narrowChannel() const { return p_->narrow; }
+void PagerReceiver::setCombineCopies(bool on) { p_->combineOn = on; }
+bool PagerReceiver::combineCopies() const { return p_->combineOn; }
+void PagerReceiver::setSelcall(bool on) { p_->selOn = on; }
+bool PagerReceiver::selcall() const { return p_->selOn; }
 void PagerReceiver::setPocsagBauds(int mask) { p_->pocsagBaudMask = mask & 7; }
 void PagerReceiver::setLogCallback(std::function<void(const std::string&)> cb) { std::lock_guard<std::mutex> lk(p_->mu); p_->log = std::move(cb); }
 

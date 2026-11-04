@@ -3,8 +3,8 @@ Application source and build scripts: https://github.com/Liren66/OmniCore-SDR-On
 Upstream OnAir: https://github.com/adswill/OnAir
 The original OnAir icon has separate copyright terms described in THIRD_PARTY.md.
 
-This Android package includes OmniCore Host 0.4.8 (GPL-3.0).
-Original source: https://github.com/Liren66/OmniCore-SDR-Host/tree/894ffd073ba0cf80312376f90e16e40ba1d88351
+This Android package includes OmniCore Host 0.5.0 (GPL-3.0).
+Original source: https://github.com/Liren66/OmniCore-SDR-Host/tree/3bcce611394c4b57434396ff2f5018677d9b7003
 Android changes: android/native/omnicore-host-android.patch in the application source.
 The patch accepts Android's permission-granted USB descriptor and does not require root.
 

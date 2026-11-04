@@ -1,6 +1,9 @@
 // Inmarsat-C screens: the message list with a reading pane, the channel status with the packet counters, and the system information of the
 // station (bulletin board).
 #include "app.h"
+#include "ui/kit/mode_panel.h"
+#include "ui/kit/mode_frame.h"
+#include "ui/kit/session_list.h"
 #include "dect2/inmc/inmc_pkt.h"
 #include "dect2/inmc/inmc_tel.h"
 #include "ui/msglog_ui.h"
@@ -246,7 +249,9 @@ void systemView(const App& a) {
 
 void tab(App& a) {
     loadState();
-    subNav("inmcv", S.viewMode, {"Messages", "Channel", "System"});
+    kit::modeHeader({17, "Inmarsat-C", live(a) ? 1 : a.engine.running() ? 2 : 0, -1000.f, a.freqMhz * 1e6});
+    kit::modeNav("inmcv", S.viewMode, {{tr("Live"), 0}, {tr("Threads"), 3}, {tr("Channel"), 1, true}, {tr("System"), 2, true}});
+    if (S.viewMode == 3) { kit::sessionItems(17, 2, "inmc"); return; }
     if (S.viewMode == 0) messageView(a);
     else if (S.viewMode == 1) channelView(a);
     else systemView(a);
@@ -400,6 +405,15 @@ void meters(const App& a, std::vector<ModeMeter>& out) {
 
 } // namespace
 
+// Simple view: the messages, the channel and the system information side by side
+static void command(App& a) {
+    loadState();
+    kit::modeHeader({17, "Inmarsat-C", live(a) ? 1 : a.engine.running() ? 2 : 0, -1000.f, a.freqMhz * 1e6});
+    modepanel::panes({{"##imcmsg", tr("Messages"), [&a] { messageView(a); }, 1.7f, 260.f},
+                      {"##imcch", tr("Channel"), [&a] { channelView(a); }, 1.f, 220.f},
+                      {"##imcsys", tr("System"), [&a] { systemView(a); }, 1.f, 220.f}}, 320.f);
+}
+
 extern const ModeUi kInmcUi;
 const ModeUi kInmcUi = {
     .sideTitle = "MESSAGES",
@@ -415,4 +429,5 @@ const ModeUi kInmcUi = {
     .synth = synth,
     .tick = tick,
     .meters = meters,
+    .command = command,
 };

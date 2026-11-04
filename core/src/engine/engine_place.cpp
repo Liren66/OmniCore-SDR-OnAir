@@ -145,6 +145,7 @@ void Engine::configureReceiver(int a, double r) {
     case 29: rxIsm_.configure(r); break;
     case 30: rxNdb_.configure(r); break;
     case 122: rxDme_.configure(r); break;
+    case 120: rxSitor_.configure(r); break;
     case 31: rxVor_.configure(r); break;
     case 32: rxM17_.configure(r); break;
     case 34: rxDstar_.configure(r); break;
@@ -201,6 +202,18 @@ void Engine::configureReceiver(int a, double r) {
     case 207: rxSsdv_.configure(r); break;
     case 208: rxEbi_.configure(r); break;
     case 209: rxInmsat_.configure(r); break;
+    case 211: rxNrf_.configure(r); break;
+    case 212: rxAtis_.configure(r); break;
+    case 241: rxSelcal_.configure(r); break;
+    case 236: rxFy3a_.configure(r); break;
+    case 237: rxFy3m_.configure(r); break;
+    case 238: rxPh2_.configure(r); break;
+    case 239: rxPh3_.configure(r); break;
+    case 240: rxPh4_.configure(r); break;
+    case 213: rxSw_.configure(r); break;
+    case 231: rxGkL_.configure(r); break;
+    case 232: rxGkH_.configure(r); break;
+    case 233: case 234: case 235: rxFy_.setLink(fygeoLinkOfActive(a, rxFy_.lritSatellite())); rxFy_.configure(r); break;
     case 203: rxPskd_.configure(r); break;
     case 85: rxWs_.configure(r); break;
     case 99: rxZw_.configure(r); break;
@@ -260,6 +273,7 @@ void Engine::muteReceiver(int a, bool m) {
     case 51: rxP25_.setMuted(m); break;
     case 77: rxSame_.setMuted(m); break;   // NOAA SAME: "Listen"
     case 56: rxGeneral_.setMuted(m); break;
+    case 213: rxSw_.general().setMuted(m); break;
     case 108: rxCq_.setMuted(m); break;
     case 123: rxKaal_.setMuted(m); break;
     case 156: rxMarineVhf_.setMuted(m); break;
@@ -286,6 +300,7 @@ void Engine::placeReceiver(int a, double o, double centreHz, double dialHz, doub
     case 14: rxSonde_.setSignalOffset(o); break;
     case 15: rxAis_.setSignalOffset(o); if (lastDev_.isRadio() && centreHz > 0) rxAis_.setCenterHz(centreHz); break;
     case 16: rxMarine_.setSignalOffset(o); break;
+    case 120: rxSitor_.setSignalOffset(o); break;
     case 17: rxAcars_.setSignalOffset(o); if (centreHz > 0) rxAcars_.setCenterHz(centreHz); break;
     case 18: rxInmc_.setSignalOffset(o); break;
     case 19: rxAero_.setSignalOffset(o); break;
@@ -351,6 +366,18 @@ void Engine::placeReceiver(int a, double o, double centreHz, double dialHz, doub
     case 207: rxSsdv_.setSignalOffset(o); break;
     case 208: rxEbi_.setSignalOffset(o); break;
     case 209: rxInmsat_.setSignalOffset(o); rxInmsat_.setCenterFrequency(centreHz); break;
+    case 211: rxNrf_.setSignalOffset(o); break;
+    case 212: rxAtis_.setSignalOffset(o); break;
+    case 241: rxSelcal_.setSignalOffset(o); rxSelcal_.setDialHz(dialHz); break;
+    case 236: rxFy3a_.setSignalOffset(o); break;
+    case 237: rxFy3m_.setSignalOffset(o); break;
+    case 238: rxPh2_.setSignalOffset(o); break;
+    case 239: rxPh3_.setSignalOffset(o); break;
+    case 240: rxPh4_.setSignalOffset(o); break;
+    case 213: rxSw_.setSignalOffset(o); rxSw_.setCenterHz(centreHz); rxSw_.setDialHz(dialHz); break;
+    case 231: rxGkL_.setSignalOffset(o); break;
+    case 232: rxGkH_.setSignalOffset(o); break;
+    case 233: case 234: case 235: rxFy_.setLink(fygeoLinkOfActive(a, rxFy_.lritSatellite())); rxFy_.setSignalOffset(o); break;
     case 203: rxPskd_.setSignalOffset(o); break;
     case 99: rxZw_.setSignalOffset(o); rxZw_.setCenterHz(centreHz); rxZw_.setDialHz(dialHz); break;
     case 85: rxWs_.setSignalOffset(o); rxWs_.setCenterHz(centreHz); rxWs_.setDialHz(dialHz); break;

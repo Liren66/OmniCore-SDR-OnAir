@@ -58,9 +58,14 @@ std::string describe(const std::string& kind, const std::map<std::string, std::s
 int familyOf(const std::string& type) {
     const size_t d = type.find('.');
     const std::string f = type.substr(0, d);
-    static const char* const names[kFamilies] = {"adsb", "acars", "vdl2", "hfdl", "pager", "ais", "aprs", "sonde", "gnss", "lora", "ble", "rid", "dsc", "signal", "receiver", "satellite", "time", "plugin"};
+    static const char* const names[kFamilies] = {"adsb", "acars", "vdl2", "hfdl", "pager", "ais", "aprs", "sonde", "gnss", "lora", "ble", "rid", "dsc", "signal", "receiver", "satellite", "time", "plugin", "voice", "session", "msg"};
     for (int i = 0; i < kFamilies; i++) if (f == names[i]) return i;
     return -1;
+}
+
+FamilyMask maskOfTrigger(const std::string& trigger) {
+    if (trigger == "*") return kAllFamilies;
+    return familyBit(familyOf(trigger));
 }
 
 struct Engine::Impl {
@@ -287,13 +292,9 @@ void Engine::Impl::runActions(const Rule& r, const Event& ev, bool execute, std:
 }
 
 void Engine::Impl::setMask() {
-    uint32_t m = 0;
+    FamilyMask m = 0;
     std::lock_guard<std::mutex> lk(mu);
-    auto add = [&](const std::string& t) {
-        if (t == "*") { m = (1u << kFamilies) - 1; return; }
-        const int f = familyOf(t);
-        if (f >= 0) m |= 1u << f;
-    };
+    auto add = [&](const std::string& t) { m |= maskOfTrigger(t); };
     for (const Rule& r : *rules) if (r.enabled) add(r.trigger);
     for (const auto& s : scripts) if (s->def.enabled) { if (s->def.events.empty()) add("*"); for (const auto& t : s->def.events) add(t); }
     self->mask_.store(m);
@@ -363,28 +364,34 @@ std::string Engine::scriptError(const std::string& id) const {
 std::vector<Firing> Engine::firings() const { std::lock_guard<std::mutex> lk(p_->mu); return std::vector<Firing>(p_->firings.begin(), p_->firings.end()); }
 void Engine::clearFirings() { std::lock_guard<std::mutex> lk(p_->mu); p_->firings.clear(); }
 
-void Engine::setTap(std::function<void(const Event&)> f, uint32_t familyMask) {
+void Engine::setTap(std::function<void(const Event&)> f, FamilyMask familyMask) {
     std::lock_guard<std::mutex> lk(tapMu_);
     tap_ = std::move(f);
     tapMask_.store(tap_ ? familyMask : 0);
 }
 
-void Engine::setObserver(std::function<void(const Event&)> f, uint32_t familyMask) {
+void Engine::setObserver(std::function<void(const Event&)> f, FamilyMask familyMask) {
     std::lock_guard<std::mutex> lk(obsMu_);
     obs_ = std::move(f);
     observeMask_.store(obs_ ? familyMask : 0);
 }
 
-void Engine::setWatcher(std::function<void(const Event&)> f, uint32_t familyMask) {
+void Engine::setWatcher(std::function<void(const Event&)> f, FamilyMask familyMask) {
     std::lock_guard<std::mutex> lk(watchMu_);
     watch_ = std::move(f);
     watchMask_.store(watch_ ? familyMask : 0);
 }
 
-void Engine::setStreamer(std::function<void(const Event&)> f, uint32_t familyMask) {
+void Engine::setStreamer(std::function<void(const Event&)> f, FamilyMask familyMask) {
     std::lock_guard<std::mutex> lk(streamMu_);
     stream_ = std::move(f);
     streamMask_.store(stream_ ? familyMask : 0);
+}
+
+void Engine::setPublisher(std::function<void(const Event&)> f, FamilyMask familyMask) {
+    std::lock_guard<std::mutex> lk(publishMu_);
+    publish_ = std::move(f);
+    publishMask_.store(publish_ ? familyMask : 0);
 }
 
 void Engine::submit(Event&& ev) {
@@ -407,6 +414,11 @@ void Engine::submit(Event&& ev) {
     if (fam >= 0 && (streamMask_.load(std::memory_order_relaxed) >> fam & 1)) {
         std::function<void(const Event&)> t;
         { std::lock_guard<std::mutex> lk(streamMu_); t = stream_; }
+        if (t) t(ev);
+    }
+    if (fam >= 0 && (publishMask_.load(std::memory_order_relaxed) >> fam & 1)) {
+        std::function<void(const Event&)> t;
+        { std::lock_guard<std::mutex> lk(publishMu_); t = publish_; }
         if (t) t(ev);
     }
     if (!(fam >= 0 && (mask_.load(std::memory_order_relaxed) >> fam & 1))) return;
@@ -490,7 +502,15 @@ void Engine::Impl::tickLocked(double now) {
     }
 }
 
-void Engine::Impl::processLocked(const Event& ev) {
+void Engine::Impl::processLocked(const Event& ev0) {
+    // an event with a position gets distance_km from the receiver, so conditions and {{distance_km}} in notifications work for every mode (issue #403)
+    Event withDist;
+    const Event* pe = &ev0;
+    if (stationSet && ev0.f.find("distance_km") == ev0.f.end()) {
+        double la, lo;
+        if (numField(ev0, "lat", la) && numField(ev0, "lon", lo)) { withDist = ev0; withDist.num("distance_km", geo::distanceKm(stLat, stLon, la, lo)); pe = &withDist; }
+    }
+    const Event& ev = *pe;
     double now;
     std::shared_ptr<const std::vector<Rule>> rs;
     {

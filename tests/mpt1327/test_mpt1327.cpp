@@ -97,6 +97,37 @@ int main() {
     const std::vector<uint64_t> msgs = sampleMessages();
     const std::vector<uint8_t> bits = controlChannelBits(20001, msgs);
 
+    // --- French-style framing: the sync word is not the standard one
+    {
+        // the 16 bit SYNC inside every control channel system codeword is replaced by another word (and the check bits re-made are not needed:
+        // the CCSC check bits cover the info bits only, the replaced bits are the check bits' neighbours so the codeword is rebuilt with encode)
+        std::vector<uint8_t> b = bits;
+        const uint16_t alt = 0x35A9;
+        // locate every 16 bit SYNC and rewrite it
+        int n = 0;
+        for (size_t i = 0; i + 16 <= b.size(); i++) {
+            uint32_t w = 0;
+            for (int k = 0; k < 16; k++) w = (w << 1) | b[i + k];
+            if (w == kSync) { for (int k = 0; k < 16; k++) b[i + k] = (alt >> (15 - k)) & 1; n++; i += 15; }
+        }
+        CHECK(n >= 2, "sync words rewritten: %d", n);
+        for (bool inv : {false, true}) {
+        std::vector<float> a = ffskAudio(b, 24000, inv);
+        a.insert(a.end(), 24000 * 2, 0.f);
+        for (SyncMode m : {SyncMode::Standard, SyncMode::Tolerant, SyncMode::Auto}) {
+            Decoder d;
+            d.setSyncMode(m);
+            std::vector<float> in(24000 * 10, 0.f);   // 10 s of silence first: lets Auto time out
+            in.insert(in.end(), a.begin(), a.end());
+            for (size_t i = 0; i < in.size(); i += 1000) d.process(in.data() + i, std::min<size_t>(1000, in.size() - i), 24000);
+            std::vector<uint64_t> got;
+            for (const Event& e : d.takeEvents()) got.push_back(e.msg.cw);
+            if (m == SyncMode::Standard) CHECK(got.empty(), "standard framing finds nothing behind a foreign sync word: %zu", got.size());
+            else CHECK(got.size() >= msgs.size() - 1, "mode %d inv %d: %zu of %zu messages", (int)m, (int)inv, got.size(), msgs.size());
+        }
+        }
+    }
+
     // --- decoder on FFSK audio
     for (double fs : {24000.0, 48000.0, 44100.0, 12000.0}) {
         for (bool inv : {false, true}) {
@@ -152,7 +183,7 @@ int main() {
         for (size_t i = 0; i < tone.size(); i++) tone[i] = 0.5f * (float)std::sin(2 * 3.14159265358979 * 1200.0 * (double)i / 24000.0);
         CHECK(decode(tone, 24000).empty() && decode(std::vector<float>(24000 * 5, 0.f), 24000).empty(), "tone or silence gave a message");
     }
-    // --- bit errors: a flipped bit in one address codeword loses that message and is counted bad; no wrong message is reported
+    // --- bit errors: one flipped bit is repaired (Appendix 2); two or more lose that message and are counted bad; no wrong message is reported
     {
         for (size_t which = 0; which < msgs.size(); which++) {
             std::vector<uint8_t> b = bits;
@@ -161,10 +192,14 @@ int main() {
             b[pos] ^= 1;
             Stats st;
             const std::vector<uint64_t> got = decode(ffskAudio(b, 24000), 24000, &st);
-            std::vector<uint64_t> want = msgs;
-            want.erase(want.begin() + (long)which);
-            CHECK(sameSeq(got, want), "bit error in message %zu: %zu messages decoded (wanted %zu)", which, got.size(), want.size());
-            CHECK(st.bad >= 1, "bit error in message %zu: bad count %llu", which, (unsigned long long)st.bad);
+            CHECK(sameSeq(got, msgs), "bit error in message %zu: %zu messages decoded (wanted %zu)", which, got.size(), msgs.size());
+            CHECK(st.corrected == 1 && st.bad == 0, "bit error in message %zu: corrected %llu bad %llu", which, (unsigned long long)st.corrected, (unsigned long long)st.bad);
+        }
+        // a single error anywhere in the 64 bits of a codeword (information, check or parity bit) is repaired
+        for (size_t k = 0; k < 64; k++) {
+            std::vector<uint8_t> b = bits;
+            b[32 + 128 + k] ^= 1;
+            CHECK(sameSeq(decode(ffskAudio(b, 24000), 24000), msgs), "single error at codeword bit %zu not repaired", k + 1);
         }
         // two errors in the same codeword
         std::vector<uint8_t> b = bits;
@@ -178,7 +213,7 @@ int main() {
     {
 #ifndef MPT_STANDALONE   // quick compile of the mode sources alone (no engine registry)
         const ModeTuning* reg = modeTuning(129);
-        CHECK(reg != nullptr && std::string(reg->name) == "MPT1327 trunking (WIP)" && std::string(reg->id) == "mpt1327", "modeTuning(129)");
+        CHECK(reg != nullptr && std::string(reg->name) == "MPT1327 trunking" && std::string(reg->id) == "mpt1327", "modeTuning(129)");
 #endif
         CHECK(mpt1327Tuning().stdMode == 129, "stdMode");
     }

@@ -3,6 +3,9 @@
 #include "dect2/common/time_fmt.h"
 #include "../adsb/adsb_map.h"
 #include "app.h"
+#include "ui/kit/mode_panel.h"
+#include "ui/kit/mode_frame.h"
+#include "ui/kit/session_list.h"
 #include "dect2/aero/aero_tel.h"
 #include "dect2/audio/audioout.h"
 #include <algorithm>
@@ -566,7 +569,9 @@ void suView(const App& a) {
 
 void tab(App& a) {
     loadState();
-    subNav("aerov", S.viewMode, {"Messages", "Aircraft map", "Aircraft", "Log-ons", "Channels", "Signal units"});
+    kit::modeHeader({18, "Inmarsat Aero", live(a) ? 1 : a.engine.running() ? 2 : 0, -1000.f, a.freqMhz * 1e6});
+    kit::modeNav("aerov", S.viewMode, {{tr("Live"), 0}, {tr("Tracks"), 6}, {tr("Map"), 1}, {tr("Aircraft"), 2, true}, {tr("Log-ons"), 3, true}, {tr("Channels"), 4, true}, {tr("Signal units"), 5, true}});
+    if (S.viewMode == 6) { kit::sessionItems(18, 3, "aero"); return; }
     if (S.viewMode == 0) messageView(a);
     else if (S.viewMode == 1) mapView(a);
     else if (S.viewMode == 2) aircraftView(a);
@@ -726,6 +731,15 @@ void meters(const App& a, std::vector<ModeMeter>& out) {
 
 } // namespace
 
+// Simple view: the live messages, the aircraft and the channels side by side
+static void command(App& a) {
+    loadState();
+    kit::modeHeader({18, "Inmarsat Aero", live(a) ? 1 : a.engine.running() ? 2 : 0, -1000.f, a.freqMhz * 1e6});
+    modepanel::panes({{"##aecmsg", tr("Messages"), [&a] { messageView(a); }, 1.7f, 260.f},
+                      {"##aecair", tr("Aircraft"), [&a] { aircraftView(a); }, 1.f, 220.f},
+                      {"##aecch", tr("Channels"), [&a] { channelView(a); }, 0.9f, 200.f}}, 320.f);
+}
+
 extern const ModeUi kAeroUi;
 const ModeUi kAeroUi = {
     .sideTitle = "AIRCRAFT",
@@ -740,6 +754,7 @@ const ModeUi kAeroUi = {
     .decoder = decoder,
     .synth = synth,
     .meters = meters,
+    .command = command,
 };
 
 void aeroToolsTick(App& a) { tickTone(a); }

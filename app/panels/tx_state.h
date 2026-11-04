@@ -95,6 +95,10 @@ struct TxUi {
     std::string ifPathUsed;                  // the data file of the running or last session
     std::shared_ptr<IqFileTxCounters> ifCounters;   // bytes and samples written, kept by the sink
     // KAAL: the identity beacon and the power written in it (callsign, grid, latitude and longitude, bio text are the shared fields above)
+    // Mesh (LoRa) transmit: the sender's own node identity (mesh_tx.h), saved as tx.mesh*
+    char meshLong[48] = "OnAir", meshShort[8] = "ONAR", meshNode[16] = {}, meshChan[40] = "LongFast", meshPsk[96] = "default", meshPreset[24] = "LongFast";
+    int meshHop = 3;
+    bool meshCallInMsg = false, meshNodeInfo = true;
     bool kaalBeacon = true;
     double kaalPower = 10;
     int kaalBitrate = 16;                    // voice codec 12 / 16 / 24 / 32 kbit/s
@@ -174,6 +178,7 @@ enum class Note { Info, Warn, Error };
 void banner(Note kind, const char* text);              // an inline message box (no popup)
 void stepSignal(App& a, TxUi& s, bool running, float listH);                                                         // tx_step_signal.cpp: the signal list
 void stepSettings(App& a, TxUi& s, const DeviceInfo* radio, int conflict, const TxModeSpec* mode, bool running);   // tx_step_settings.cpp: Basic + Advanced
+TxIqStreamConfig txIqStreamFromPrefs();   // tx_step_settings.cpp: the "Send the IQ over TCP" setting (tx_iqstream.h)
 void stepSend(App& a, TxUi& s, const DeviceInfo* radio, int conflict, const TxModeSpec* mode, bool running);       // tx_step_send.cpp + tx_preview.cpp: the preview
 void drawStatusHeader(App& a, TxUi& s, const DeviceInfo* radio, int conflict, const TxModeSpec* mode);              // tx_panel.cpp: state word and the big button
 

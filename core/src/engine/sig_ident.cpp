@@ -6,6 +6,7 @@
 #include "dect2/dpmr/dpmr_proto.h"
 #include "dect2/bandplan/bandplan.h"
 #include "dect2/channels/freq_db.h"
+#include "dect2/channels/tvplan.h"
 #include "dect2/dsp/fftutil.h"
 #include "dect2/nxdn/nxdn_proto.h"
 #include "dect2/p25/p25_proto.h"
@@ -862,6 +863,7 @@ static void calibrate(Result& R) {
     R.verdict = t.confidence >= kLikelyFrom && p2 < 0.5 * t.confidence ? VerdictLikely : VerdictAmbiguous;
 }
 
+static void applyTvPlanPrior(Result& R, const Features& f);
 static void applyPriors(Result& R, const Features& f) {
     const double hz = f.rfHz, tol = std::max(6.25e3, 0.5 * f.obwHz);
     std::vector<const FreqEntry*> nearBy;
@@ -898,6 +900,44 @@ static void applyPriors(Result& R, const Features& f) {
             bool hit = false;
             for (const std::string& w : want) if (!w.empty() && bandModes.count(w)) hit = true;
             if (hit) { c.score = std::min(100.0, c.score + 4); c.evidence.push_back("the band plan suggests this mode in " + bandName + " (+4)"); }
+        }
+    }
+    applyTvPlanPrior(R, f);
+}
+
+// TV channel plans as a prior: a flat block 6, 7 or 8 MHz wide whose centre sits on a channel of a TV plan (ISDB-T with its 1/7 MHz offset) is
+// a television channel of that width, whatever the country. The standards the plans carry say which modes can sit there (ATSC on 6 MHz plans,
+// DTMB on 8 and 6, DVB-T/T2 and ISDB-T on all three, DVB-C on 8 and 6). Only used when the RF frequency is known; it never creates a candidate.
+static void applyTvPlanPrior(Result& R, const Features& f) {
+    if (f.rfHz <= 0 || f.obwHz < 4.6e6 || f.obwHz > 8.6e6) return;
+    if (!(f.flatTop || f.shape == ShapeFlat || f.shape == ShapeRounded)) return;   // a block, not a few tones
+    struct Hit { const tvplan::Plan* plan; const tvplan::Channel* ch; };
+    std::vector<Hit> hits;
+    unsigned stds = 0;
+    double widthMhz = 0;
+    for (const tvplan::Plan& pl : tvplan::plans()) {
+        if (!(pl.stds & (tvplan::DvbAny | tvplan::Atsc | tvplan::Atsc3 | tvplan::IsdbT | tvplan::Dtmb | tvplan::DvbC))) continue;
+        const tvplan::Channel* c = pl.at(f.rfHz, 0.35e6);
+        if (!c || c->bwHz < 5.9e6 || c->bwHz > 8.1e6) continue;
+        if (f.obwHz < 0.68 * c->bwHz || f.obwHz > 1.04 * c->bwHz) continue;   // the measured 99 % width fits the channel
+        hits.push_back({&pl, c});
+        stds |= pl.stds;
+        widthMhz = c->bwHz / 1e6;
+    }
+    if (hits.empty()) return;
+    const Hit& h = hits[0];
+    char b[200];
+    snprintf(b, sizeof b, "TV channel plan: channel %s of %s (%.0f MHz wide)", h.ch->label.c_str(), h.plan->name.c_str(), h.ch->bwHz / 1e6);
+    R.priors.push_back(b);
+    (void)widthMhz;
+    struct Map { const char* mode; unsigned std; };
+    static const Map maps[] = {{"dvbt", tvplan::DvbAny}, {"atsc", tvplan::Atsc}, {"atsc3", tvplan::Atsc3}, {"isdbt", tvplan::IsdbT}, {"dtmb", tvplan::Dtmb}, {"dvbc", tvplan::DvbC}};
+    for (Candidate& c : R.cands) {
+        for (const Map& m : maps) {
+            if (c.modeId != m.mode || !(stds & m.std)) continue;
+            c.score = std::min(100.0, c.score + 4);
+            c.evidence.push_back(std::string("the frequency is on a ") + (h.ch->bwHz / 1e6 > 7.5 ? "8" : h.ch->bwHz / 1e6 > 6.5 ? "7" : "6") + " MHz TV channel raster (" + h.ch->label + " of " + h.plan->name + ") (+4)");
+            break;
         }
     }
 }
@@ -1300,6 +1340,23 @@ static Result identifyImpl(const cf32* x, size_t n, double fs, const Options& o)
         rosDet = ros::detect(x, n, fs, ro);
         sync[SyncRos] = rosDet.ros ? (rosDet.weak ? 1 : 2) : 0;
     }
+    // SSB voice (identification only): 2 to 3.8 kHz of one sideband with the heavy-tailed, syllabic envelope of speech (the power of 5 ms blocks
+    // swings a lot, the envelope is far from constant) and no symbol clock. USB or LSB is not in the samples (no carrier): toMemory takes the usual one for the band.
+    bool ssbOk = false; double ssbCv = 0;
+    if (f.obwHz > 1600 && f.obwHz < 3800 && f.envKurt > 2.6 && f.symRate <= 0 && !w.y.empty()) {
+        const size_t B = std::max<size_t>(8, (size_t)(0.005 * w.fsd)), nb = w.y.size() / B;
+        if (nb >= 60) {
+            std::vector<double> pb(nb);
+            double mean = 0;
+            for (size_t b = 0; b < nb; b++) { double s = 0; for (size_t i = b * B; i < (b + 1) * B; i++) s += std::norm(w.y[i]); pb[b] = std::max(0.0, s / B - w.noise); mean += pb[b]; }
+            mean /= nb;
+            double var = 0; for (double v : pb) var += (v - mean) * (v - mean);
+            var /= nb;
+            ssbCv = mean > 0 ? std::sqrt(var) / mean : 0;
+            ssbOk = ssbCv > 0.7;
+        }
+    }
+    sync[SyncSsb] = ssbOk ? 2 : 0; tried[SyncSsb] = true;
     // ---- rank the table: every rule that can be applied adds what it earns to `sc` and what it could have earned to `mx`; the score is the
     // share (0 .. 100) of the evidence that holds, so a mode with few measurable traits is not held back by the traits it does not have
     const double rf = f.rfHz / 1e6;
@@ -1307,6 +1364,7 @@ static Result identifyImpl(const cf32* x, size_t n, double fs, const Options& o)
     for (size_t i = 0; i < sigs.size(); i++) {
         const Known& k = sigs[i];
         if (k.sync == SyncRos && !sync[SyncRos]) continue;   // only proposed when its tone grid is found: its width alone fits too much
+        if (k.sync == SyncSsb && !sync[SyncSsb]) continue;   // only proposed when the envelope is speech-like
         if (k.source == 2) {   // a mode known by its name and usual frequency only: a candidate there, with little weight
             if (!atUsual(k)) continue;
             Candidate c;
@@ -1413,6 +1471,9 @@ static Result identifyImpl(const cf32* x, size_t n, double fs, const Options& o)
             c.syncTried = true; c.syncHits = sync[k.sync];
             rule(c.syncHits >= 2 ? 40 : 15, 40, (c.syncHits >= 2 ? "ROS tone grid: " : "ROS tone grid, few symbols: ") + rosDet.why);
             c.why = rosDet.name + ", " + k.note;
+        } else if (k.sync == SyncSsb) {
+            c.syncTried = true; c.syncHits = sync[k.sync];
+            rule(40, 40, F("speech-like envelope (power of 5 ms blocks varies %.1f x its mean, kurtosis %.1f)", ssbCv, f.envKurt));
         } else if (k.sync && tried[k.sync]) {
             c.syncTried = true; c.syncHits = sync[k.sync];
             if (c.syncHits >= 2) rule(40, 40, F("frame sync found %.0f times", c.syncHits));
@@ -1549,8 +1610,19 @@ Memory toMemory(const Candidate& c, const Features& f) {
     m.name = b;
     m.freqHz = (uint64_t)std::llround(f.rfHz);
     m.mode = !c.subId.empty() ? c.subId : c.modeId == "dvbt" ? "dvb" : c.modeId;
-    if (c.modeId == "dvbt") m.options["dvbBw"] = "auto";
     if (f.obwHz > 0) m.bandwidthHz = f.obwHz;
+    // the measured width reaches the mode: DVB-T / T2 takes the channel width as an index (8, 7, 6, 5, 1.7 MHz), left on auto only when nothing was measured
+    if (c.modeId == "dvbt") m.options["dvbBw"] = f.obwHz > 7.2e6 ? "0" : f.obwHz > 6.2e6 ? "1" : f.obwHz > 5.2e6 ? "2" : f.obwHz > 3.0e6 ? "3" : f.obwHz > 0 ? "4" : "auto";
+    if (c.name == "NFM voice") m.options["genDemod"] = "0";   // GenNfm
+    if (c.name == "SSB voice") {   // the sideband is not in the samples (no carrier): LSB below 10 MHz, USB above, the dial at the missing carrier (about 300 Hz below / above the audio)
+        const bool lsb = f.rfHz < 10e6 && f.rfHz > 0;
+        m.options["genDemod"] = lsb ? "4" : "3";   // GenUsb, GenLsb
+        const double edge = (f.obwHz > 0 ? f.obwHz / 2 : 1200) + 300;
+        m.freqHz = (uint64_t)std::llround(f.rfHz + (lsb ? edge : -edge));
+        m.name = "SSB " + std::string(lsb ? "LSB " : "USB ") + [&] { char t[32]; snprintf(t, sizeof t, "%.4f MHz", m.freqHz / 1e6); return std::string(t); }();
+        if (f.obwHz > 0) m.options["genWidthHz"] = "2700";
+    }
+    if (c.modeId == "general" && f.obwHz > 0) { char w[32]; snprintf(w, sizeof w, "%.0f", f.obwHz); m.options["genWidthHz"] = w; }   // the General receiver's filter width (it clamps to what the demodulator allows)
     if (c.modeId == "dtmb") m.options["dtmbBwMhz"] = f.obwHz > 6.8e6 ? "8" : "6";
     if (c.modeId == "isdbt") m.options["isdbtBwMhz"] = f.obwHz > 7.0e6 ? "8" : f.obwHz > 6.0e6 ? "7" : "6";
     m.tags = "identified";

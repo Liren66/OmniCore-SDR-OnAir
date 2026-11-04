@@ -3,12 +3,14 @@
 // No cloud and no relay: the browser connects straight to this program. Access from other computers needs a token; TLS is optional.
 #include "dect2/common/platform.h"
 #include "dect2/engine/crash_report.h"
+#include "dect2/mcp/mcp.h"
 #include "dect2/net/remote_api.h"
 #include "dect2/net/share.h"
 #include "server_config.h"
 #include "server_host.h"
 #include "web/web_config.h"
 #include "web/web_decoders.h"
+#include "web/web_json.h"
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -19,6 +21,14 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <streambuf>
+#include <ostream>
+#include <iostream>
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 
 using namespace onair_server;
 
@@ -61,12 +71,20 @@ static void usage() {
            "  --web-port N       OnAir Web port (default 8073)\n"
            "  --web-lan          OnAir Web on every interface (without TLS only private addresses are let in)\n"
            "  --directory-remove remove this server from the public OnAir Web directory now (signed with its key), then exit\n"
+           "  --directory-preview  print the confirmation code, then exactly what the directory would receive; send nothing, exit\n"
+           "  --directory-run    only the directory listing, as its own program: reads the running web server's info and sends the heartbeat (needs web_directory_ack); status in web_directory_status.json\n"
+           "  --directory-test   check the directory, the local web server and the public address one by one (one JSON line each), exit\n"
+           "  --mcp-stdio        speak MCP (Model Context Protocol) on stdin / stdout so an AI assistant that starts this program can drive the radio (docs/MCP.md); nothing else is served, log goes to stderr\n"
+           "  --mcp-http [PORT]  also serve MCP over streamable HTTP at http://127.0.0.1:PORT/mcp (default 8766; this computer only)\n"
+           "  --mcp-token TEXT   require this token (16 characters or more) for MCP over HTTP; --mcp-lan lets other computers in (needs a token)\n"
+           "  --mcp-tx           let the AI use the transmit tools (off by default; the user's decision, warnings only)\n"
            "  --version, --help\n\n"
            "Settings file: plain key=value lines (see docs/headless-server.md).\n",
            ONAIR_SERVER_VERSION, defaultConfigPath().c_str());
 }
 
 int main(int argc, char** argv) {
+    setvbuf(stdout, nullptr, _IOLBF, 0);   // a log file (the app's easy setup reads the directory preview from it) sees each line at once
     setvbuf(stdout, nullptr, _IOLBF, 4096);   // size 0 is invalid with _IOLBF on the Windows CRT (#291); a service log (journald, a file) shows lines as they happen
     dect2::crash::install("crash-server");
     if (!dect2::cpuSupportsBuild()) { fprintf(stderr, "this build needs a processor with AVX2 and FMA\n"); return 1; }
@@ -87,9 +105,12 @@ int main(int argc, char** argv) {
     api.token = cfg.get("token");
     api.tlsCert = cfg.get("tls_cert");
     api.tlsKey = cfg.get("tls_key");
-    bool dirRemove = false;
+    bool dirRemove = false, dirPreviewOnly = false, dirRun = false, dirTest = false;
     bool newToken = false, share = cfg.flag("share_rtltcp", false);
     int sharePort = (int)cfg.num("share_port", 1234);
+    bool mcpStdio = false, mcpHttp = cfg.flag("mcp_http", false), mcpLan = cfg.flag("mcp_lan", false), mcpTx = cfg.flag("mcp_tx", false);
+    int mcpPort = (int)cfg.num("mcp_port", 8766);
+    std::string mcpToken = cfg.get("mcp_token");
     for (int i = 1; i < argc; i++) {
         const std::string a = argv[i];
         auto next = [&]() { return i + 1 < argc ? std::string(argv[++i]) : std::string(); };
@@ -108,6 +129,14 @@ int main(int argc, char** argv) {
         else if (a == "--web-port") cfg.set("web_port", next());
         else if (a == "--web-lan") cfg.set("web_lan", "1");
         else if (a == "--directory-remove") dirRemove = true;
+        else if (a == "--directory-preview") dirPreviewOnly = true;
+        else if (a == "--directory-run") dirRun = true;
+        else if (a == "--directory-test") dirTest = true;
+        else if (a == "--mcp-stdio") mcpStdio = true;
+        else if (a == "--mcp-http") { mcpHttp = true; if (i + 1 < argc && argv[i + 1][0] != '-') mcpPort = atoi(argv[++i]); }
+        else if (a == "--mcp-token") mcpToken = next();
+        else if (a == "--mcp-lan") mcpLan = true;
+        else if (a == "--mcp-tx") mcpTx = true;
         else if (a == "--share-rtltcp") { share = true; if (i + 1 < argc && argv[i + 1][0] != '-') sharePort = atoi(argv[++i]); }
         else { fprintf(stderr, "unknown option %s (try --help)\n", a.c_str()); return 2; }
     }
@@ -127,6 +156,7 @@ int main(int argc, char** argv) {
     if (madeAdmin) { saveCfg = true; fprintf(stderr, "onair-server: OnAir Web admin token made (web_admin_token in %s)\n", path.c_str()); }
     if (webCfg.directory.keyFile.empty()) webCfg.directory.keyFile = (std::filesystem::path(path).parent_path() / "web_directory.key").string();
     webCfg.directory.version = ONAIR_SERVER_VERSION;
+    if (webCfg.relay.keyFile.empty()) webCfg.relay.keyFile = webCfg.directory.keyFile;
     if (dirRemove) {
         std::unique_ptr<onair_web::DirectoryHeartbeat> d(onair_web::makeDirectoryHeartbeat());
         std::string err;
@@ -134,11 +164,70 @@ int main(int argc, char** argv) {
         printf("onair-server: removed from the directory %s. It stays removed until web_directory is on and a heartbeat is sent again.\n", webCfg.directory.url.c_str());
         return 0;
     }
+    if (dirPreviewOnly || dirRun || dirTest) {   // the listing as small programs of its own: the radio and the web server are not touched (the settings file is not written)
+        onair_web::DirectoryConfig dc = webCfg.directory;
+        dc.name = dc.name.empty() ? webCfg.name : dc.name;
+        dc.maxUsers = webCfg.limits.maxUsers;
+        const int webPort = (int)cfg.num("web_port", 8073);
+        if (dirTest) {
+            std::atomic<bool> never{false};
+            onair_web::directoryCheck(dc, webPort, [](const std::string& l) { printf("%s\n", l.c_str()); fflush(stdout); }, never);
+            return 0;
+        }
+        if (dirPreviewOnly) {
+            std::string pv, ack, err;
+            const std::string info = onair_web::directoryStandInInfo(dc);
+            if (!onair_web::directoryPreview(dc, info, pv, ack, err)) { printf("error=%s\n", err.c_str()); return 1; }
+            printf("ack=%s\n---\n%s", ack.c_str(), pv.c_str());   // line 1: the confirmation code, then the exact text the directory would receive
+            return 0;
+        }
+        std::unique_ptr<onair_web::DirectoryHeartbeat> d(onair_web::makeDirectoryHeartbeat());
+        std::atomic<bool> never{false};
+        std::string err;
+        if (!d->start(dc, [webPort, &never] { return onair_web::fetchLocalInfo(webPort, never); }, err)) { fprintf(stderr, "onair-server: %s\n", err.c_str()); return 1; }
+        signal(SIGINT, onSignal);
+        signal(SIGTERM, onSignal);
+        while (!gQuit) std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        d->stop();
+        return 0;
+    }
     if (saveCfg) {
         std::string err;
         if (!cfg.save(path, err)) fprintf(stderr, "onair-server: %s (the settings will not be saved)\n", err.c_str());
     }
 
+    if (mcpStdio) {   // MCP on stdin / stdout: the protocol owns stdout, everything else goes to stderr; no web page, no API port
+        struct FileBuf : std::streambuf {
+            FILE* f;
+            explicit FileBuf(FILE* x) : f(x) {}
+            int_type overflow(int_type c) override { return c == traits_type::eof() ? 0 : (fputc((unsigned char)c, f) == EOF ? traits_type::eof() : c); }
+            std::streamsize xsputn(const char* b, std::streamsize n) override { return (std::streamsize)fwrite(b, 1, (size_t)n, f); }
+            int sync() override { return fflush(f); }
+        };
+#ifdef _WIN32
+        const int outFd = _dup(1);
+        _dup2(2, 1);
+        FILE* proto = _fdopen(outFd, "wb");
+#else
+        const int outFd = dup(1);
+        dup2(2, 1);
+        FILE* proto = fdopen(outFd, "w");
+#endif
+        if (!proto) { fprintf(stderr, "onair-server: cannot open stdout for MCP\n"); return 1; }
+        ServerHost host(cfg);
+        host.init();
+        dect2::mcp::Options mo;
+        mo.allowTx = mcpTx;
+        mo.serverVersion = ONAIR_SERVER_VERSION;
+        dect2::mcp::Server mcp(host, &host.engine(), mo);
+        mcp.setActivitySink([](const dect2::mcp::Activity& a) { fprintf(stderr, "onair-server: mcp %s %s -> %s\n", a.tool.c_str(), a.args.c_str(), a.outcome.c_str()); });
+        fprintf(stderr, "onair-server: MCP on stdio (transmit tools %s)\n", mcpTx ? "ON" : "off");
+        FileBuf fb(proto);
+        std::ostream os(&fb);
+        dect2::mcp::runStdio(mcp, std::cin, os);
+        host.shutdown();
+        return 0;
+    }
     ServerHost host(cfg);
     host.init();
     dect2::RemoteApiServer server(host);
@@ -167,9 +256,31 @@ int main(int argc, char** argv) {
     } else {
         printf("onair-server: to use this radio from another computer as an rtl_tcp radio, start with --share-rtltcp (port %d); port %d is only the web page and remote control\n", sharePort, live.port);
     }
+    dect2::mcp::Options mcpOpt;
+    mcpOpt.allowTx = mcpTx;
+    mcpOpt.serverVersion = ONAIR_SERVER_VERSION;
+    dect2::mcp::Server mcpServer(host, &host.engine(), mcpOpt);
+    dect2::mcp::McpHttpHost mcpHost(mcpServer);
+    dect2::RemoteApiServer mcpApi(mcpHost);
+    if (mcpHttp) {
+        mcpServer.setActivitySink([](const dect2::mcp::Activity& a) { printf("onair-server: mcp %s %s -> %s\n", a.tool.c_str(), a.args.c_str(), a.outcome.c_str()); });
+        dect2::RemoteApiConfig mc;
+        mc.on = true;
+        mc.port = mcpPort;
+        mc.lan = mcpLan;
+        mc.token = mcpToken;
+        mc.requireTokenLocal = mcpToken.size() >= 16;
+        mc.ratePerSec = 10; mc.rateBurst = 20;
+        mc.tlsCert = api.tlsCert; mc.tlsKey = api.tlsKey;
+        if (mcpLan && mcpToken.size() < 16) { fprintf(stderr, "onair-server: --mcp-lan needs --mcp-token (16 characters or more)\n"); return 2; }
+        if (!mcpApi.configure(mc)) fprintf(stderr, "onair-server: MCP: %s\n", mcpApi.status().lastError.c_str());
+        else printf("onair-server: MCP over HTTP on %s://%s:%d/mcp (%s%s; transmit tools %s). Setup: docs/MCP.md\n", mcpApi.status().tls ? "https" : "http", mcpLan ? "<this computer>" : "127.0.0.1",
+                    mcpApi.config().port, mcpLan ? "whole network" : "this computer only", mcpToken.size() >= 16 ? ", token required" : ", no token", mcpTx ? "ON" : "off");
+    }
     std::unique_ptr<onair_web::WebHub> hub;
     std::unique_ptr<onair_web::WebServer> web;
     std::unique_ptr<onair_web::DirectoryHeartbeat> directory;   // OnAir Web directory (off unless web_directory=1 and confirmed)
+    std::unique_ptr<onair_web::RelayClient> relay;              // OnAir Web relay (off unless web_relay=1): a public address with no port forwarding
     if (webCfg.on && webCfg.server.webRoot.empty()) {
         // the browser UI's files: beside the program (web/onair-web), or where a package puts them (../share/onair/web/onair-web; macOS app: ../Resources/web/onair-web)
         std::error_code ec;
@@ -205,6 +316,18 @@ int main(int argc, char** argv) {
             const auto st = web->status();
             printf("onair-server: OnAir Web on %s://%s:%d/ (%s access, at most %d listeners)\n", st.tls ? "https" : "http", webCfg.server.bind.c_str(), st.port,
                    onair_web::authModeName(webCfg.server.auth.mode), webCfg.limits.maxUsers);
+            if (webCfg.relay.on) {
+                webCfg.relay.localPort = st.port;
+                webCfg.relay.version = ONAIR_SERVER_VERSION;
+                webCfg.relay.statusFile = (std::filesystem::path(path).parent_path() / "web_relay_status.json").string();
+                relay.reset(onair_web::makeRelayClient());
+                std::string rerr;
+                if (!relay->start(webCfg.relay, rerr)) {
+                    fprintf(stderr, "onair-server: relay: %s\n", rerr.c_str());
+                    printf("web_relay_error=%s\n", rerr.c_str());
+                    relay.reset();
+                } else printf("onair-server: relay: connecting to %s (status in web_relay_status.json)\n", webCfg.relay.url.c_str());
+            }
             if (webCfg.directory.on) {
                 directory.reset(onair_web::makeDirectoryHeartbeat());
                 std::string derr;
@@ -228,6 +351,8 @@ int main(int argc, char** argv) {
         for (int i = 0; i < 10 && !gQuit; i++) std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     printf("onair-server: stopping\n");
+    mcpApi.configure(dect2::RemoteApiConfig{});
+    if (relay) relay->stop();
     if (directory) directory->stop();
     if (web) web->stop();
     host.setWebHub(nullptr);

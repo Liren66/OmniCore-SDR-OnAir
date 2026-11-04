@@ -1,6 +1,9 @@
 // Mesh (LoRa) mode entry: the screen state, the mode's tick, and the entry points the shell calls (tab, list, receiver,
 // panels, status, summary, tuner, decoder, synth, meters). The tables, views, LoRaWAN screens and settings are in the other mesh_*.cpp.
 #include "mesh_internal.h"
+#include "ui/kit/mode_panel.h"
+#include "ui/kit/mode_frame.h"
+#include "ui/kit/session_list.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -122,14 +125,27 @@ bool meshtasticShown(const App& a) { const int m = subMask(a); return !m || m ==
 
 }  // namespace meshui
 
-double meshSampleRate(App& a) {
+double meshBandwidthHz(App& a) {
     double bw = 0;
     if (customActive(a)) bw = customOf(a).bwHz;
     else if (meshtasticShown(a) && !S.mtRegion.empty()) {
         dect2::MeshLoraSettings s;
         if (dect2::meshtasticRegionPreset(S.mtRegion, S.mtPreset, s)) bw = s.bwHz;
     }
-    return bw > 500e3 ? 4e6 : 2e6;
+    return bw;
+}
+
+double meshSampleRate(App& a) { return meshBandwidthHz(a) > 500e3 ? 4e6 : 2e6; }
+
+// 0 = the usual rate. An RTL-SDR (USB or rtl_tcp) drops samples at 2.048 Msps, which breaks frames of a long LoRa symbol; a channel of up to
+// 500 kHz fits in 1.024 Msps, where it loses none (issue #386). Other radios keep 2 Msps, so more than one channel stays inside the window.
+double meshRtlRate(App& a) {
+    const double bw = meshBandwidthHz(a);
+    if (bw > 0 && bw <= 500e3 && a.devIdx >= 0 && a.devIdx < (int)a.devices.size()) {
+        const std::string& b = a.devices[a.devIdx].board;
+        if (b == "rtlsdr" || b == "rtltcp") return 1.024e6;
+    }
+    return 0;
 }
 
 namespace meshui {
@@ -180,28 +196,30 @@ void tick(App& a) {
 
 void tab(App& a) {
     loadState();
+    kit::modeHeader({20, "LoRa mesh", live(a) ? 1 : a.engine.running() ? 2 : 0, -1000.f, a.freqMhz * 1e6});
     if (const int m = subMask(a)) {   // a protocol entry: only its own views (LoRa APRS: stations instead of nodes and chat; MeshCom: stations and chat; LoRaWAN: devices and frames)
-        static const int aprsIds[] = {5, 1, 3, 4}, comIds[] = {5, 1, 2, 3, 4}, meshIds[] = {0, 1, 2, 3, 8, 4}, lwIds[] = {6, 7, 4};
+        static const int aprsIds[] = {5, 1, 3, 4, 9}, comIds[] = {5, 1, 2, 3, 4, 9}, meshIds[] = {0, 1, 2, 3, 8, 4, 9}, lwIds[] = {6, 7, 4, 9};
         const bool ap = m == 4, com = m == 8, lw = m == 16;
         const int* ids = ap ? aprsIds : com ? comIds : lw ? lwIds : meshIds;
-        const int n = ap ? 4 : lw ? 3 : com ? 5 : 6;
+        const int n = ap ? 5 : lw ? 4 : com ? 6 : 7;
         int k = 0;
         for (int i = 0; i < n; i++) if (ids[i] == S.view) k = i;
-        if (ap) subNav("meshva", k, {"Stations", "Map", "Packets", "Settings"});
-        else if (com) subNav("meshvc", k, {"Stations", "Map", "Chat", "Packets", "Settings"});
-        else if (lw) subNav("meshvl", k, {"Devices", "Frames", "Settings"});
-        else subNav("meshvm", k, {"Nodes", "Map", "Chat", "Packets", "Telemetry", "Settings"});
+        if (ap) subNav("meshva", k, {"Stations", "Map", "Packets", "Settings", tr("Tracks")});
+        else if (com) subNav("meshvc", k, {"Stations", "Map", "Chat", "Packets", "Settings", tr("Tracks")});
+        else if (lw) subNav("meshvl", k, {"Devices", "Frames", "Settings", tr("Tracks")});
+        else subNav("meshvm", k, {"Nodes", "Map", "Chat", "Packets", "Telemetry", "Settings", tr("Tracks")});
         S.view = ids[k];
     } else {
         if (S.view == 7) S.view = 3;
-        static const int ids[] = {0, 1, 2, 3, 8, 4, 5, 6};   // the views in the order of the tabs (7, the LoRaWAN frames, has no tab here)
+        static const int ids[] = {0, 1, 2, 3, 8, 4, 5, 6, 9};   // the views in the order of the tabs (7, the LoRaWAN frames, has no tab here)
         int k = 0;
-        for (int i = 0; i < 8; i++) if (ids[i] == S.view) k = i;
-        subNav("meshv", k, {"Nodes", "Map", "Chat", "Packets", "Telemetry", "Settings", "APRS", "LoRaWAN"});
+        for (int i = 0; i < 9; i++) if (ids[i] == S.view) k = i;
+        subNav("meshv", k, {"Nodes", "Map", "Chat", "Packets", "Telemetry", "Settings", "APRS", "LoRaWAN", tr("Tracks")});
         S.view = ids[k];
     }
     plat::prefs().setI("meshView", S.view);
     const float W = ImGui::GetContentRegionAvail().x, H = ImGui::GetContentRegionAvail().y;
+    if (S.view == 9) { kit::sessionItems(20, 3, "mesh"); return; }
     if (S.view == 0) { nodeTable(a, false); return; }
     if (S.view == 2) { chatView(a); return; }
     if (S.view == 3) { packetTable(a); return; }
@@ -467,6 +485,30 @@ void meters(const App& a, std::vector<ModeMeter>& out) {
 
 extern const ModeUi kMeshUi;
 
+// Simple view: by protocol entry, the stations / nodes / devices, the map and the chat / packets / frames side by side
+static void command(App& a) {
+    loadState();
+    kit::modeHeader({20, "LoRa mesh", live(a) ? 1 : a.engine.running() ? 2 : 0, -1000.f, a.freqMhz * 1e6});
+    const int m = subMask(a);
+    const auto map = [&a] { mapView(a, ImGui::GetContentRegionAvail()); };
+    if (m == 16)
+        modepanel::panes({{"##mscdev", tr("Devices"), [&a] { lorawanDevices(a, false); }, 1.2f, 240.f},
+                          {"##mscfr", tr("Frames"), [&a] { lorawanFrames(a); }, 1.f, 240.f}}, 340.f);
+    else if (m == 4)
+        modepanel::panes({{"##mscst", tr("Stations"), [&a] { aprsTable(a); }, 1.2f, 240.f},
+                          {"##mscmap", tr("Map"), map, 1.2f, 260.f},
+                          {"##mscpk", tr("Packets"), [&a] { packetTable(a); }, 1.f, 220.f}}, 320.f);
+    else if (m == 8)
+        modepanel::panes({{"##mscst", tr("Stations"), [&a] { aprsTable(a); }, 1.2f, 240.f},
+                          {"##mscmap", tr("Map"), map, 1.f, 260.f},
+                          {"##mscchat", tr("Chat"), [&a] { chatView(a); }, 1.f, 240.f}}, 320.f);
+    else
+        modepanel::panes({{"##mscnodes", tr("Nodes"), [&a] { nodeTable(a, false); }, 1.2f, 240.f},
+                          {"##mscmap", tr("Map"), map, 1.2f, 260.f},
+                          {"##mscchat", tr("Chat"), [&a] { chatView(a); }, 1.f, 240.f},
+                          {"##mscsel", tr("Selected"), [&a] { nodeCard(a); }, 0.8f, 200.f}}, 280.f);
+}
+
 const ModeUi kMeshUi = {
     .sideTitle = "NODES",
     .tabName = "Mesh",
@@ -482,4 +524,5 @@ const ModeUi kMeshUi = {
     .synth = synth,
     .tick = tick,
     .meters = meters,
+    .command = command,
 };

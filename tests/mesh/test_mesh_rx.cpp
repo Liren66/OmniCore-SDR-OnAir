@@ -14,6 +14,8 @@
 #include <vector>
 using namespace dect2;
 
+#include "../common/cpu_report.h"
+#include "../common/cpu_time.h"
 #include "../common/test_util.h"
 
 static void quant8(cf32* x, size_t n) {
@@ -42,9 +44,9 @@ int main() {
         syn->generate(buf.data(), buf.size());
         for (auto& v : buf) peak = std::max(peak, (double)std::max(std::fabs(v.real()), std::fabs(v.imag())));
         quant8(buf.data(), buf.size());
-        const std::clock_t a = std::clock();
+        const double a = processCpuSecs();
         rx.feed(buf.data(), buf.size());
-        rxSecs += (double)(std::clock() - a) / CLOCKS_PER_SEC;
+        rxSecs += (processCpuSecs() - a);
         if (rx.telemetry(t, last)) { CHECK(t.seq > last, "seq"); last = t.seq; reports++; }
     }
     rx.telemetry(t, 0);
@@ -128,17 +130,19 @@ int main() {
             for (auto& v : buf) v = cf32(0, 0);
             ns.add(buf.data(), buf.size(), 0.05f);
             quant8(buf.data(), buf.size());
-            const std::clock_t a = std::clock();
+            const double a = processCpuSecs();
             r2.feed(buf.data(), buf.size());
-            cpu += (double)(std::clock() - a) / CLOCKS_PER_SEC;
+            cpu += (processCpuSecs() - a);
         }
         const double s = 300.0 * buf.size() / rate;
         MeshTelemetry t3;
         r2.telemetry(t3, 0);
         printf("noise only: %.2f s of CPU for %.1f s (%.0fx real time), %llu false preambles, %llu frames\n", cpu, s, s / cpu, (unsigned long long)t3.preambles, (unsigned long long)(t3.blocksOk + t3.blocksBad));
+        cpuCal("mesh_rx", "noise only", s / cpu, "x-realtime", '>', 3);
         CHECK(s / cpu > 3, "noise only: %.1fx real time", s / cpu);
         CHECK(t3.blocksOk == 0, "frames out of noise");
     }
+    cpuCal("mesh_rx", "signal", secs / rxSecs, "x-realtime", '>', 3);
     CHECK(secs / rxSecs > 3, "%.1fx real time", secs / rxSecs);
     if (fails) { printf("%d failures\n", fails); return 1; }
     printf("ok\n");

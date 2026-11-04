@@ -59,7 +59,7 @@ public:
     // The radio's centre frequency: carriers still inside the span after a retune keep running; those that have gone keep their absolute
     // frequency in the logs (any thread)
     void setCenterHz(double hz);
-    void setPagerOptions(int protocols, int pocsagBauds);   // the single receiver's POCSAG / FLEX and baud selection, for the carrier receivers
+    void setPagerOptions(int protocols, int pocsagBauds, bool selcall = false);   // the single receiver's POCSAG / FLEX, baud and five-tone selcall (CCIR / ZVEI ...) selection, for the carrier receivers
     void setNarrowChannels(bool pager, bool packet);        // 12.5 kHz channel filter in the pager / packet carrier receivers (25 kHz carrier spacing stays)
     void setPacketOptions(int fixBits, int emphasis);       // the packet receiver's "fix bits" and audio emphasis, for every carrier receiver
     void setTuning(const WideTuning& t);                    // every bank
@@ -69,6 +69,9 @@ public:
     // Only these channels (absolute Hz) are decoded, every other carrier is left alone; none: no carrier at all. For a trunking follower: a voice
     // channel gets a decoder when its call is granted, not because it is on the air. off: the search as before.
     void setFollowOnly(bool on, const std::vector<double>& absHz);
+    // The same for one mode only (the wide session, wide_session.h: it identifies every carrier first and gives each mode's bank just its own).
+    // on = false: this mode goes back to the global setting.
+    void setFollowOnlyFor(int stdMode, bool on, const std::vector<double>& absHz);
     // IQ of one carrier of the running mode to a WAV file in dir (returns the path, "" on failure); stop: closes it
     std::string startRecording(int stdMode, int carrierId, const std::string& dir);
     void stopRecording(int stdMode, int carrierId);

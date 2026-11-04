@@ -1,8 +1,11 @@
 // Inmarsat Aero receiver: a band search finds P-channel carriers (up to 6), each gets a front end (mixer + CIC decimator to about 48 kHz)
 // and demodulators for 600, 1200 and 10500 bit/s until one of them holds frame sync; the frames go to the SU layer (aero_su.h).
+#include "dect2/session/mode_adapters.h"
 #include "dect2/aero/aero_rx.h"
+#include "dect2/automation/engine.h"
 #include "dect2/results/results_io.h"
 #include "dect2/aero/aero_demod.h"
+#include "dect2/aero/aero_front.h"
 #include "dect2/aero/aero_phy.h"
 #include "dect2/aero/aero_pos.h"
 #include "dect2/aero/aero_su.h"
@@ -19,62 +22,11 @@ namespace dect2 {
 
 namespace {
 using dect2::math::kPi;
-constexpr int kMaxChannels = 6;
+constexpr int kMaxChannels = 12;   // a busy P group (600 / 1200 bit/s) plus the 10500 bit/s carriers; a full table gives way to a wide carrier (below)
 constexpr size_t kMaxMessages = 200, kMaxLogons = 100, kMaxAircraft = 100, kMaxTypes = 64, kMaxTrack = 24;
 const int kRates[3] = {600, 1200, 10500};
 
-// mixer + 4-stage CIC decimator in integers (wraps cleanly), input scaled to 16 bits
-class Front {
-public:
-    void setup(double fsIn, double freqHz, int decim) {
-        fsIn_ = fsIn; D_ = decim;
-        setFreq(freqHz);
-        osc_ = {1.0, 0.0};
-        std::fill(std::begin(iI_), std::end(iI_), 0); std::fill(std::begin(iQ_), std::end(iQ_), 0);
-        std::fill(std::begin(cI_), std::end(cI_), 0); std::fill(std::begin(cQ_), std::end(cQ_), 0);
-        cnt_ = 0;
-        gain_ = 1.0 / (std::pow((double)D_, 4) * 1048576.0);
-    }
-    void setFreq(double hz) {
-        freq_ = hz;
-        const double w = -2 * kPi * hz / fsIn_;
-        rot_ = {std::cos(w), std::sin(w)};
-    }
-    double freq() const { return freq_; }
-    // returns the number of outputs written to out
-    size_t process(const cf32* x, size_t n, cf32* out) {
-        size_t m = 0;
-        float oR = (float)osc_.real(), oI = (float)osc_.imag();
-        const float rR = (float)rot_.real(), rI = (float)rot_.imag();
-        constexpr float kScale = 1048576.f;          // 2^20: truncation then leaves a bias far below any carrier
-        for (size_t i = 0; i < n; i++) {
-            const float re = x[i].real() * oR - x[i].imag() * oI;
-            const float im = x[i].real() * oI + x[i].imag() * oR;
-            const float nr = oR * rR - oI * rI;
-            oI = oR * rI + oI * rR;
-            oR = nr;
-            int64_t a = (int64_t)(re * kScale), b = (int64_t)(im * kScale);
-            for (int s = 0; s < 4; s++) { iI_[s] = (int64_t)((uint64_t)iI_[s] + (uint64_t)a); a = iI_[s]; iQ_[s] = (int64_t)((uint64_t)iQ_[s] + (uint64_t)b); b = iQ_[s]; }
-            if (++cnt_ < D_) continue;
-            cnt_ = 0;
-            for (int s = 0; s < 4; s++) {
-                const int64_t ta = (int64_t)((uint64_t)a - (uint64_t)cI_[s]); cI_[s] = a; a = ta;
-                const int64_t tb = (int64_t)((uint64_t)b - (uint64_t)cQ_[s]); cQ_[s] = b; b = tb;
-            }
-            out[m++] = cf32((float)((double)a * gain_), (float)((double)b * gain_));
-            // keep the oscillator on the unit circle (float rounding), once per output sample
-            const float g = 1.5f - 0.5f * (oR * oR + oI * oI);
-            oR *= g; oI *= g;
-        }
-        osc_ = {oR, oI};
-        return m;
-    }
-private:
-    double fsIn_ = 1, freq_ = 0, gain_ = 1;
-    int D_ = 1, cnt_ = 0;
-    std::complex<double> osc_{1, 0}, rot_{1, 0};
-    int64_t iI_[4] = {}, iQ_[4] = {}, cI_[4] = {}, cQ_[4] = {};
-};
+using Front = AeroFront;
 
 struct Region { double freq, width, peakDb; };
 } // namespace
@@ -87,7 +39,7 @@ struct AeroReceiver::Impl {
     std::function<void(const std::string&)> log;
     std::function<void(double, const AeroFrameEvent&)> frameCb;
 
-    double rate = 0, offsetHz = 0;
+    double rate = 0, offsetHz = 0, searchLimitHz = 0;
     uint64_t samples = 0;
     double sinceReport = 0;
     // band search
@@ -205,6 +157,19 @@ struct AeroReceiver::Impl {
         }
     }
 
+    // table full: a new wide carrier takes the place of the weakest channel that holds no sync (never one that decodes)
+    bool freeSlot() {
+        int worst = -1;
+        for (size_t i = 0; i < chans.size(); i++) {
+            const Channel& c = *chans[i];
+            if (synced(c) || now() - c.lastSync < 10) continue;
+            if (worst < 0 || c.levelDb < chans[(size_t)worst]->levelDb) worst = (int)i;
+        }
+        if (worst < 0) return false;
+        chans.erase(chans.begin() + worst);
+        return true;
+    }
+
     void searchEvaluate() {
         period++;
         std::vector<float> p(nfft);
@@ -225,6 +190,7 @@ struct AeroReceiver::Impl {
         for (int j = 0; j < nfft; j++) {
             const double f = fOf(j);
             if (std::fabs(f) > 0.45 * rate) continue;
+            if (searchLimitHz > 0 && std::fabs(f) > searchLimitHz) continue;   // a channelised window: outside its pass-band there is no noise to take a floor from
             if (offsetHz != 0 && std::fabs(f) < 2000) continue;   // the radio's DC spike (a radio is tuned away from the channels)
             ok[j] = 1;
             use.push_back(s[j]);
@@ -252,7 +218,10 @@ struct AeroReceiver::Impl {
             if (wsum > 0 && width < 40000) regs.push_back({fsum / wsum, width, 10 * std::log10(peak / floorP)});
             j = b + 1;
         }
-        std::sort(regs.begin(), regs.end(), [](const Region& x, const Region& y) { return x.peakDb > y.peakDb; });
+        // a wide (10500 bit/s) carrier spreads its power over about 10 kHz, so its peak is far below a 600 / 1200 bit/s carrier of the same power:
+        // it gets a bonus in the order, or the strong narrow carriers (and noise ghosts) would fill every slot first
+        auto score = [](const Region& x) { return x.peakDb + (x.width >= 6000 ? 8.0 : 0.0); };
+        std::sort(regs.begin(), regs.end(), [&](const Region& x, const Region& y) { return score(x) > score(y); });
         std::vector<std::pair<double, int>> newPending;
         for (const Region& r : regs) {
             Channel* m = nullptr;
@@ -266,12 +235,13 @@ struct AeroReceiver::Impl {
                 m->lastSeen = period;
                 m->levelDb = (float)r.peakDb;
                 if (!synced(*m) && now() - m->lastSync > 3 && std::fabs(r.freq - m->freq) > 400) retune(*m, r.freq);
-            } else if ((int)chans.size() < kMaxChannels) {
+            } else if ((int)chans.size() < kMaxChannels || r.width >= 6000) {
                 // a new carrier must show in two searches in a row: noise alone crosses the threshold now and then, never twice in one place
                 bool seen = false;
                 for (const auto& q : pending) seen |= q.second == period - 1 && std::fabs(q.first - r.freq) < std::max(1500.0, r.width / 2);
                 newPending.push_back({r.freq, period});
                 if (!seen) continue;
+                if ((int)chans.size() >= kMaxChannels && !freeSlot()) continue;
                 auto c = std::make_unique<Channel>();
                 c->id = nextId++;
                 c->created = c->lastSeen = period;
@@ -389,7 +359,20 @@ struct AeroReceiver::Impl {
             am.blockId = m.blockId; am.msgNo = m.msgNo; am.text = m.text.substr(0, 240); am.crcOk = m.crcOk;
             AeroPosition pos;
             if (m.crcOk) aeroPositionFromMessage(m.label, m.text, m.uplink, pos, &am.decoded);
+            if (pos.valid && !aeroSanitizePosition(pos.lat, pos.lon)) pos.valid = false;   // out of range or no fix: not a position
             if (pos.valid) { am.hasPos = true; am.lat = pos.lat; am.lon = pos.lon; }
+            const double heardOff = chanFreq(c) - offsetHz;
+            am.heardOffsetHz = heardOff;
+            if (automation::wants(automation::FMsg)) {   // "Save decoded messages", Integrations, automations (automation/engine.h)
+                char aes[16];
+                std::snprintf(aes, sizeof aes, "%06X", am.aesId);
+                automation::Event ex;
+                ex.str("registration", am.registration).str("flight", am.flight).str("label", am.label).str("label_text", am.labelText).str("aes", aes)
+                  .flag("uplink", am.uplink).flag("crc_ok", am.crcOk).num("bit_rate", am.bitRate).num("ges_id", am.gesId).num("heard_offset_hz", am.heardOffsetHz);
+                if (!am.decoded.empty()) ex.str("decoded", am.decoded);
+                if (am.hasPos) ex.num("lat", am.lat).num("lon", am.lon);
+                automation::emitMessage("aero", "Inmarsat Aero", 0, am.registration.empty() ? std::string(aes) : am.registration, am.text, e.ebn0Db, std::move(ex));
+            }
             messages.push_back(am);
             if (messages.size() > kMaxMessages) messages.erase(messages.begin());
             messagesTotal++;
@@ -400,6 +383,7 @@ struct AeroReceiver::Impl {
             a.lastText = m.text.substr(0, 80);
             a.messages++;
             a.lastHeard = now(); a.lastWall = wall;
+            a.heardBitRate = e.bitRate; a.heardOffsetHz = heardOff;
             if (pos.valid) addPosition(a, pos, wall);
             std::string line = "Aero: ACARS " + (m.registration.empty() ? std::string("?") : m.registration) + " " + m.label + (m.flight.empty() ? "" : " " + m.flight) + " ";
             line += m.text.substr(0, 60);
@@ -437,6 +421,7 @@ struct AeroReceiver::Impl {
                 trk = std::fmod(std::atan2(y, x) * 180 / kPi + 360, 360);
             }
         }
+        if (p.icao) a.icao = p.icao;
         a.hasPos = true; a.lat = p.lat; a.lon = p.lon;
         a.hasAlt = p.hasAlt; a.altFt = p.altFt;
         a.hasTrack = hasTrk; a.trackDeg = trk;
@@ -550,6 +535,10 @@ void AeroReceiver::configure(double inputRateHz) {
     p_->rate = inputRateHz;
     p_->setup();
 }
+void AeroReceiver::setSearchLimit(double hz) {
+    std::lock_guard<std::mutex> lk(p_->mu);
+    p_->searchLimitHz = hz;
+}
 void AeroReceiver::setSignalOffset(double hz) {
     std::lock_guard<std::mutex> lk(p_->mu);
     p_->offsetHz = hz;
@@ -609,6 +598,7 @@ bool AeroReceiver::telemetry(AeroTelemetry& out, uint64_t lastSeq) {
     std::lock_guard<std::mutex> lk(p_->snapMu);
     if (p_->snap.seq <= lastSeq) return false;
     out = p_->snap;
+    sess::observeAero(out);
     return true;
 }
 void AeroReceiver::setLogCallback(std::function<void(const std::string&)> cb) { std::lock_guard<std::mutex> lk(p_->mu); p_->log = std::move(cb); }

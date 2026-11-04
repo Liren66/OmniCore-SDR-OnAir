@@ -1,7 +1,13 @@
 // Pagers screens: lamps for the signal, the sync and the two protocols; the message list with a filter; the statistics per speed.
 #include "dect2/common/time_fmt.h"
+#include "ui/kit/mode_panel.h"
+#include "ui/kit/session_list.h"
+#include "ui/kit/mode_frame.h"
 #include "app.h"
 #include "pager_filter.h"
+#include "pager_alias.h"
+#include "pager_keywords.h"
+#include "../panels/automation_internal.h"
 #include "../ui/msglog_ui.h"
 #include "dect2/pager/pager_rx.h"
 #include "dect2/pager/pager_tel.h"
@@ -9,7 +15,9 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <fstream>
 #include <cmath>
+#include <deque>
 #include <ctime>
 #include <map>
 #include <sstream>
@@ -23,6 +31,10 @@ struct State {
     char filter[48] = "";                // matches the address or the text
     char watch[256] = "";                // the capcode watch list (#269), saved as pagerWatch
     dect2::PagerWatch watched;           // watch, parsed
+    char ignore[256] = "";               // capcodes to hide from the Messages view (saved as pagerIgnore)
+    dect2::PagerWatch ignored;           // ignore, parsed
+    bool showIgnored = false;            // show the ignored pages after all (nothing is lost silently)
+    size_t ignoredHidden = 0;            // pages the ignore list hid in the last pass over the table
     bool watchOnly = false;              // the Messages view shows only watched addresses (saved as pagerWatchOnly)
     bool pocsag = true, flex = true;
     bool decodedOnly = false;            // hide tone-only and empty pages from the table, Copy and the list (saved as pagerDecodedOnly)
@@ -31,9 +43,27 @@ struct State {
     int pushedNarrow = -1;
     bool loaded = false;
     int readMode = dect2::kPocsagReadAuto;   // PocsagReadMode, saved as "pocsagRead"
+    int charset = dect2::kPagerCharAscii;    // PagerCharset, saved as "pagerCharset"
+    dect2::PagerAliases aliases;             // capcode names (#5), kept in pager_aliases.csv in the data folder
+    std::string aliasNote;                   // the result of the last import / export
+    char nameEdit[128] = "";                 // the name being typed in the address menu
+    bool aliasDirty = false;                 // names edited in the table, written to the file when the field is left
+    bool combine = true;                     // multi-copy combining (#20), saved as pagerCombine
+    int pushedCombine = -1;
+    bool selcall = false;                // also decode five-tone selective calls on the channel audio (saved as pagerSelcall)
+    int pushedSelcall = -1;
+    dect2::PagerKeywords kw;                 // keyword alerts: matched against the text and the capcode name, saved as pagerKeywords
+    char kwText[2000] = "";                  // the list as typed, one keyword per line, "re:" starts a regular expression
+    int kwBad = 0;                           // lines of the list that could not be used
+    bool kwNotify = false, kwSound = false;  // desktop notification / beeps on a match (both off by default; saved as pagerKwNotify, pagerKwSound)
+    struct KwHit { int64_t wall = 0; std::string kw, addr, text; };
+    std::deque<KwHit> kwHits;                // the live ticker: the newest matches, newest last
+    std::map<int, uint64_t> kwSeen;          // carrier -> highest serial looked at (serials restart per carrier)
+    bool kwPrimed = false;                   // pages that were there when the list was set are not alerts
     std::map<uint32_t, int> byAddress;       // POCSAG address -> kPocsagReadAlpha or kPocsagReadNumeric, saved as "pocsagReadAddr" ("ric:a ric:n ...")
 };
 State S;
+void saveKeywords();
 
 int baudMask() {
     int m = 0;
@@ -43,16 +73,43 @@ int baudMask() {
     return m;
 }
 
+std::string aliasPath() { return plat::dataDir() + "/pager_aliases.csv"; }
+
+void saveAliases() {
+    std::ofstream f(aliasPath(), std::ios::binary | std::ios::trunc);
+    if (f) f << S.aliases.exportCsv();
+}
+
+// The name of a capcode for the lists ("" = none); the category is in the tooltip
+std::string aliasOf(const dect2::PagerMessage& m) { const dect2::PagerAlias* a = S.aliases.find(m.address, m.flex); return a ? a->name : std::string(); }
+
 void loadRead() {
     if (S.loaded) return;
     S.loaded = true;
     plat::Prefs& d = plat::prefs();
     const long m = d.getI("pocsagRead", dect2::kPocsagReadAuto);
     S.readMode = m >= 0 && m < dect2::kPocsagReadModes ? (int)m : dect2::kPocsagReadAuto;
+    { const long cs = d.getI("pagerCharset", 0); S.charset = cs >= 0 && cs < dect2::kPagerCharsets ? (int)cs : 0; }
     S.decodedOnly = d.getI("pagerDecodedOnly", 0) != 0;
+    S.combine = d.getI("pagerCombine", 1) != 0;
+    S.selcall = d.getI("pagerSelcall", 0) != 0;
+    {
+        std::string k = d.getS("pagerKeywords", "");
+        for (auto& c : k) if (c == '\x1e') c = '\n';
+        snprintf(S.kwText, sizeof S.kwText, "%s", k.c_str());
+        S.kwBad = S.kw.parse(S.kwText);
+        S.kwNotify = d.getI("pagerKwNotify", 0) != 0;
+        S.kwSound = d.getI("pagerKwSound", 0) != 0;
+    }
+    {
+        std::ifstream f(aliasPath(), std::ios::binary);
+        if (f) { std::string t((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>()); S.aliases.importCsv(t); }
+    }
     snprintf(S.watch, sizeof S.watch, "%s", d.getS("pagerWatch", "").c_str());
     S.watched = dect2::pagerParseWatch(S.watch);
     S.watchOnly = d.getI("pagerWatchOnly", 0) != 0;
+    snprintf(S.ignore, sizeof S.ignore, "%s", d.getS("pagerIgnore", "").c_str());
+    S.ignored = dect2::pagerParseWatch(S.ignore);
     const long b = d.getI("pocsagBaud", 7);
     S.baud512 = (b & 1) != 0;
     S.baud1200 = (b & 2) != 0;
@@ -76,6 +133,7 @@ void saveRead(const App& a) {
     std::string v;
     for (const auto& [ric, mode] : S.byAddress) v += std::to_string(ric) + (mode == dect2::kPocsagReadAlpha ? ":a " : ":n ");
     plat::prefs().setI("pocsagRead", S.readMode);
+    plat::prefs().setI("pagerCharset", S.charset);
     plat::prefs().setS("pocsagReadAddr", v);
     savePrefs(a);
 }
@@ -87,6 +145,7 @@ dect2::PagerMessage resolved(const dect2::PagerMessage& m) {
     const auto it = S.byAddress.find(m.address);
     if (it != S.byAddress.end()) dect2::pocsagApplyRead(v, it->second, true);
     else dect2::pocsagApplyRead(v, S.readMode);
+    if (v.type == dect2::kPagerAlpha) v.text = dect2::pagerApplyCharset(v.text, S.charset);
     return v;
 }
 
@@ -114,13 +173,17 @@ std::string oneLine(const std::string& s) {
 }
 
 bool passes(const dect2::PagerMessage& m) {   // m: resolved
+    if (m.selcall) return !S.filter[0] || lower(m.text + " " + m.selStd).find(lower(S.filter)) != std::string::npos;   // no address: the ignore and watch lists do not apply
     if (m.flex ? !S.flex : !S.pocsag) return false;
+    if (!S.ignored.empty() && S.ignored.has(m.address) && !S.showIgnored) { S.ignoredHidden++; return false; }
     if (S.watchOnly && !S.watched.empty() && !S.watched.has(m.address)) return false;
     if (!S.filter[0]) return true;
     char adr[16];
     snprintf(adr, sizeof adr, "%u", (unsigned)m.address);
     const std::string f = lower(S.filter);
-    return std::string(adr).find(f) != std::string::npos || lower(m.text).find(f) != std::string::npos;
+    if (std::string(adr).find(f) != std::string::npos || lower(m.text).find(f) != std::string::npos) return true;
+    if (const dect2::PagerAlias* al = S.aliases.find(m.address, m.flex)) return lower(al->name).find(f) != std::string::npos || lower(al->category).find(f) != std::string::npos;
+    return false;
 }
 
 // passes() plus the "Decoded only" switch; hidden (when given) is incremented for a page that only that switch removed.
@@ -157,10 +220,20 @@ void messageView(App& a) {
     const dect2::PagerTelemetry& t = a.rx.pager;
     const bool on = live(a);
     const std::vector<dect2::PagerMessage>& all = messagesOf(t);
+    if (!S.kw.empty()) {   // the live keyword ticker: the last three matches
+        if (S.kwHits.empty()) ImGui::TextDisabled("%s", tr("Keywords on: no match yet"));
+        const size_t from = S.kwHits.size() > 3 ? S.kwHits.size() - 3 : 0;
+        for (size_t i = from; i < S.kwHits.size(); i++) {
+            const auto& h = S.kwHits[i];
+            ImGui::TextColored(pal::warnAmber(), "%s", h.kw.c_str()); ImGui::SameLine(0, 8 * gUi);
+            ImGui::TextDisabled("%s", clock(h.wall).c_str()); ImGui::SameLine(0, 8 * gUi);
+            ImGui::TextUnformatted((h.addr + "  " + h.text.substr(0, 120)).c_str());
+        }
+    }
     ImGui::TextDisabled("Filter"); ImGui::SameLine(0, 5 * gUi);
     ImGui::SetNextItemWidth(150 * gUi);
     ImGui::InputText("##pgf", S.filter, sizeof S.filter);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show only pages whose address or text contains this.");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Show only pages whose address, name or text contains this."));
     flowNext(12 * gUi);
     ImGui::BeginDisabled(S.watched.empty());
     if (ImGui::Checkbox(tr("Watched only"), &S.watchOnly)) { plat::prefs().setI("pagerWatchOnly", S.watchOnly ? 1 : 0); plat::prefs().flush(); }
@@ -171,9 +244,15 @@ void messageView(App& a) {
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("POCSAG is the ITU-R M.584 / CCIR Radiopaging Code No. 1 (RPC1): the same signal, so CCIR paging on the pager bands is decoded here at 512, 1200 and 2400 baud. The CCIR 5-tone selective calls are in the Tones mode."));
     flowNext(10 * gUi);
     ImGui::Checkbox("FLEX", &S.flex);
+    flowNext(10 * gUi);
+    if (ImGui::Checkbox(tr("Selective call tones (CCIR / ZVEI / EEA / EIA / DZVEI...)"), &S.selcall)) { plat::prefs().setI("pagerSelcall", S.selcall ? 1 : 0); savePrefs(a); }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Also decode five-tone sequential calls (CCIR, ZVEI1/2, EEA, EIA, DZVEI) on the same channel audio, alongside POCSAG and FLEX. They appear in the table with the standard in the Protocol column and the digits as the message."));
     flowNext(12 * gUi);
     if (ImGui::Checkbox(tr("Decoded only"), &S.decodedOnly)) { plat::prefs().setI("pagerDecodedOnly", S.decodedOnly ? 1 : 0); savePrefs(a); }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Hides tone-only pages and pages whose text could not be decoded."));
+    flowNext(12 * gUi);
+    if (ImGui::Checkbox(tr("Combine repeats"), &S.combine)) { plat::prefs().setI("pagerCombine", S.combine ? 1 : 0); savePrefs(a); }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Networks send a page more than once. When a copy has code words the error correction cannot repair, the same words from an earlier copy of the same page are used, so the message comes out complete. Pages made this way are marked."));
     flowNext(12 * gUi);
     ImGui::TextDisabled("%s", tr("Channel")); ImGui::SameLine(0, 5 * gUi);
     ImGui::SetNextItemWidth(80 * gUi);
@@ -211,6 +290,15 @@ void messageView(App& a) {
         }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("How POCSAG messages are read: as text (alphanumeric) or digits. Right-click an address to fix it for that address.");
         flowNext(12 * gUi);
+        ImGui::TextDisabled("Characters"); ImGui::SameLine(0, 5 * gUi);
+        ImGui::SetNextItemWidth(130 * gUi);
+        if (ImGui::BeginCombo("##pgchars", dect2::pagerCharsetName(S.charset))) {
+            for (int i = 0; i < dect2::kPagerCharsets; i++)
+                if (ImGui::Selectable(dect2::pagerCharsetName(i), S.charset == i)) { S.charset = i; saveRead(a); }
+            ImGui::EndCombo();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("German networks send ä ö ü ß and Ä Ö Ü in the place of [ ] { | } ~ \\ (DIN 66003). Choose German to show them as letters.");
+        flowNext(12 * gUi);
     }
     const bool wide = wideActive(a);   // whole span: a Frequency column (the carrier each page came from)
     const bool copy = ImGui::Button("Copy");
@@ -222,7 +310,7 @@ void messageView(App& a) {
             const dect2::PagerMessage m = resolved(raw);
             if (!shows(m)) continue;
             if (wide && m.carrierId > 0) { char fb[24]; snprintf(fb, sizeof fb, "%.4f\t", radioCenterMhz(a) + m.carrierHz / 1e6); txt += fb; }
-            txt += clock(m.wallTime) + "\t" + dect2::pagerSpeedName(m.speed) + "\t" + std::to_string(m.address) + "\t" + fnText(m) + "\t" + typeText(m) + "\t" + oneLine(m.text) + "\n";
+            txt += clock(m.wallTime) + "\t" + dect2::pagerProtoName(m) + "\t" + std::to_string(m.address) + "\t" + aliasOf(m) + "\t" + fnText(m) + "\t" + typeText(m) + "\t" + oneLine(m.text) + "\n";
         }
         ImGui::SetClipboardText(txt.c_str());
     }
@@ -233,22 +321,26 @@ void messageView(App& a) {
             if (!shows(m)) continue;
             dect2::msglog::Row r;
             r.epoch = m.wallTime;
-            r.mode = dect2::pagerSpeedName(m.speed);
+            r.mode = dect2::pagerProtoName(m);
             r.freqHz = (m.carrierId > 0 ? radioCenterMhz(a) + m.carrierHz / 1e6 : a.freqMhz) * 1e6;
             r.address = std::to_string(m.address);
+            if (const std::string nm = aliasOf(m); !nm.empty()) r.address += " " + nm;
             r.text = m.type == dect2::kPagerTone ? std::string("(tone only)") : m.text;
             rows.push_back(std::move(r));
         }
         std::stable_sort(rows.begin(), rows.end(), [](const dect2::msglog::Row& x, const dect2::msglog::Row& y) { return x.epoch < y.epoch; });
         msglog_ui::bar("pager", "pager", rows);
     }
-    if (ImGui::BeginTable("##pgmsg", 6 + (wide ? 1 : 0), ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV, ImVec2(0, ImGui::GetContentRegionAvail().y))) {
+    if (ImGui::BeginTable("##pgmsg", 6 + (wide ? 1 : 0) + (S.aliases.empty() ? 0 : 1), ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV, ImVec2(0, ImGui::GetContentRegionAvail().y))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         if (wide) ImGui::TableSetupColumn("Frequency MHz");
-        ImGui::TableSetupColumn(dect2::timefmt::zone() == dect2::timefmt::Zone::Local ? "Time (local)" : "Time UTC"); ImGui::TableSetupColumn("Protocol"); ImGui::TableSetupColumn("Address"); ImGui::TableSetupColumn("Fn");
+        ImGui::TableSetupColumn(dect2::timefmt::zone() == dect2::timefmt::Zone::Local ? "Time (local)" : "Time UTC"); ImGui::TableSetupColumn("Protocol"); ImGui::TableSetupColumn("Address");
+        if (!S.aliases.empty()) ImGui::TableSetupColumn(tr("Name"));
+        ImGui::TableSetupColumn("Fn");
         ImGui::TableSetupColumn("Type"); ImGui::TableSetupColumn("Message", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableHeadersRow();
         size_t shown = 0, matching = 0, hiddenTones = 0;
+        S.ignoredHidden = 0;
         if (on) {
             for (const auto& raw : all) {
                 const dect2::PagerMessage m = resolved(raw);
@@ -257,29 +349,59 @@ void messageView(App& a) {
                 if (shown >= kShown) continue;
                 shown++;
                 ImGui::TableNextRow();
+                if (!S.kw.empty() && S.kw.match(m.text, aliasOf(m))) ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, IM_COL32(150, 110, 20, 90));   // a keyword match
                 if (wide) { ImGui::TableNextColumn(); wideCarrierCell(a, m.carrierId, m.carrierHz); }
                 ImGui::TableNextColumn(); ImGui::TextUnformatted(clock(m.wallTime).c_str());
-                ImGui::TableNextColumn(); ImGui::PushStyleColor(ImGuiCol_Text, pal::accent()); ImGui::TextUnformatted(dect2::pagerSpeedName(m.speed)); ImGui::PopStyleColor();
+                ImGui::TableNextColumn(); ImGui::PushStyleColor(ImGuiCol_Text, pal::accent()); ImGui::TextUnformatted(dect2::pagerProtoName(m).c_str()); ImGui::PopStyleColor();
                 ImGui::TableNextColumn();
                 ImGui::PushID((int)(m.serial * 31u + (unsigned)(int)std::lround(m.carrierHz / 100.0)));   // serials restart per carrier
-                ImGui::Text("%u", (unsigned)m.address);
-                if (!m.flex && ImGui::BeginPopupContextItem("##pgadr", ImGuiPopupFlags_MouseButtonRight)) {
-                    const auto it = S.byAddress.find(m.address);
-                    const int cur = it == S.byAddress.end() ? -1 : it->second;
+                if (m.selcall) ImGui::TextDisabled("-"); else ImGui::Text("%u", (unsigned)m.address);
+                if (!m.selcall && ImGui::BeginPopupContextItem("##pgadr", ImGuiPopupFlags_MouseButtonRight)) {
                     ImGui::TextDisabled("Address %u", (unsigned)m.address);
-                    if (ImGui::MenuItem("Always alphanumeric", nullptr, cur == dect2::kPocsagReadAlpha)) { S.byAddress[m.address] = dect2::kPocsagReadAlpha; saveRead(a); }
-                    if (ImGui::MenuItem("Always numeric", nullptr, cur == dect2::kPocsagReadNumeric)) { S.byAddress[m.address] = dect2::kPocsagReadNumeric; saveRead(a); }
-                    if (ImGui::MenuItem("Auto (the Message type setting)", nullptr, cur < 0)) { S.byAddress.erase(m.address); saveRead(a); }
+                    {   // a name for this capcode (#5): Enter keeps it, empty removes it
+                        if (ImGui::IsWindowAppearing()) { snprintf(S.nameEdit, sizeof S.nameEdit, "%s", aliasOf(m).c_str()); }
+                        ImGui::SetNextItemWidth(180 * gUi);
+                        if (ImGui::InputTextWithHint("##pgname", tr("Name this address"), S.nameEdit, sizeof S.nameEdit, ImGuiInputTextFlags_EnterReturnsTrue)) {
+                            const dect2::PagerAlias* cur = S.aliases.find(m.address, m.flex);
+                            dect2::PagerAlias n; n.first = n.last = m.address; n.proto = m.flex ? dect2::kAliasFlex : dect2::kAliasPocsag; n.name = S.nameEdit;
+                            if (cur && cur->first == cur->last) { n.category = cur->category; if (cur->proto == dect2::kAliasAny) n.proto = dect2::kAliasAny; }
+                            S.aliases.set(n); saveAliases();
+                            ImGui::CloseCurrentPopup();
+                        }
+                    }
+                    if (!m.flex) {
+                        const auto it = S.byAddress.find(m.address);
+                        const int cur = it == S.byAddress.end() ? -1 : it->second;
+                        if (ImGui::MenuItem("Always alphanumeric", nullptr, cur == dect2::kPocsagReadAlpha)) { S.byAddress[m.address] = dect2::kPocsagReadAlpha; saveRead(a); }
+                        if (ImGui::MenuItem("Always numeric", nullptr, cur == dect2::kPocsagReadNumeric)) { S.byAddress[m.address] = dect2::kPocsagReadNumeric; saveRead(a); }
+                        if (ImGui::MenuItem("Auto (the Message type setting)", nullptr, cur < 0)) { S.byAddress.erase(m.address); saveRead(a); }
+                        ImGui::Separator();
+                    }
+                    if (ImGui::MenuItem(tr("Ignore this address"))) {
+                        std::string ig = S.ignore;
+                        ig += (ig.empty() ? "" : " ") + std::to_string(m.address);
+                        snprintf(S.ignore, sizeof S.ignore, "%s", ig.c_str());
+                        S.ignored = dect2::pagerParseWatch(S.ignore);
+                        plat::prefs().setS("pagerIgnore", S.ignore); plat::prefs().flush();
+                    }
                     ImGui::EndPopup();
                 }
-                if (!m.flex && ImGui::IsItemHovered()) ImGui::SetTooltip("Right-click to choose how pages to this address are read.");
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", m.flex ? tr("Right-click to ignore this address.") : tr("Right-click to choose how pages to this address are read, or to ignore it."));
                 ImGui::PopID();
+                if (!S.aliases.empty()) {
+                    ImGui::TableNextColumn();
+                    if (const dect2::PagerAlias* al = S.aliases.find(m.address, m.flex)) {
+                        ImGui::TextUnformatted(al->name.c_str());
+                        if (!al->category.empty() && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", al->category.c_str());
+                    }
+                }
                 ImGui::TableNextColumn(); ImGui::TextUnformatted(fnText(m).c_str());
                 ImGui::TableNextColumn(); ImGui::TextUnformatted(typeText(m).c_str());
                 ImGui::TableNextColumn();
                 ImGui::PushFont(a.mono, 0);
                 if (m.type == dect2::kPagerTone) ImGui::TextDisabled("(tone only)");
-                else ImGui::TextWrapped("%s%s", m.text.c_str(), m.damaged ? "  [incomplete]" : "");
+                else ImGui::TextWrapped("%s%s%s", m.text.c_str(), m.damaged ? "  [incomplete]" : "", m.combined ? "  [combined]" : "");
+                if (m.combined && ImGui::IsItemHovered()) ImGui::SetTooltip(tr("Repaired from %d copies of this page: code words lost in this copy were taken from an earlier one."), m.copies);
                 ImGui::PopFont();
                 if (!m.flex && !m.numText.empty() && ImGui::IsItemHovered()) {
                     static const char* const why[] = {"by the function code", "auto: the text reading %s", "forced by the Message type setting", "set for this address"};
@@ -290,6 +412,15 @@ void messageView(App& a) {
             }
         }
         ImGui::EndTable();
+        if (on && S.ignoredHidden) {
+            ImGui::TextDisabled(tr("%zu ignored pages hidden"), S.ignoredHidden);
+            ImGui::SameLine();
+            if (ImGui::SmallButton(tr("Show ignored"))) S.showIgnored = true;
+        } else if (on && S.showIgnored && !S.ignored.empty()) {
+            ImGui::TextDisabled("%s", tr("Ignored pages are shown"));
+            ImGui::SameLine();
+            if (ImGui::SmallButton(tr("Hide ignored"))) S.showIgnored = false;
+        }
         if (on && matching && hiddenTones) { ImGui::PushTextWrapPos(0); ImGui::TextDisabled(tr("%zu tone-only or undecoded pages hidden"), hiddenTones); ImGui::PopTextWrapPos(); }
         if (!on) { ImGui::PushTextWrapPos(0); ImGui::TextDisabled("%s", a.engine.running() ? "starting" : "start the receiver to see pages"); ImGui::PopTextWrapPos(); }
         else if (!matching && hiddenTones) { ImGui::PushTextWrapPos(0); ImGui::TextDisabled(tr("%zu tone-only or undecoded pages hidden (Decoded only)"), hiddenTones); ImGui::PopTextWrapPos(); }
@@ -347,6 +478,56 @@ void capcodeView(App& a) {
     ImGui::SetNextItemWidth(260 * gUi);
     if (ImGui::InputTextWithHint("##pgwatch", "1234 5678 2000-2099", S.watch, sizeof S.watch)) saveWatch();
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Capcodes (RICs) to watch, separated by spaces or commas; a range like 2000-2099. Watched rows are marked; Messages > Watched only shows just them."));
+    ImGui::TextDisabled("%s", tr("Ignore list")); ImGui::SameLine(0, 5 * gUi);
+    ImGui::SetNextItemWidth(260 * gUi);
+    if (ImGui::InputTextWithHint("##pgignore", "1234 5678 2000-2099", S.ignore, sizeof S.ignore)) {
+        S.ignored = dect2::pagerParseWatch(S.ignore);
+        plat::prefs().setS("pagerIgnore", S.ignore); plat::prefs().flush();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Capcodes (RICs) whose pages are hidden from Messages, separated by spaces or commas; a range like 2000-2099. Works for POCSAG and FLEX. The pages are still received."));
+    {   // keyword alerts: one keyword per line, "re:" for a regular expression
+        ImGui::TextDisabled("%s", tr("Keywords"));
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::InputTextMultiline("##pgkw", S.kwText, sizeof S.kwText, ImVec2(0, 70 * gUi))) saveKeywords();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("One keyword per line, any case. It is looked for in the message text and in the capcode name. Start a line with re: for a regular expression, for example re:structure fire|MVA. Matching pages are highlighted in Messages and shown in the ticker."));
+        if (ImGui::Checkbox(tr("Notify on a keyword match"), &S.kwNotify)) saveKeywords();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("A desktop notification for each matching new page (off by default)"));
+        ImGui::SameLine(0, 12 * gUi);
+        ImGui::BeginDisabled(!S.kwNotify);
+        if (ImGui::Checkbox(tr("Beep"), &S.kwSound)) saveKeywords();
+        ImGui::EndDisabled();
+        if (S.kwBad) { ImGui::SameLine(0, 12 * gUi); ImGui::TextColored(pal::badRed(), "%d %s", S.kwBad, tr("lines are not valid and were skipped")); }
+    }
+    {   // capcode names (#5): a CSV with the columns capcode (or a range), name, category, protocol
+        if (ImGui::Button(tr("Import names..."))) {
+            const std::string p = openFileDialog();
+            if (!p.empty()) {
+                std::ifstream f(p, std::ios::binary);
+                if (!f) S.aliasNote = tr("Could not read the file");
+                else {
+                    const std::string t((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+                    const dect2::PagerAliasImport r = S.aliases.importCsv(t);
+                    saveAliases();
+                    S.aliasNote = std::to_string(r.added) + " " + tr("added") + ", " + std::to_string(r.replaced) + " " + tr("replaced") + ", " + std::to_string(r.skipped) + " " + tr("skipped");
+                }
+            }
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Load capcode names from a CSV file: columns capcode (or a range like 1000-1099), name, category, protocol (POCSAG, FLEX or empty for both). Semicolon or tab separated files work too. Names with the same capcode and protocol are replaced, the rest stay."));
+        ImGui::SameLine();
+        if (ImGui::Button(tr("Export names..."))) {
+            const std::string p = saveFileDialog("pager-capcodes.csv");
+            if (!p.empty()) {
+                std::ofstream f(p, std::ios::binary | std::ios::trunc);
+                if (f) { f << S.aliases.exportCsv(); S.aliasNote = std::string(tr("Saved")) + ": " + p; } else S.aliasNote = tr("Could not write the file");
+            }
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Save the capcode names as a CSV file (opens in a spreadsheet)."));
+        ImGui::SameLine();
+        ImGui::BeginDisabled(S.aliases.empty());
+        if (ImGui::SmallButton(tr("Clear names"))) { S.aliases.clear(); saveAliases(); S.aliasNote.clear(); }
+        ImGui::EndDisabled();
+        if (!S.aliases.empty() || !S.aliasNote.empty()) { ImGui::SameLine(); ImGui::TextDisabled("%zu %s%s%s", S.aliases.rows().size(), tr("names"), S.aliasNote.empty() ? "" : "  -  ", S.aliasNote.c_str()); }
+    }
     auto toggle = [&](uint32_t adr) {
         std::string s = S.watch;
         if (S.watched.has(adr)) {   // remove the exact number (a range that holds it stays)
@@ -359,9 +540,9 @@ void capcodeView(App& a) {
         snprintf(S.watch, sizeof S.watch, "%s", s.c_str());
         saveWatch();
     };
-    if (!ImGui::BeginTable("##pgcap", 6 + (wide ? 1 : 0), ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV, ImVec2(0, ImGui::GetContentRegionAvail().y))) return;
+    if (!ImGui::BeginTable("##pgcap", 7 + (wide ? 1 : 0), ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV, ImVec2(0, ImGui::GetContentRegionAvail().y))) return;
     ImGui::TableSetupScrollFreeze(0, 1);
-    ImGui::TableSetupColumn("Watch"); ImGui::TableSetupColumn("Address"); ImGui::TableSetupColumn("Pages"); ImGui::TableSetupColumn("Last"); ImGui::TableSetupColumn("Speed");
+    ImGui::TableSetupColumn("Watch"); ImGui::TableSetupColumn("Address"); ImGui::TableSetupColumn(tr("Name")); ImGui::TableSetupColumn("Pages"); ImGui::TableSetupColumn("Last"); ImGui::TableSetupColumn("Speed");
     if (wide) ImGui::TableSetupColumn("MHz");
     ImGui::TableSetupColumn("Last text", ImGuiTableColumnFlags_WidthStretch);
     ImGui::TableHeadersRow();
@@ -378,6 +559,21 @@ void capcodeView(App& a) {
         char lab[32];
         snprintf(lab, sizeof lab, "%u##cap%zu", (unsigned)r.address, i);
         if (ImGui::Selectable(lab, false, ImGuiSelectableFlags_None)) { snprintf(S.filter, sizeof S.filter, "%u", (unsigned)r.address); S.view = 0; }
+        ImGui::TableNextColumn();
+        {   // the name: typed here it becomes an entry for exactly this capcode and protocol
+            const dect2::PagerAlias* al = S.aliases.find(r.address, r.flex);
+            char buf[128];
+            snprintf(buf, sizeof buf, "%s", al ? al->name.c_str() : "");
+            char nid[24]; snprintf(nid, sizeof nid, "##pgn%zu", i);
+            ImGui::SetNextItemWidth(150 * gUi);
+            if (ImGui::InputTextWithHint(nid, tr("name"), buf, sizeof buf)) {
+                dect2::PagerAlias n; n.first = n.last = r.address; n.proto = r.flex ? dect2::kAliasFlex : dect2::kAliasPocsag; n.name = buf;
+                if (al && al->first == al->last) n.category = al->category;
+                S.aliases.set(n);
+                S.aliasDirty = true;
+            }
+            if (ImGui::IsItemDeactivatedAfterEdit() && S.aliasDirty) { saveAliases(); S.aliasDirty = false; }
+        }
         ImGui::TableNextColumn(); ImGui::Text("%d", r.count);
         ImGui::TableNextColumn(); ImGui::TextUnformatted(clock(r.lastWall).c_str());
         ImGui::TableNextColumn(); ImGui::TextUnformatted(dect2::pagerSpeedName(r.speed));
@@ -389,19 +585,60 @@ void capcodeView(App& a) {
 
 // ---------------------------------------------------------------- hooks
 
+void saveKeywords() {
+    S.kwBad = S.kw.parse(S.kwText);
+    std::string k = S.kwText;
+    for (auto& c : k) if (c == '\n') c = '\x1e';
+    plat::prefs().setS("pagerKeywords", k);
+    plat::prefs().setI("pagerKwNotify", S.kwNotify ? 1 : 0);
+    plat::prefs().setI("pagerKwSound", S.kwSound ? 1 : 0);
+    plat::prefs().flush();
+    S.kwPrimed = false;   // what is on the screen now is not new
+}
+
+// New pages that match a keyword: the ticker, and a notification when asked. At most three alerts a pass (a flood of pages is one more line).
+void keywordScan(App& a) {
+    if (S.kw.empty() || !live(a)) return;
+    const std::vector<dect2::PagerMessage>& all = messagesOf(a.rx.pager);
+    int alerts = 0, extra = 0;
+    for (const auto& raw : all) {
+        uint64_t& seen = S.kwSeen[raw.carrierId];
+        if (raw.serial <= seen) continue;
+        seen = raw.serial;
+        if (!S.kwPrimed) continue;
+        const dect2::PagerMessage m = resolved(raw);
+        const std::string nm = aliasOf(m);
+        const std::string* k = S.kw.match(m.text, nm);
+        if (!k) continue;
+        State::KwHit h; h.wall = m.wallTime; h.kw = *k; h.addr = std::to_string(m.address) + (nm.empty() ? "" : " " + nm); h.text = oneLine(m.text);
+        S.kwHits.push_back(h);
+        while (S.kwHits.size() > 50) S.kwHits.pop_front();
+        if (S.kwNotify) {
+            if (alerts < 3) { alerts++; automationapp::alertNow(a, std::string(tr("Pager keyword")) + ": " + h.kw, h.addr + "  " + h.text.substr(0, 160), S.kwSound && alerts == 1); }
+            else extra++;
+        }
+    }
+    S.kwPrimed = true;
+    if (extra) automationapp::alertNow(a, tr("Pager keyword"), std::to_string(extra) + " " + tr("more matching pages"), false);
+}
+
 void tick(App& a) {
     loadRead();
+    keywordScan(a);
     const int m = baudMask();
     if ((int)a.pagerNarrow != S.pushedNarrow) { a.engine.pager().setNarrowChannel(a.pagerNarrow); S.pushedNarrow = a.pagerNarrow; }
     if (m != S.pushedBaud) { a.engine.pager().setPocsagBauds(m); S.pushedBaud = m; }
+    if ((int)S.selcall != S.pushedSelcall) { a.engine.pager().setSelcall(S.selcall); S.pushedSelcall = S.selcall; }
+    if ((int)S.combine != S.pushedCombine) { a.engine.pager().setCombineCopies(S.combine); S.pushedCombine = S.combine; }
 }
 
 void tab(App& a) {
     loadRead();
     lampRow(a);
     ImGui::Spacing();
-    subNav("pagerv", S.view, {"Messages", "Capcodes", "Statistics"});
-    if (S.view == 0) messageView(a); else if (S.view == 1) capcodeView(a); else statsView(a);
+    kit::modeHeader({23, "Pagers", live(a) ? 1 : a.engine.running() ? 2 : 0, -1000.f, a.freqMhz * 1e6});
+    kit::modeNav("pagerv", S.view, {{tr("Live"), 0}, {tr("Threads"), 3}, {tr("Capcodes"), 1, true}, {tr("Statistics"), 2, true}});
+    if (S.view == 0) messageView(a); else if (S.view == 1) capcodeView(a); else if (S.view == 3) kit::sessionItems(23, 2, "pager"); else statsView(a);
 }
 
 void list(App& a) {
@@ -482,6 +719,17 @@ void summary(const App& a, std::string& l1, std::string& l2) {
 
 } // namespace
 
+// Simple view: the messages, the capcodes and the statistics side by side
+static void command(App& a) {
+    loadRead();
+    lampRow(a);
+    ImGui::Spacing();
+    kit::modeHeader({23, "Pagers", live(a) ? 1 : a.engine.running() ? 2 : 0, -1000.f, a.freqMhz * 1e6});
+    modepanel::panes({{"##pgmsgs", tr("Messages"), [&a] { messageView(a); }, 1.8f, 260.f},
+                      {"##pgcap", tr("Capcodes"), [&a] { capcodeView(a); }, 1.f, 220.f},
+                      {"##pgstat", tr("Statistics"), [&a] { statsView(a); }, 0.8f, 200.f}}, 320.f);
+}
+
 extern const ModeUi kPagerUi;
 const ModeUi kPagerUi = {
     .sideTitle = "MESSAGES",
@@ -493,4 +741,5 @@ const ModeUi kPagerUi = {
     .status = status,
     .summary = summary,
     .tick = tick,
+    .command = command,
 };

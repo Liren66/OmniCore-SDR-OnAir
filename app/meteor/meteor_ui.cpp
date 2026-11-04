@@ -1,9 +1,11 @@
 // Meteor-M LRPT screens: the picture of the pass growing line by line (a colour composite, 123 by day or 125 with the infrared channel
 // at night, chosen from the channels sent, or one channel in grey), Save PNG and New picture; the frequency (137.900 / 137.100) and
 // the modulation; the receiver's state, the channels heard and the symbol constellation.
+#include "ui/kit/mode_panel.h"
 #include "app.h"
 #include "panels/gallery.h"
 #include "gfx/gfx.h"
+#include "map/wx_overlay.h"
 #include "platform/platform.h"
 #include "dect2/meteor/meteor_rx.h"
 #include "dect2/meteor/meteor_tel.h"
@@ -191,6 +193,17 @@ void tab(App& a) {
     const MeteorTelemetry& t = a.rx.meteor;
     const bool on = live(a);
     if (on) update(t);
+    if (on && t.image && t.image->rows >= 2 && wxoverlay::wanted(a)) {   // the picture of the pass on the map (View > Map)
+        const MeteorImage& im = *t.image;
+        const std::array<int, 3> ch = channelsFor(&im, S.view);
+        const int h = im.rows * 8;
+        std::vector<uint32_t> px((size_t)h * kMeteorWidth);
+        for (int r = 0; r < im.rows; r++) {
+            composeRow(im, ch, r, &px[(size_t)r * 8 * kMeteorWidth]);
+            if (!stripOf(im, ch[0], r) && !stripOf(im, ch[1], r) && !stripOf(im, ch[2], r)) std::fill_n(&px[(size_t)r * 8 * kMeteorWidth], 8 * kMeteorWidth, 0u);   // a lost strip stays clear
+        }
+        wxoverlay::setSwath(im.id, "Meteor-M LRPT", kMeteorWidth, h, px, 6.0);
+    }
     if (on && t.image) {   // auto-save: the picture stopped growing
         const double now = ImGui::GetTime();
         if (t.image->rows != S.lastRows) { S.lastRows = t.image->rows; S.lastGrow = now; }
@@ -409,6 +422,12 @@ void meters(const App& a, std::vector<ModeMeter>& out) {
 
 } // namespace
 
+// Simple view: the picture with its controls, and the signal and the products / channels beside it
+static void command(App& a) {
+    modepanel::panes({{"##metcpic", nullptr, [&a] { tab(a); }, 2.2f, 300.f},
+                      {"##metcsig", tr("Signal"), [&a] { receiver(a); ImGui::Spacing(); list(a); }, 1.f, 240.f}}, 340.f);
+}
+
 extern const ModeUi kMeteorUi;
 const ModeUi kMeteorUi = {
     .sideTitle = "CHANNELS",
@@ -424,4 +443,5 @@ const ModeUi kMeteorUi = {
     .synth = synth,
     .tick = tick,
     .meters = meters,
+    .command = command,
 };

@@ -112,7 +112,7 @@ int main() {
     const std::string key = "LY0AIR TEST 73";
 
     {   // names, counts and bandwidths
-        CHECK(kbdVariantCount(KbdMfsk) == 8 && kbdVariantCount(KbdThor) == 10 && kbdVariantCount(KbdDominoex) == 6 && kbdVariantCount(KbdHell) == 7, "variant counts");
+        CHECK(kbdVariantCount(KbdMfsk) == 11 && kbdVariantCount(KbdThor) == 10 && kbdVariantCount(KbdDominoex) == 6 && kbdVariantCount(KbdHell) == 7, "variant counts");
         KbdConfig c;
         c.family = KbdOlivia; c.tones = 32; c.bandwidth = 1000;
         CHECK(std::fabs(kbdBandwidthHz(c) - 1000) < 1, "Olivia 32/1000 bandwidth %.1f", kbdBandwidthHz(c));
@@ -365,8 +365,7 @@ int main() {
     }
     // a user's font file draws what the built-in glyphs cannot (#225): Polish l with stroke, Turkish s with cedilla, an arrow
     {
-        std::string here = __FILE__;
-        here = here.substr(0, here.rfind("/tests/")) + "/third_party/fonts/Inter-Regular.ttf";
+        const std::string here = std::string(DECT2_SOURCE_DIR) + "/third_party/fonts/Inter-Regular.ttf";
         unsigned short g[14];
         const int cps[] = {0x142, 0x15F, 0x2192};
         bool before = false;

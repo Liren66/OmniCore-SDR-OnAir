@@ -5,6 +5,8 @@
 // (printed, not limited) and the channeliser must be faster than it.
 #include "dect2/hfdl/hfdl_rx.h"
 #include "dect2/hfdl/hfdl_proto.h"
+#include "../common/cpu_report.h"
+#include "../common/cpu_time.h"
 #include "../common/ci_slack.h"
 #include <chrono>
 #include <cstdio>
@@ -31,16 +33,17 @@ static double run(double rate, double secs, int mode = -1) {
     const size_t chunks = (size_t)(secs * rate / (double)N);
     const double simSecs = (double)(chunks * N) / rate;
     const auto t0 = std::chrono::steady_clock::now();
-    const std::clock_t c0 = std::clock();
+    const double c0 = processCpuSecs();
     for (size_t i = 0; i < chunks; i++) rx.feed(buf.data(), N);
     const double wall = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() / simSecs;
-    const double cpu = (double)(std::clock() - c0) / CLOCKS_PER_SEC / simSecs;
+    const double cpu = (processCpuSecs() - c0) / simSecs;
     HfdlTelemetry t;
     rx.telemetry(t, ~0ull);
     int inBand = 0;
     for (const auto& c : t.channels) inBand += c.inBand ? 1 : 0;
     printf("HFDL %5.1f MHz capture, %2zu channels (%2d in band), %-11s: %.3f s wall per s of input (%.3f s CPU per s)\n",
            rate / 1e6, list.size(), inBand, mode == 0 ? "per-channel" : mode == 1 ? "channeliser" : "auto", wall, cpu);
+    cpuCal("hfdl_speed", cpuCalMsps(rate) + (mode == 0 ? " per-channel" : mode == 1 ? " channeliser" : " auto"), wall, "wall-s/s", '<', 0.5 * ciSlack(), mode != 0);
     if (mode != 0) CHECK(wall < 0.5 * ciSlack(), "%.1f MHz capture: %.3f s per s of input, the limit is %.2f", rate / 1e6, wall, 0.5 * ciSlack());
     return wall;
 }

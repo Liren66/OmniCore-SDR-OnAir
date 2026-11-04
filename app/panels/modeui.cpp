@@ -42,6 +42,9 @@ extern const ModeUi kOrbcommUi;
 extern const ModeUi kTetraUi;
 extern const ModeUi kTetrapolUi;
 extern const ModeUi kElektroUi;
+extern const ModeUi kFy4LritUi;
+extern const ModeUi kFy4aHritUi;
+extern const ModeUi kFy2SvissrUi;
 extern const ModeUi kUatUi;
 extern const ModeUi kPskUi;
 extern const ModeUi kJs8Ui;
@@ -105,6 +108,8 @@ extern const ModeUi kNrUi;
 extern const ModeUi kGoesUi;
 extern const ModeUi kDmeUi;
 extern const ModeUi kHrptUi;
+extern const ModeUi kFy3AhrptUi;
+extern const ModeUi kFy3MptUi;
 extern const ModeUi kLbjUi;
 extern const ModeUi kKlwUi;
 extern const ModeUi kTdcsUi;
@@ -127,11 +132,19 @@ extern const ModeUi kMarineVhfUi;
 extern const ModeUi kLorawanUi;
 extern const ModeUi kLoraSatUi;
 extern const ModeUi kPactorUi;
+extern const ModeUi kPactor2Ui, kPactor3Ui, kPactor4Ui;
 extern const ModeUi kEsubghzUi;
 extern const ModeUi kRoshfUi;
 extern const ModeUi kSsdvUi;
 extern const ModeUi kEbicabUi;
 extern const ModeUi kInmsatUi;
+extern const ModeUi kIptvUi;
+extern const ModeUi kNrf24Ui;
+extern const ModeUi kAtisUi;
+extern const ModeUi kSelcalUi;
+extern const ModeUi kShortwaveUi;
+extern const ModeUi kGk2aLritUi;
+extern const ModeUi kGk2aHritUi;
 extern const ModeUi kPskdUi;
 
 // ---- whole-span decoding ("wide decode"): the families whose receivers can decode everything in the visible span (widespan.h) ----
@@ -233,6 +246,21 @@ const ModeUi* modeUi(int family) {
     case 206: return &kSsdvUi;
     case 207: return &kEbicabUi;
     case 208: return &kInmsatUi;
+    case 209: return &kIptvUi;
+    case 210: return &kNrf24Ui;
+    case 211: return &kAtisUi;
+    case 240: return &kSelcalUi;
+    case 212: return &kShortwaveUi;
+    case 230: return &kGk2aLritUi;
+    case 231: return &kGk2aHritUi;
+    case 232: return &kFy4LritUi;
+    case 233: return &kFy4aHritUi;
+    case 234: return &kFy2SvissrUi;
+    case 235: return &kFy3AhrptUi;
+    case 236: return &kFy3MptUi;
+    case 237: return &kPactor2Ui;
+    case 238: return &kPactor3Ui;
+    case 239: return &kPactor4Ui;
     case 202: return &kPskdUi;
     case 83: return &kUatUi;
     case 75: return &kMultitoneUi;
@@ -428,7 +456,7 @@ void wideSettingsPopup(App& a) {
         ImGui::SetNextItemWidth(160 * gUi); if (ImGui::SliderFloat(tr("Hold s"), &hold, 1, 120, "%.0f")) { w.holdSec = hold; ch = true; }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("A quiet carrier keeps its decoder this long"));
     }
-    ImGui::SetNextItemWidth(160 * gUi); if (ImGui::SliderInt(tr("Carriers at most"), &w.maxCarriers, 1, 32)) ch = true;
+    ImGui::SetNextItemWidth(160 * gUi); if (ImGui::SliderInt(tr("Carriers at most"), &w.maxCarriers, 1, 32)) { w.maxCarriers = std::max(1, w.maxCarriers); ch = true; }   // (Ctrl-click to type more than 32: the CPU limit below is what holds the load down)
     ImGui::SetNextItemWidth(160 * gUi); if (ImGui::SliderFloat(tr("CPU limit %"), &cpu, 0, 100, cpu <= 0 ? "off" : "%.0f")) { w.cpuBudget = cpu / 100.0; ch = true; }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("When the decoders take longer than this share of real time, the weakest carrier is dropped (never the one you listen to)"));
     {   // the channel raster: automatic (the mode's own: 12.5 kHz for DMR) or a fixed one; found frequencies snap to its channel centres

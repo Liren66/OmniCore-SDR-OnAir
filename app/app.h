@@ -13,6 +13,7 @@
 #include "gfx/autolabel_logic.h"
 #include "i18n/i18n.h"
 #include "state/fm_saved.h"
+#include "state/recdir.h"
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
@@ -74,6 +75,7 @@
 using namespace dect2;
 
 #include "gfx/waterfall.h"
+#include "vfo/vfo_state.h"
 
 extern std::string gForceTab;
 extern bool gSpectrumInShell;   // the Unified layout draws the spectrum and waterfall itself: a mode's tab must not draw a second one
@@ -153,7 +155,10 @@ using SavedChannel = plat::Channel;
 // parts of the window the tour points at
 enum WizTarget { TgNone = 0, TgSwitch, TgToolbar, TgMain, TgRight, TgConst, TgCount };
 
-constexpr int kNumFamilies = 209;   // App::family runs from 0 to kNumFamilies - 1
+constexpr int kNumFamilies = 241;   // App::family runs from 0 to kNumFamilies - 1
+constexpr int kShortwaveFamily = 212;   // Shortwave (engine standard 213): the general receiver with one-click HF decoders
+// The two modes that listen with the General receiver's screen (app/general): the General receiver and Shortwave
+inline bool isGeneralFamily(int f) { return f == 55 || f == kShortwaveFamily; }
 constexpr int kNumSubModes = 32;   // dect2::subModes(): the protocols of HF digital, mesh, pagers, marine and VOR / ILS listed as modes of their own
 constexpr int kNumSlots = kNumFamilies + kNumSubModes;   // what keeps its own frequency and gains: each family, and each protocol entry
 
@@ -181,6 +186,15 @@ struct App {
     bool passiveRadarOpen = false;      // the passive radar window (View > Passive radar; app/radar)
     bool satnogsOpen = false;           // the SatNOGS DB transmitter list (View > SatNOGS transmitters)
     bool passesOpen = false;            // the satellite pass planner window (View > Passes)
+    bool genAutoOn = true;              // General / Auto: in the General receiver, signals are spotted in the background and labelled (app/specx/general_auto_ui.cpp; docs/GENERAL-AUTO.md)
+    bool genAutoDecode = false;         // General / Auto: decode by itself when the tuned frequency sits on a sure label (off by default)
+    int genAutoReleaseKhz = 0;          // General / Auto: keep decoding while the tuned frequency is within this of the signal; 0: automatic
+    bool trunkPoolOpen = false;         // the multi-radio trunking window (View > Multi-radio trunking; app/trunkpool/trunkpool_ui.cpp)
+    bool wideAllOpen = false;           // the Everything in view window (View > Everything in view; app/panels/wide_all_ui.cpp)
+    double wideAllCpu = 0.8;            // its CPU limit as a share of one core (0: none)
+    int wideAllListen = 0;              // the entry whose sound is followed there
+    bool rfFpOpen = false;              // the RF fingerprint window (View > RF fingerprint; app/panels/rffp_ui.cpp; docs/RF-FINGERPRINT.md)
+    bool doctorOpen = false;            // the Reception Doctor window (View > Reception doctor; app/panels/doctor_ui.cpp)
     bool stationHealthOpen = false;     // the station health report window (View > Station health; app/panels/station_health_ui.cpp)
     bool sweepOpen = false;             // the sweep scanner window (View > Sweep scanner)
     bool scanViewOpen = false;          // the merged Scanner view: memory table + scan list + tones (View > Scanner)
@@ -202,6 +216,8 @@ struct App {
     int setupStep = 0, setupRegion = 0;
     unsigned setupGoals = 0;            // bit per learn::Goal (app/ui/learn_logic.h)
     int setupAntenna = 0;               // learn::Antenna
+    int setupUnits = 0;                 // setup wizard: 0 follow the region, 1 metric, 2 imperial
+    bool setupEasy = true;              // setup wizard: Easy mode (every mode opens its Simple view)
     char setupLoc[48] = "";             // a Maidenhead locator or coordinates
     unsigned setupInterests = 0;        // bit per setup::Interest (app/ui/setup_logic.h): the interests ticked in the setup wizard
     char setupQuery[48] = "";           // the city or country typed in the wizard's location step
@@ -212,6 +228,7 @@ struct App {
     ImVec2 tgMin[8], tgMax[8];   // screen rectangles of the parts of the window the tour points at
     VideoTex video;
     float volume = 1.f;
+    int tetraSearchPct = 72;   // TETRA: the middle part of the capture the carrier search covers, % (72 = the flat part of a radio's filter; a wide capture can search more); saved
     int tetraSingle = 0;   // TETRA carrier choice: 0 search the span, 1 single carrier (one 25 kHz channel at the dial frequency); saved
     int tetraSlotMode = 0, tetraSlotNum = 1, tetraSlotId = 0;   // TETRA 'Listen to': 0 auto, 1 slot (tetraSlotNum 1..4), 2 talkgroup, 3 ISSI (tetraSlotId); saved
     bool muted = false, subsOn = true;
@@ -294,6 +311,7 @@ struct App {
     struct FamGain { int lna = 32, vga = 34; bool amp = false, known = false; } famGain[kNumSlots];   // the radio gains remembered for each mode
     double famFreq[kNumSlots] = {};  // the frequency each of the modes added after FM was last tuned to (0 = never)
     std::string modeHidden, modeHiddenGroups, modeFavs;   // Mode > Modes shown...: the modes and groups left out of the lists, and the favourites, by name, separated by |
+    std::string modeRecent;      // the Mode Browser's Recent tab: names separated by |, most recent first
     bool modeFavsOnly = false;   // list only the favourites (and the active mode)
     bool modeVisOpen = false;    // the Modes shown window
     std::string modeGroupsOpen;   // the mode list groups left unfolded, by name, separated by |
@@ -335,6 +353,7 @@ struct App {
                               // spectrum / telemetry, input redraws at 30 fps, a receiver in the background at 10 (video keeps its rate)
     int powerHidden = 1;      // Save power when hidden: 0 off, 1 on battery, 2 always (slower spectrum updates, scanners wait)
     bool reduceCpuHidden = true;   // Reduce CPU when hidden: no drawing while the window is minimised or hidden (decoding goes on)
+    bool verboseLog = false;       // View > Verbose logging: USB transfer counts, bytes/s, stall restarts, frame times into the log (common/verbose_log.h)
     bool perfOverlay = false;      // View > Performance overlay: frame rate, CPU per thread, wake-ups (ui/perf_overlay.cpp)
     bool discordOn = false, discordFreq = true;   // View > Show in Discord (opt-in Rich Presence, discord_rpc.cpp) and its "Show the frequency"
     bool mapSend = false, mapConsent = false;     // Server > Send data to map server (opt-in; consent once)
@@ -349,6 +368,8 @@ struct App {
     std::string mapServer;                        // empty: https://map.on-air.dev (a local worker URL for developers)
     bool feedsOpen = false;   // View > Data feeds: the window (feeds_ui.cpp)
     bool swarmOpen = false;   // View > LAN swarm: the window (swarm_ui.cpp)
+    bool integrationsOpen = false;   // View > Integrations: MQTT, webhook and JSON-lines output of decoded events (app/integrations)
+    bool ssbConvOpen = false;      // View > Conversations: SSB voice found on the span, organised into conversations (ssbconv_ui.cpp)
     bool watchlistOpen = false;    // View > Watchlists: alerts when listed aircraft, ships, call signs, frequencies or words are heard (watchlist_ui.cpp)
     bool msgdbOpen = false;        // View > Messages: the decoded-message database (msgdb_ui.cpp)
     bool protolabOpen = false;     // View > Protocol lab: reverse-engineering workbench for unknown signals (protolab_ui.cpp)
@@ -480,7 +501,7 @@ struct App {
     std::string monDev, monDev2; bool monOut2 = false; float monVol2 = 1.f; double monOffset = 0;
     bool monNet = false; int monPort = 7355; bool monBindAll = false, monWav = true;
     bool audioRecWasActive = false; int audioRecMode = 0; double audioRecFreq = 0; std::string audioRecDonePath;
-    int recFormat = 0;                  // IQ recording format: 0 = 8-bit, 1 = float, 2 = X-Midas BLUE .tmp with float samples (pref "recFormat")
+    int recFormat = 0;                  // IQ recording format: 0 = 8-bit, 1 = float, 2 = X-Midas BLUE .tmp with float samples, 3 = 16-bit (pref "recFormat")
     int tvBufMb = 256;                  // TV live buffer for Pause (pref "tvBufMb")
     // HD / SD simulcast (core/src/tv/hd_pair.h): the services of the scanned multiplexes (prefs "tvCatalog"), the user's pairing table ("tvHdPairs"), the per-programme
     // choice ("tvHdChoice": programme key -> 1 HD, 0 SD) and "always prefer HD" ("tvHdAlways")
@@ -551,8 +572,10 @@ struct App {
     double scanHarvestT = 0;
     bool agcOn = false;
     std::string gainDev;   // the radio a.tune.gainDb was set for (board:serial); another radio starts at its own sensible gain
+    double autoBwMhz = 0;       // the mode's own (standard) bandwidth, set by applyBandwidth() before a custom one is applied
     double autoRateHz = 0;      // the mode's own radio rate ("Auto" of the sample-rate control), set by applyBandwidth()
     double chosenRateHz = 0;    // the rate chosen for this mode on this radio and applied by applyBandwidth() (0 = Auto)
+    std::string rateRefusal;    // the driver's own words when it refused a rate or width the user chose (the previous setting is back); shown beside the control
     std::string biasCtx;        // the mode / radio the antenna power was last loaded for (biasContext)
     std::string rateCtx;        // mode / radio / channel width applyBandwidth() last ran for (the control refreshes Auto when it changes)
     std::string radioKey;  // the radio a.tune.radio (its own settings, DeviceInfo::settings) was loaded for (radioKeyOf); "" = none
@@ -568,6 +591,8 @@ struct App {
     Scanner scanner;
     ScanConfig scanCfg;
     int scanPreset = 0;
+    std::vector<VfoRow> vfoRows;   // multi-VFO channels (vfo_ui.cpp; saved as vfoRows)
+    bool vfoPanel = false, vfoArm = false;   // the channel list is open; the next click on the spectrum or waterfall adds a channel
     std::string bandPlan;     // the active band plan (bandplan_ui.cpp): empty = automatic from the language and region, "none" = the built-in ranges
     bool scanWasRunning = false;
     bool scanShowAll = true;            // the TV scan list: the services of every scanned transponder (off: only the tuned one)
@@ -710,6 +735,9 @@ double settingsRetuneCentreHz(const App& a);
 void receiverLocation(double& lat, double& lon);  // adsb_ui.cpp: the one receiver position (the ADS-B antenna position)
 bool receiverLocationSet();                        // the user has set it (else it is a placeholder)
 void receiverPositionFields(App& a);               // its fields (latitude, longitude, altitude) and the Locate button
+std::string adsbTypeOfIcao(uint32_t icao);          // adsb_ui.cpp: the aircraft type from the aircraft database (aircraft.csv), "" when unknown (VDL2 uses it too)
+std::string adsbDistText(double nm);               // adsb_ui.cpp: a distance in the units chosen for ADS-B (NM or km), no unit
+const char* adsbDistUnit();                         // its unit
 double receiverAltitudeM();                         // its height above sea level, metres (0 until set)
 void setReceiverLocation(App& a, double lat, double lon);   // move it (saved), e.g. View > Map's "Use as my location"
 void syncAdsbReference(App& a);                              // push antenna position into the ADS-B tracker while that mode is running
@@ -760,12 +788,26 @@ void memoryToolbarButton(App& a);                  // memory_ui.cpp: the same qu
 void memoryMenu(App& a);                           // memory_ui.cpp: the "M" menu of the menu bar: open, store, the favourites and the ten most recent
 double generalListenHz(const App& a);
 void generalSetListenHz(App& a, double hz);       // general_ui.cpp: move the listening frequency (SDR++: the VFO inside the captured band, else the radio)
+void generalControlsPanel(App& a);                  // general_ui.cpp: the General screen's controls (frequency, demodulator, filter, squelch, recording), for Shortwave
+void generalTick(App& a);                           // ... and its per-frame push to the receiver (Shortwave pushes the same settings to its own general receiver)
+void generalApiSetWidthHz(double hz);
+double generalApiWidthHz();
+dect2::GeneralReceiver& generalRx(App& a);          // the general receiver of the mode on screen (General: the engine's, Shortwave: the one inside its receiver)
 int generalApiDemod();                              // general_ui.cpp, for the remote API: the demodulator (GeneralDemod), set it, the squelch
 bool generalApiSetDemod(int demod);
 void generalApiSquelch(bool on, bool autoLevel, double db);
 bool generalApiRecord(App& a, bool on, std::string& err);
 std::string tvRecJobsJson();                        // tvrec_ui.cpp, for the remote API: the recorder's scheduled jobs (read only)
 void generalRecallHz(App& a, double hz);          // general_ui.cpp: a memory's frequency: the dial on hz, the channel marker back on the dial              // general_ui.cpp: the general receiver's listening frequency (the dial plus its offset)
+void trunkPoolWindow(App& a);                        // trunkpool_ui.cpp: control radio + voice radios, call log, access list, channel plan (docs/TRUNKING.md)
+void trunkPoolTick(App& a);                          // every frame, window shut or not: feeds grants, drives the pool
+void wideAllWindow(App& a);                          // wide_all_ui.cpp: every signal of the capture found, identified and decoded at once (wide_session.h)
+void passesDownloadTles();                          // passes_ui.cpp: fetch the TLE sets (CelesTrak) in the background
+bool wideAllWorthIt(const App& a);                   // the capture is wide enough to hold several signals (or it is on already)
+void wideAllButton(App& a);                          // the one button of it (Simple views and the window)
+void rfFingerprintWindow(App& a);                   // rffp_ui.cpp: RF fingerprint of a transmitter, carrier-only log (a.rfFpOpen; docs/RF-FINGERPRINT.md)
+void receptionDoctorWindow(App& a);                // doctor_ui.cpp: Reception Doctor, why a mode is not decoding, with one-click fixes (a.doctorOpen; docs/RECEPTION-DOCTOR.md)
+void chooseSampleRate(App& a, double hz);          // ui/toolbar_source.cpp: set and apply a sample rate for this mode and radio (0 = Auto)
 void stationHealthWindow(App& a);                  // station_health_ui.cpp: the station and antenna health report (a.stationHealthOpen)
 void sweepWindow(App& a);                          // sweep_ui.cpp: the fast sweep scanner window (a.sweepOpen)
 void scannerWindow(App& a);                        // scanner_ui.cpp: the scanner window (a.scannerOpen) and its scan loop, every frame (HIGHLY EXPERIMENTAL)
@@ -841,9 +883,14 @@ const char* fmtKbps(char* b, size_t n, double k);
 void qualityBar(App& a, float width);
 // app_state.cpp
 void setFamily(App& a, int f);                 // a family with protocol entries opens on its first one
+// A replayed recording puts the receiver back in the mode it was made in: the mode id in the SigMF description (or the "onair_<id>_" file name).
+// Returns the id restored, "" when it names no mode (or DVB, which is T or T2) and the mode stays as it is. Never while the receiver runs.
+std::string restoreRecordingMode(App& a, const std::string& description, const std::string& path);
+int recFileFormatOf(int recFormat);             // IQ recording choice -> dect2::FileFormat as int (8-bit CS8, 16-bit CI16, float CF32; BLUE is float)
 void setMode(App& a, int f, int sub);          // a mode-list entry: family and protocol entry (0 none, or the family's first)
 const dect2::SubMode* curSub(const App& a);    // the protocol entry selected, nullptr for a mode without them
 int subIndexOf(const char* id);                // 1 .. kNumSubModes, 0 when not one
+bool rememberedFreqOk(const ModeTuning* mt, double def, double fr);   // #393: a remembered frequency that is plausible for the mode
 int modeSlot(const App& a);                    // index of famFreq / famGain for the current entry
 int engineStd(const App& a);
 void refreshDevices(App& a);
@@ -857,8 +904,12 @@ double halowWantedWidthMhz();     // and the widest channel it means, for the sp
 // The sample rate chosen per mode and per radio (prefs "rate.<mode id>.<radioKeyOf>", in Hz; absent or 0 = Auto, the mode's own rate)
 std::string rateModeId(const App& a);
 std::string rateContext(const App& a);
-double rxWidthMhz(int stdMode);               // state/rx_width.cpp: the receive bandwidth chosen for VDL2, TETRA, TETRAPOL (0 = Auto)
-void rxWidthControl(App& a, bool& retune);    // and its control (the decoder options of those three modes)
+double rxWidthMhz(const App& a);              // state/rx_width.cpp: the custom bandwidth of this mode in MHz (0 = the mode's own standard width)
+void rxWidthControl(App& a, bool& retune);    // and its Advanced row (custom bandwidth + custom sample rate), shown for every mode
+void rxWidthSetFromApi(App& a, double widthMhz);   // the remote API / MCP: set the custom bandwidth of this mode in MHz (0 = the mode's own), as the row does
+void rxWidthChip(App& a);                     // the compact "Bandwidth: default / custom" chip of the Simple view (state/rx_width.cpp)
+bool captureRowShown(const App& a);           // the Advanced row is drawn for a radio or the test signal (not a recording or a sound card)
+bool sampleRateAdvanced(App& a);              // ui/toolbar_source.cpp: the sample-rate half of that row (true when it changed the rate)
 double savedSampleRate(const App& a);
 void saveSampleRate(App& a, double hz);
 double modeMinSampleRate(const App& a);
@@ -903,6 +954,7 @@ GainSetting stagesFor(App& a, int totalDb);    // an overall gain as the radio's
 bool gainOptStatus(App& a);                    // the progress / result line; true when it drew something
 // autogain_ui.cpp: auto gain for every radio and mode (docs/AUTOGAIN.md). Auto is a.agcOn; Optimise once / Safe start run once with Undo.
 bool autogainStep(App& a);                     // every frame (gainControl): true when it changed a.tune (the caller retunes)
+void autogainSetTrace(const char* path);        // --autogain-trace file.csv: one line per second with the gain, the objective and the reason (bug reports)
 void autogainMeterOnly(App& a);                // every frame while it is off: the meters keep running
 void autogainControl(App& a, bool vertical, bool running);   // the "Auto gain" control (Off / Auto / Optimise once / Safe start), gear popup, Stop / Undo
 void autogainMeters(App& a);                   // the meter strip: ADC headroom bar + clip lamp, noise floor, warnings with advice
@@ -916,7 +968,12 @@ void remoteApiLoadPrefs(App& a);    // remote_api_app.cpp: the remote-control AP
 void remoteApiSavePrefs(const App& a);
 void remoteApiTick(App& a);          // every frame: runs the commands the API queued for the main thread, publishes the telemetry
 void remoteApiSection(App& a);       // the settings panel (in the Data feeds window)
+void mcpDevOpen(App& a);             // dev flag --mcp: Data feeds open on the AI assistant section, switched on (not saved)
+void mcpSection(App& a);             // remote_api_app.cpp: the AI assistant (MCP) panel: switch, token, connection snippets, activity log (docs/MCP.md)
 void shareTick(App& a);             // feeds_ui.cpp: carries out the frequency / gain commands of the clients of "Share my radio" (when allowed)
+void integrationsWindow(App& a);   // app/integrations/integrations_ui.cpp: the Integrations window (View > Integrations); also starts the publisher
+void ssbConvWindow(App& a);   // app/ssbconv/ssbconv_ui.cpp: the Conversations window (View > Conversations); also feeds the finder while it is open and drives auto-listen
+void ssbConvDevOpen(App& a, bool demo);   // dev: open it (demo: with the synthetic signals)
 void watchlistWindow(App& a);   // app/watchlist/watchlist_ui.cpp: the Watchlists window (View > Watchlists); also starts the alerts
 void msgdbSearchFor(App& a, const std::string& text);   // opens the Messages window filtered to the text (the palette's search results)
 std::vector<std::pair<std::string, std::string>> msgdbQuickSearch(const std::string& text, size_t n);   // best n matches: {label, text}
@@ -928,6 +985,7 @@ void modeBuilderFrame(App& a);    // modebuilder_ui.cpp, every frame: lists the 
 void modeBuilderOpenText(const std::string& json);   // modebuilder_ui.cpp: opens the Mode Builder with this definition (Protocol lab > Export)
 bool customModeSink(const float* iq, size_t nComplex, double rate);   // modebuilder_ui.cpp: the samples of a running custom mode (true: taken)
 void txStudioWindow(App& a);   // tx_studio.cpp: Tools > TX studio (a.txStudioOpen); no radio, nothing is transmitted
+bool vgQueueDrop(int n, const char** paths);   // videogen_ui.cpp: files dropped on the window; true when the Digital video generator is open and took them
 void videoGenWindow(App& a);   // videogen_ui.cpp: Tools > Digital video generator (a.videoGenOpen); stands alone, no link to the receiver or transmitter
 void pluginFrame(App& a);          // plugin/plugin_app.cpp, every frame: discovery at the first call, starts and stops the running plugin mode, ticks the host
 void pluginShutdown();             // at exit: stops the plugins and removes the crash marker
@@ -941,6 +999,10 @@ void rotatorTick(App& a);          // rotator_ui.cpp: signal-peak azimuth calibr
 void rotatorLoadPrefs();           // rotator_ui.cpp: prefs and optional auto-connect
 void rotatorSavePrefs();
 void rotatorPointBearing(double bearingDeg, double elDeg);
+bool rotatorPassDrive();                       // rotator_ui.cpp: the mount follows the tracked satellite pass
+bool rotatorPassWanted();                      // the "point the mount" box is ticked
+void rotatorPassSetDrive(bool on);
+void rotatorPassEnd();                         // pass over or tracking cancelled: park or stop the mount
 // The transmitter (tx_ui.cpp): independent of the receivers, with its own radio. The state is not an App's; transmitting is never saved.
 struct ModeDef;
 bool& txViewFlag();                // the RX / TX switch: true = TX view (never saved: the program opens in RX view)
@@ -953,6 +1015,7 @@ void txPanel(App& a);              // the guided transmit panel (tx_panel.cpp): 
 void txSelectMode(App& a, int family, const char* subId);
 bool txModeHighlighted(const ModeDef& m);
 void txTick(App& a);               // every frame: gives the radio back when a transmission ended; the on-screen TX indicator
+void iptvShutdown();               // iptv_ui.cpp: stops the stream (the program's end)
 void txShutdown();                 // stops a running transmission (the radio goes quiet before it returns); the program's end
 bool txActive();
 void savePrefs(const App& a);
@@ -1022,7 +1085,9 @@ void standardSwitch(App& a);
 extern float gSwitchWidth;
 // The receiver modes (mode_table.cpp). Adding a mode is one row there.
 // subId: one protocol of a shared receiver (dect2::subModes()), a mode of its own with its own settings, decoder and views
-struct ModeDef { int family; const char* name; int group; ImU32 col; const char* blurb; const char* tip; const char* sub; ImVec4 accent; const char* subId = nullptr; const char* keys = nullptr; };
+struct ModeDef { int family; const char* name; int group; ImU32 col; const char* blurb; const char* tip; const char* sub; ImVec4 accent; const char* subId = nullptr; const char* keys = nullptr;
+    // filled by modeInfoFill() (mode_info.cpp) for the Mode Browser; rows need not set them
+    uint32_t tags = 0; uint8_t needs = 0; float minRateMsps = 0; double bandMinMhz = 0, bandMaxMhz = 0; bool isNew = false; };
 constexpr int kModeCapacity = 400;   // the built-in rows and the plugins' (mode_table.cpp)
 extern ModeDef kModes[];
 extern int kNumModes;
@@ -1056,6 +1121,8 @@ struct ModeUi {
     void (*scan)(App&) = nullptr;                       // the Scan tab (null: a note)
     void (*tick)(App&) = nullptr;                       // every frame while the mode is selected: push volume and mute to the receiver, run scans, collect histories
     void (*meters)(const App&, std::vector<ModeMeter>& out) = nullptr;   // the meter bank of the Scope: Meters layout
+    void (*command)(App&) = nullptr;                    // Simple view (app/ui/kit/mode_panel.h): the merged body under the shared summary strip; null: the generic Command view (the mode's tab on its first view, its controls, its meters)
+    bool noSimple = false;                              // no Simple view for this mode (the Advanced tabs only)
 };
 bool modeSupportsWideHf(int family);                    // modeui.cpp: the HF families that decode the visible span inside the receiver (CW, PSK, HF digital)
 bool modeSupportsWideChannels(int family);               // modeui.cpp: VDL2, HFDL (Whole span = every channel of the capture, set on the receiver)
@@ -1078,6 +1145,17 @@ void scannerControl(App& a, int what);                                  // 0 sto
 void scannerTuning(float squelchDb, double hangSec, double holdMaxSec, double prioritySec);
 void scanViewWindow(App& a);                                            // scan_view_ui.cpp: the merged Scanner view (a.scanViewOpen)
 void selectMode(App& a, int family, const char* subId = nullptr);
+// The Mode Browser (mode_picker.cpp, docs/MODE-PICKER.md): a large window with every mode as a button, grouped by family
+void modePickerOpen(App& a);       // open it (the "Modes" button, Mode > Browse all modes, the M key)
+void modePicker(App& a);           // once a frame: the M key and the window
+bool modePickerWantsKeys();        // the window is open and has the keyboard
+void modePickerButton(App& a, const char* id = "##modes");   // the "Modes" button of the top bars
+void modeInfoFill();               // mode_info.cpp: tags, needs and minimum rate of rows that have none (also plugin rows added later)
+struct ModeFit { bool ok = true; std::string reason; };
+ModeFit modeFit(const App& a, const ModeDef& m);              // does the selected radio fit the mode (grey + reason; never blocks)
+bool modeCodecMissing(const ModeDef& m);                      // a voice codec the user must install is missing (false until wired)
+extern bool (*gModeSignalHint)(const ModeDef&, float* conf);  // set by the identifier: a signal for this mode is on air now (null: none)
+void modeRecordRecent(App& a, int family, const char* subId); // selectMode(): the Recent tab
 // app/autodet/autodet_ui.cpp: the "TV (auto)" / "Digital voice (auto)" rows (subId "auto:tv" / "auto:voice")
 bool autodetRow(const char* subId, int* kind);   // true for such a row; kind: dect2::autodet::Capture::KindTv / KindVoice
 bool autodetActive(const App& a, int kind);
@@ -1094,6 +1172,12 @@ bool modeListed(const App& a, const ModeDef& m, const char* query = nullptr);   
 bool modeHiddenNow(const App& a, const ModeDef& m);                           // hidden by the user (a search still finds it: tag it "hidden")
 bool modeGroupListed(const App& a, int group, const char* query = nullptr);   // at least one mode of the group is listed
 void modeVisibilityWindow(App& a);
+void modeVisibilityLoad(App& a);                       // at start, after loadPrefs: modes-shown.txt (the data folder) wins over settings.conf
+std::string modeVisibilityText(const App& a);          // the rules as text, kept inside a workspace
+void modeVisibilityApplyText(App& a, const std::string& text);   // and put back (saved at once)
+bool& settingsOpen();          // the Settings window is open (menu bar > Settings, Ctrl+,)
+void settingsWindow(App& a);   // ui/settings_window.cpp: every preference in one searchable window (docs/SETTINGS.md)
+int settingsUnboundRows();     // rows of the table with no field behind them (listed on stderr)
 void startReceiver(App& a);     // what the Start button does
 double audioViewOffsetHz(const App& a);   // a sound card in a Real mode with the audio-range view: where the spectrum's centre lies from the dial (else 0)
 void applyAudioSettings(App& a);   // the sound-card options into a.tune.radio (toolbar_source.cpp)
@@ -1105,6 +1189,7 @@ void tuneFreq(App& a, double mhz);                     // set the frequency now 
 void tuneDecode(App& a, double absMhz);                // sticky LO: decode absMhz without moving the radio centre
 void spectrumTune(App& a, double absMhz);              // spectrum / waterfall click (respects tuningMode)
 void uplinkNoteAdsb(const dect2::AdsbTelemetry& t);   // uplink_ui.cpp: callsigns heard by the ADS-B mode in this session
+double meshRtlRate(App& a);                     // mesh_ui.cpp: 1.024 Msps on an RTL-SDR for a channel of up to 500 kHz, else 0 (#386)
 double meshSampleRate(App& a);                  // mesh_ui.cpp: the radio rate the selected LoRa bandwidth needs (2 Msps; 4 above 500 kHz)
 void dvbsStatusRows(App& a, const DvbsTelemetry& t, bool on, bool run);   // dvbs_ui.cpp: the lock lamps and readouts of a report (QO-100's decoder panel)
 bool dvbsAutoService();         // dvbs_ui.cpp: start the only service of a DVB-S/S2 signal by itself (#322)
@@ -1164,13 +1249,31 @@ void specxDrawBookmarks(ImDrawList* dl, double loHz, double hiHz, float x0, floa
 void identifyStart(App& a, double sampleCentreRadioHz, double offHz, double widthHz, double rfOfCentreHz);
 void identifyAt(App& a, double clickMhz);
 void identifyRegion(App& a, double loMhz, double hiMhz);   // a dragged region (MHz)
+void scanIdentifyBar(App& a);                              // Simple view: the Scan and Identify buttons (app/specx/scan_identify_bar.cpp)
 void identifyAll(App& a);                                  // every signal in the capture, in a table
 void identifyTuned(App& a, double freqHz, double bwHz);    // tunes the radio to a signal found by the sweep and identifies it there
+bool identifyBusy();                                       // the Identify window is open (it owns the capture)
 bool identifyRegionMhz(double& loMhz, double& hiMhz);      // the region of the open card, to draw it on the plots
-void identifyWindow(App& a);   // every frame: the window while it is open
+void identifyWindow(App& a);
+// General / Auto (specx/general_auto_ui.cpp): generalAutoFrame every frame (background scan, Decode, return to General), generalAutoPlot draws the labels on a plot,
+// generalAutoButton is the corner button with the list of detected signals; generalAutoDecoding: a decoder it started is running
+void generalAutoFrame(App& a);
+void generalAutoPlot(App& a, int plotId, ImVec2 plotMin, ImVec2 plotSize, double loMhz, double hiMhz);
+float generalAutoButton(App& a, ImVec2 plotMin, ImVec2 plotSize, float rightUsed);
+bool generalAutoHovered();     // the mouse is on a label: the plot's click-to-tune stands back
+bool generalAutoDecoding();   // every frame: the window while it is open
 // general_ui.cpp: the general receiver's channel marker on the spectrum (plotId 0) and the waterfall (1): a click puts the channel
 // there (inside the band, without retuning the radio), its filter edges can be dragged
+// vfo_ui.cpp: multi-VFO (docs/MULTI-VFO.md): extra channels on the same capture. vfoPlotMouse: Add channel armed (or Alt held) and a click adds one, a band's
+// centre can be dragged; true when the mouse was used. vfoBands draws the bands; vfoSync pushes the rows to the engine every frame.
+bool vfoPlotMouse(App& a, int plotId);
+void vfoBands(const App& a, bool fill);
+void vfoSync(App& a);
+void vfoPanelWindow(App& a);
+void vfoPopupSection(App& a);
+void vfoAddAt(App& a, double mhz);
 void generalPlotMouse(App& a, int plotId);
+void generalWheelTune(App& a, int n, double stepHzOverride);   // wheel tuning in the general receiver (#409)
 void generalChannelBand(const App& a, bool fill);
 bool generalDragging(int plotId);
 double generalChannelWidthMhz(const App& a);
@@ -1286,7 +1389,8 @@ bool dabChannelCombo(App& a);
 struct TvRange { std::string label; double startMhz = 0, stopMhz = 0, stepMhz = 0, bwMhz = 0; };
 bool bandPlanPicker(App& a);
 std::vector<double> bandPlanChannels(const App& a, double loHz, double hiHz);   // the plan's channels of the current mode's bands in the range (whole-span priors)
-bool tvChannelCombo(App& a);
+bool tvChannelCombo(App& a);   // tvchan_ui.cpp: the Channel selector (previous / next, plan list, region) of every TV mode; true when it changed the frequency
+void tvPlanFollowLocation();     // tvchan_ui.cpp: the setup wizard set a country: the TV channel plans follow it again
 std::vector<TvRange> tvBandRanges(App& a);
 // the FM broadcast range of the active plan, MHz: 87.5 - 108, widened to the plan's FM bands (Japan's 76 - 95, Brazil's extended FM from 76)
 void fmBandRange(const App& a, double& loMhz, double& hiMhz);
@@ -1333,6 +1437,8 @@ void tourStartTour(App& a, int which);                 // tour.cpp: start one of
 void tourMark(const char* id, ImVec2 lo, ImVec2 hi);   // tour.cpp: report where a part of the window is this frame (the tour points at it)
 void wizEnter(App& a, int step);
 void setupWizardOpen(App& a);                        // wizard.cpp: (re)start the setup wizard
+bool regionPresetRow(const std::string& current, std::string& picked);   // wizard.cpp: the buttons of the regional presets, wrapped; true on a click (id in picked)
+void setupApplyPreset(App& a, const std::string& presetId, int units);   // wizard.cpp: a regional preset (Settings > Region preset), no wizard
 void setupWizard(App& a, ImVec2 disp);               // wizard.cpp: the window, each frame
 void lessonsStart(App& a, int planPos = -1);         // learn.cpp: the hands-on lessons for the setup's goals (resumes where they were left when planPos < 0)
 void lessonsUi(App& a, ImVec2 disp);                 // learn.cpp: the running lesson (spotlight + card), the Lessons list, the glossary and the checkup windows, each frame

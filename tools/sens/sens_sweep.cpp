@@ -27,6 +27,7 @@ namespace {
 struct Scenario {
     std::string name, desc;
     double cfoHz = 0, sroPpm = 0, pnHz = 0;
+    bool noiseOnly = false;   // false lock test: the signal is replaced by zeros before the noise goes on
     std::string path;   // "", echo, tu6, rician
 };
 
@@ -42,12 +43,35 @@ std::vector<Scenario> scenariosFor(const Mode& m) {
     snprintf(b, sizeof b, "carrier error of a 20 ppm radio (%.0f Hz, capped at a quarter of the channel)", ppm2); add("cfo20ppm", b, ppm2, 0, 0, "");
     snprintf(b, sizeof b, "channel off the centre by %.0f Hz", offc); add("offcentre", b, offc, 0, 0, "");
     add("sro50ppm", "sample clock 50 ppm fast", 0, 50, 0, "");
+    if (m.bwHz <= 25e3) {   // narrowband voice and data: a cheap oscillator (or a wrong tuning) puts the signal several kHz off; the AFC's capture range
+        snprintf(b, sizeof b, "carrier %.0f Hz above the channel centre (capture range of the AFC)", std::min(4000.0, lim)); add("cfop4k", b, std::min(4000.0, lim), 0, 0, "");
+        snprintf(b, sizeof b, "carrier %.0f Hz below the channel centre", std::min(4000.0, lim)); add("cfom4k", b, -std::min(4000.0, lim), 0, 0, "");
+    }
     snprintf(b, sizeof b, "static echo -6 dB at %.1f us", m.echoUs); add("echo", b, 0, 0, 0, "echo");
     snprintf(b, sizeof b, "Rayleigh fading, 6 tap TU6, Doppler %.0f Hz", m.fdHz); add("tu6", b, 0, 0, 0, "tu6");
     snprintf(b, sizeof b, "Rician (K = 10 dB) over TU6, Doppler %.0f Hz", m.fdHz); add("rician", b, 0, 0, 0, "rician");
-    add("phasenoise", "oscillator phase noise, 50 Hz linewidth (Wiener)", 0, 0, 50, "");
-    snprintf(b, sizeof b, "2 ppm carrier error + 20 ppm clock + echo + 50 Hz phase noise"); add("combined", b, ppm1, 20, 50, "echo");
+    snprintf(b, sizeof b, "oscillator phase noise, %.3g Hz linewidth (Wiener)", m.pnHz); add("phasenoise", b, 0, 0, m.pnHz, "");
+    snprintf(b, sizeof b, "2 ppm carrier error + 20 ppm clock + echo + %.3g Hz phase noise", m.pnHz); add("combined", b, ppm1, 20, m.pnHz, "echo");
     return s;
+}
+
+// The signal captured k times wider: zero-stuffing and a windowed-sinc low-pass (gain k), so the receiver sees the same signal at k times the rate
+Sig interpolate(const Sig& in, int k) {
+    const int half = 6 * k, taps = 2 * half + 1;
+    std::vector<float> h((size_t)taps);
+    for (int i = 0; i < taps; i++) {
+        const double x = (double)(i - half) / k, w = 0.5 + 0.5 * std::cos(M_PI * (double)(i - half) / (half + 1));
+        h[(size_t)i] = (float)((x == 0 ? 1.0 : std::sin(M_PI * x) / (M_PI * x)) * w);
+    }
+    Sig out(in.size() * (size_t)k, cf32(0, 0));
+    for (size_t n = 0; n < in.size(); n++) {
+        const cf32 v = in[n];
+        for (int j = 0; j < taps; j++) {
+            const long idx = (long)(n * (size_t)k) + j - half;
+            if (idx >= 0 && (size_t)idx < out.size()) out[(size_t)idx] += v * h[(size_t)j];
+        }
+    }
+    return out;
 }
 
 struct Prepared {
@@ -68,6 +92,7 @@ Trial runTrial(const Mode& m, const Prepared& P, const Scenario& sc, double snrD
     if (!sc.path.empty()) x = multipath(x, profileTaps(sc.path, m.echoUs), m.rate, m.fdHz, rng);
     if (x.size() > P.trialN) x.resize(P.trialN);
     std::uniform_real_distribution<double> U(0, 2 * M_PI);
+    if (sc.noiseOnly) std::fill(x.begin(), x.end(), cf32(0, 0));
     shift(x, sc.cfoHz, m.rate, U(rng));
     phaseNoise(x, sc.pnHz, m.rate, rng);
     const double sigma2 = P.power * (m.rate / m.bwHz) / std::pow(10.0, snrDb / 10);
@@ -110,6 +135,7 @@ double pct(std::vector<double> v, double p) {
 
 struct Cfg {
     bool quick = false, heavy = false;
+    int wide = 1;   // --wide K: the same test signal captured K times wider (3.6: a custom bandwidth / rate must not break a decoder)
     int trials = 12, threads = 0;
     uint64_t seed = 1;
     double snrHi = NAN, snrLo = -8;
@@ -142,6 +168,21 @@ Point measure(const Mode& m, const Prepared& P, const Scenario& sc, double snr, 
     p.lockMed = pct(lock, 0.5); p.lockP90 = pct(lock, 0.9);
     p.per = pn ? pe / pn : -1;
     return p;
+}
+
+// Share of noise-only trials (the noise level of a signal at 8 dB) in which the receiver reports any valid unit.
+double falseLockRate(const Mode& m, const Prepared& P, const Cfg& cfg, int nthreads, int n) {
+    Scenario sc; sc.name = "noise-only"; sc.noiseOnly = true;
+    const uint64_t key = mix64(hashStr(m.id) ^ 0xfa15e10c ^ cfg.seed);
+    std::vector<Trial> res((size_t)n);
+    std::atomic<int> next{0};
+    auto work = [&] { for (;;) { const int i = next++; if (i >= n) return; res[(size_t)i] = runTrial(m, P, sc, 8.0, mix64(key + (uint64_t)i), 1); } };
+    std::vector<std::thread> th;
+    for (int t = 0; t < std::min(nthreads, n); t++) th.emplace_back(work);
+    for (auto& t : th) t.join();
+    int fl = 0;
+    for (const auto& t : res) fl += t.locked ? 1 : 0;
+    return (double)fl / n;
 }
 
 struct ScenResult {
@@ -223,6 +264,7 @@ int main(int argc, char** argv) {
         else if (a == "--quick") cfg.quick = true;
         else if (a == "--full") cfg.quick = false;
         else if (a == "--heavy") cfg.heavy = true;
+        else if (a == "--wide") cfg.wide = std::max(1, atoi(val()));
         else if (a == "--trials") { cfg.trials = atoi(val()); trialsSet = true; }
         else if (a == "--threads") cfg.threads = atoi(val());
         else if (a == "--out") cfg.out = val();
@@ -259,14 +301,19 @@ int main(int argc, char** argv) {
     }
     std::filesystem::create_directories(cfg.out);
     std::vector<std::string> modeJson;
-    for (const auto& m : modes) {
-        if (!std::regex_search(m.id, mre) && !std::regex_search(m.name, mre)) continue;
-        if (m.heavy && !cfg.heavy) { printf("%s: skipped (heavy: needs --heavy)\n", m.id.c_str()); continue; }
+    for (const auto& m0 : modes) {
+        if (!std::regex_search(m0.id, mre) && !std::regex_search(m0.name, mre)) continue;
+        if (m0.heavy && !cfg.heavy) { printf("%s: skipped (heavy: needs --heavy)\n", m0.id.c_str()); continue; }
+        Mode m = m0;   // --wide K: the receiver runs K times faster on the same signal, which sits in the middle of the wider capture
+        m.rate = m0.rate * cfg.wide;
         const auto t0 = std::chrono::steady_clock::now();
         Prepared P;
         P.trialN = (size_t)(m.secs * m.rate);
         P.maxOff = (size_t)(0.5 * m.secs * m.rate);
-        P.base = m.gen(P.trialN + P.maxOff + (size_t)(m.rate * 0.01) + 64);
+        if (cfg.wide > 1) {
+            const size_t nat = (size_t)(m0.secs * m0.rate), natOff = (size_t)(0.5 * m0.secs * m0.rate);
+            P.base = interpolate(m0.gen(nat + natOff + (size_t)(m0.rate * 0.01) + 64), cfg.wide);
+        } else P.base = m.gen(P.trialN + P.maxOff + (size_t)(m.rate * 0.01) + 64);
         scaleTo(P.base, 0.2);
         P.power = activePower(P.base);
         const int nth = std::max(1, std::min(cfg.threads, m.maxJobs));
@@ -290,7 +337,7 @@ int main(int argc, char** argv) {
         std::vector<std::string> sj;
         for (const auto& sc : scenariosFor(m)) {
             if (!std::regex_search(sc.name, sre)) continue;
-            if (cfg.quick && sc.name != "awgn" && sc.name != "combined" && sc.name != "tu6" && sc.name != "cfo20ppm") continue;
+            if (cfg.quick && sc.name != "awgn" && sc.name != "combined" && sc.name != "tu6" && sc.name != "cfo20ppm" && sc.name != "cfop4k" && sc.name != "cfom4k") continue;
             ScenResult r = sweep(m, P, sc, need, cfg, nth, hi, cfg.snrLo);
             printf("   %-11s %9s %10s %10s %9s  %s\n", sc.name.c_str(), r.hasThreshold ? jnum(r.threshold).c_str() : "-", r.hasThreshold ? jnum(r.lockMed).c_str() : "-",
                    r.hasThreshold ? jnum(r.lockP90).c_str() : "-", r.perAtThr >= 0 ? jnum(r.perAtThr).c_str() : "-", r.note.c_str());
@@ -305,11 +352,13 @@ int main(int argc, char** argv) {
             }
             sj.push_back(j + "]}");
         }
+        const double fl = falseLockRate(m, P, cfg, nth, cfg.quick ? 12 : 24);
+        printf("   false-lock rate on noise only: %.3f\n", fl);
         const double el = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
         std::string mj = "{\"mode\":" + jstr(m.id) + ",\"name\":" + jstr(m.name) + ",\"family\":" + jstr(m.family) + ",\"std\":" + std::to_string(m.stdMode) +
                          ",\"rate_sps\":" + jnum(m.rate) + ",\"trial_secs\":" + jnum(m.secs) + ",\"noise_bw_hz\":" + jnum(m.bwHz) + ",\"trials\":" + std::to_string(cfg.trials) +
                          ",\"quick\":" + (cfg.quick ? "true" : "false") + ",\"seed\":" + std::to_string(cfg.seed) + ",\"ref_valid_units\":" + jnum(refGood) +
-                         ",\"ref_lock_s\":" + jnum(ref.lockMed) + ",\"wall_s\":" + jnum(el) + ",\"scenarios\":[";
+                         ",\"ref_lock_s\":" + jnum(ref.lockMed) + ",\"false_lock_rate\":" + jnum(fl) + ",\"wall_s\":" + jnum(el) + ",\"scenarios\":[";
         for (size_t i = 0; i < sj.size(); i++) mj += (i ? "," : "") + sj[i];
         mj += "]}";
         modeJson.push_back(mj);

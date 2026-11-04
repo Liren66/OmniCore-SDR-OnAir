@@ -2,6 +2,10 @@
 // the aircraft, the ground stations with their status, the channel list with its activity, and the range plot (furthest position report
 // per bearing from the receiver). Band presets in the tuner.
 #include "dect2/common/time_fmt.h"
+#include "ui/kit/session_list.h"
+#include "ui/kit/mode_frame.h"
+#include "ui/kit/kit.h"
+#include "ui/kit/mode_panel.h"
 #include "../adsb/adsb_map.h"
 #include "app.h"
 #include "map/pos_predict.h"
@@ -16,6 +20,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include "dect2/hfdl/hfdl_hop.h"
 
 namespace {
 
@@ -32,16 +37,14 @@ struct State {
     bool mapFollow = true;
     uint32_t selAir = 0;
     RangeView range;                     // the receiver-range plot (Range view)
+    bool autoHop = false;                // follow the best band (pref hfdlHop)
+    dect2::HfdlBandHopper hopper;
+    bool hopWasOn = false;
     std::unordered_map<uint32_t, double> rangeFedT;   // per aircraft: the position report already counted in it
 };
 State S;
 dect2::BasebandFilterCfg gBbfPushed;
 bool gBbfInit = false;
-
-// the HFDL bands: where several ground stations share a few hundred kHz (centre MHz)
-struct Band { const char* name; double mhz; };
-const Band kBands[] = {{"5.5 MHz (5.45 - 5.72)", 5.58}, {"6.6 MHz (6.53 - 6.71)", 6.62}, {"8.9 MHz (8.82 - 8.98)", 8.90}, {"10.06 MHz (10.03 - 10.09)", 10.06},
-                       {"11.3 MHz (11.18 - 11.39)", 11.29}, {"13.3 MHz (13.26 - 13.36)", 13.31}, {"17.94 MHz (17.90 - 17.99)", 17.945}, {"21.96 MHz (21.93 - 22.00)", 21.963}};
 
 bool live(const App& a) { return a.rx.standard == 36; }
 
@@ -51,6 +54,7 @@ void loadState() {
     plat::Prefs& d = plat::prefs();
     snprintf(S.chans, sizeof S.chans, "%s", d.getS("hfdlChans", "").c_str());
     S.map.zoom = (int)d.getI("hfdlZoom", 2);
+    S.autoHop = d.getB("hfdlHop", false);
     S.map.lat = 40; S.map.lon = -30;
     S.range.plot.configure(5.0, 0.0, 20040.0);   // HF reaches anywhere: the sanity limit is half way round the Earth, not the VHF 1000 km
     if (const char* e = getenv("DECT2_HFDL_VIEW")) S.viewMode = std::max(0, std::min(5, atoi(e)));   // dev: open on a view (screenshots)
@@ -146,12 +150,29 @@ void feedRange(const dect2::HfdlTelemetry& t) {
     }
 }
 
+// Follow the best band (dect2/hfdl/hfdl_hop.h): fed once a second with the good PDU count and the frequencies the heard squitters announce
+void hopTick(App& a) {
+    if (!S.autoHop || !live(a) || a.second.drawing || a.wideDecode) { if (S.hopWasOn) { S.hopper.reset(); S.hopWasOn = false; } return; }
+    static double lastT = -10;
+    const double now = ImGui::GetTime();
+    if (now - lastT < 1.0) return;
+    lastT = now;
+    S.hopWasOn = true;
+    const dect2::HfdlTelemetry& t = a.rx.hfdl;
+    dect2::HfdlBandHopper::Obs o;
+    o.nowSec = now; o.band = dect2::hfdlBandOfMhz(a.freqMhz); o.goodPdus = t.blocksOk;
+    for (const auto& g : t.stations) if (g.heardDirect) o.announcedKhz.insert(o.announcedKhz.end(), g.activeKhz.begin(), g.activeKhz.end());
+    const int b = S.hopper.update(o);
+    if (b >= 0) tuneFreq(a, dect2::hfdlBands()[(size_t)b].centreMhz);
+}
+
 void tick(App& a) {
     feedEstimates(a.rx.hfdl);
     loadState();
     if (live(a)) feedRange(a.rx.hfdl);
     if (!a.engine.running()) { S.pushedChans[0] = '\x01'; S.pushedChans[1] = 0; return; }
     a.engine.hfdl().setWholeSpan(a.family == 35 && a.wideDecode);   // the Whole span switch (top right of the spectrum)
+    hopTick(a);
     if (std::strcmp(S.pushedChans, S.chans) != 0) {
         std::vector<double> hz;
         const char* p = S.chans;
@@ -505,7 +526,9 @@ void channelView(const App& a) {
 
 void tab(App& a) {
     loadState();
-    subNav("hfdlv", S.viewMode, {"Messages", "Map", "Aircraft", "Ground stations", "Channels", tr("Range")});
+    kit::modeHeader({35, "HFDL", live(a) ? 1 : a.engine.running() ? 2 : 0, -1000.f, a.freqMhz * 1e6});
+    kit::modeNav("hfdlv", S.viewMode, {{tr("Live"), 0}, {tr("Tracks"), 6}, {tr("Map"), 1}, {tr("Aircraft"), 2, true}, {tr("Ground stations"), 3, true}, {tr("Channels"), 4, true}, {tr("Range"), 5, true}});
+    if (S.viewMode == 6) { kit::sessionItems(35, 3, "hfdl"); return; }
     if (S.viewMode == 0) messageView(a);
     else if (S.viewMode == 1) mapView(a);
     else if (S.viewMode == 2) aircraftView(a);
@@ -544,6 +567,9 @@ void receiver(App& a) {
     kv("centre", "%.4f MHz, %d of %zu channels in the band, %d active", t.centerHz / 1e6, inBand, t.channels.size(), act);
     kv("rates", "%.0f kS/s in, 7.2 kS/s per channel (4 samples per symbol, 1800 baud)", t.inputRate / 1e3);
     kv("bursts", "%llu preambles, %llu failed", (unsigned long long)bursts, (unsigned long long)t.blocksBad);
+    kv("why bad", "preamble not confirmed %llu, burst FEC/check failed %llu (squitter %llu, MPDU header %llu, short %llu), LPDU check %llu, LPDU type unknown %llu",
+       (unsigned long long)t.whyPreambleRejected, (unsigned long long)(t.whySpduFcs + t.whyMpduFcs + t.whyShort), (unsigned long long)t.whySpduFcs,
+       (unsigned long long)t.whyMpduFcs, (unsigned long long)t.whyShort, (unsigned long long)t.whyLpduFcs, (unsigned long long)t.whyUnknownLpdu);
     kv("PDUs", "%llu good: %llu squitters, %llu LPDUs, %llu ACARS", (unsigned long long)t.blocksOk, (unsigned long long)t.squitters, (unsigned long long)t.lpdus, (unsigned long long)t.acarsMsgs);
     kv("by rate", "300: %llu  600: %llu  1200: %llu  1800: %llu", (unsigned long long)t.byRate[0], (unsigned long long)t.byRate[1], (unsigned long long)t.byRate[2], (unsigned long long)t.byRate[3]);
     kv("last burst", "%+.1f Hz from the channel, SNR %.1f dB", t.cfoHz, t.snrDb);
@@ -587,12 +613,15 @@ void tuner(App& a, bool&) {
     ImGui::TextDisabled("Band");
     ImGui::SetNextItemWidth(std::min(200 * gUi, ImGui::GetContentRegionAvail().x));
     static int bandSel = -1;   // the chosen band stays shown in the box
-    if (ImGui::BeginCombo("##hfband", bandSel >= 0 ? kBands[bandSel].name : "presets")) {
+    if (ImGui::BeginCombo("##hfband", bandSel >= 0 ? dect2::hfdlBands()[(size_t)bandSel].name : "presets")) {
         int i = 0;
-        for (const auto& b : kBands) { if (ImGui::Selectable(b.name, i == bandSel)) { bandSel = i; tuneFreq(a, b.mhz); } i++; }
+        for (const auto& b : dect2::hfdlBands()) { if (ImGui::Selectable(b.name, i == bandSel)) { bandSel = i; tuneFreq(a, b.centreMhz); } i++; }
         ImGui::EndCombo();
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Tune to an HFDL band: every ground station frequency of the built-in table inside the sample band is decoded at once.");
+    if (ImGui::Checkbox("Follow the best band##hfhop", &S.autoHop)) { plat::prefs().setB("hfdlHop", S.autoHop); if (!S.autoHop) S.hopper.reset(); }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("HF carries a band only at some times of day. With this on, OnAir tunes to the band where ground stations are heard now, stays while it works,\nand moves on when it goes quiet (it listens about a minute per band; the frequencies the ground stations announce in their squitters guide the order).\nIt retunes the radio by itself: leave it off to stay on the band you chose. Off while Whole span is on.");
+    if (S.autoHop && live(a) && !S.hopper.status().empty()) { ImGui::PushTextWrapPos(0); ImGui::TextDisabled("%s", S.hopper.status().c_str()); ImGui::PopTextWrapPos(); }
     ImGui::TextDisabled("Channels kHz");
     ImGui::SetNextItemWidth(std::min(230 * gUi, ImGui::GetContentRegionAvail().x));
     if (ImGui::InputTextWithHint("##hfch", "the station table", S.chans, sizeof S.chans)) plat::prefs().setS("hfdlChans", S.chans);
@@ -645,6 +674,17 @@ bool hfdlEstimatedPosition(uint32_t key, double now, double& lat, double& lon, d
 // For the map upload (app/map/map_send.cpp)
 derivedkin::Info hfdlKinematics(const dect2::HfdlAircraft& c, double now) { return kinOf(c, now); }
 
+// ---------------------------------------------------------------- the Simple view (ui/kit/mode_panel.h)
+
+// the live messages and the ground stations side by side (the aircraft are the list on the right), the band and channel controls above them (closed: they are in the Tuner panel too)
+static void command(App& a) {
+    loadState();
+    kit::modeHeader({35, "HFDL", live(a) ? 1 : a.engine.running() ? 2 : 0, -1000.f, a.freqMhz * 1e6});
+    if (kit::collapsingSection(tr("Band and channels"), false)) { bool retune = false; tuner(a, retune); }
+    modepanel::panes({{"##hfdlmsgs", tr("Messages"), [&a] { messageView(a); }, 1.7f, 240.f},
+                      {"##hfdlgs", tr("Ground stations"), [&a] { stationView(a); }, 1.f, 200.f}}, 360.f);
+}
+
 extern const ModeUi kHfdlUi;
 const ModeUi kHfdlUi = {
     .sideTitle = "AIRCRAFT",
@@ -659,4 +699,5 @@ const ModeUi kHfdlUi = {
     .synth = synth,
     .tick = tick,
     .meters = meters,
+    .command = command,
 };

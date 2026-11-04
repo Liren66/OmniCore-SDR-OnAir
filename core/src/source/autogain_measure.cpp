@@ -163,6 +163,10 @@ ImdReport imdCompare(const std::vector<float>& lo, const std::vector<float>& hi,
 Quality qualityFrom(const RxTelemetry& rx) {
     Quality q;
     switch (rx.standard) {
+    case 12:   // ADS-B / Mode S: the receiver's message counters (the SNR of a pulse is not a quality the gain loop can climb)
+        q.locked = rx.adsb.dataValid;
+        q.pulseValid = true; q.pulseMsgs = rx.adsb.blocksOk; q.pulseLoud = rx.adsb.loudMsgs;
+        break;
     case 2: q.locked = rx.atsc.fieldSync; if (q.locked && std::isfinite(rx.atsc.snrDb)) { q.snrValid = true; q.snrDb = rx.atsc.snrDb; } break;
     case 3: q.locked = rx.dab.sync; if (q.locked && std::isfinite(rx.dab.snrDb)) { q.snrValid = true; q.snrDb = rx.dab.snrDb; } break;
     case 6: q.locked = rx.fm.carrier && rx.fm.state >= 1; if (q.locked && std::isfinite(rx.fm.snrDb)) { q.snrValid = true; q.snrDb = rx.fm.snrDb; } break;
@@ -249,6 +253,27 @@ static void applyBandBias(ModeTarget& t, double f) {
     }
 }
 
+// Per mode, over the class's numbers (3.6; tests/source/test_autogain_modes.cpp lists every mode that changes). The classes are right for most modes; these have
+// a property the class does not know:
+//  - keyed bursts (ACARS, AIS, VDL2, HFDL, Iridium, Orbcomm, pagers, APRS, ISM sensors, BLE, Zigbee): a burst is well under 0.01 % of the samples, so the 99.99 %
+//    point sees only the noise between them; the headroom floor also reads the 2 s peak-hold, so a transmitter that keys up nearby cannot clip the next burst
+//  - below the noise (LoRa raw 73, mesh 22): the channel SNR reads about 0 dB at every gain, so a hill climb on it is random; they take the GNSS class
+//    (the floor above the ADC's own noise, headroom only as a floor)
+void applyModeRefinement(ModeTarget& t, int std_) {
+    switch (std_) {
+    case 16: case 18: case 21: case 25: case 26: case 29: case 30: case 37: case 46: case 53: case 67:
+        t.usePeakHold = true; t.minHeadroomDb = std::max(t.minHeadroomDb, 5.0);
+        break;
+    case 22: case 73:
+        t.kind = ModeKind::Gnss; t.metric = Metric::Sensitivity; t.policy = Policy::Sensitivity;
+        t.headroomDb = 12; t.marginGoalDb = 10; t.floorRiseDb = 10; t.lockSnrDb = 1e9;
+        t.minHeadroomDb = 6; t.improveDb = 1.0; t.comfortDb = 1e9;
+        t.why = "LoRa / mesh: the signals are below the noise; the noise floor must sit well above the ADC's own noise";
+        break;
+    default: break;
+    }
+}
+
 ModeTarget modeTargetFor(int std_, double bwHz, double rateHz, double freqHz) {
     ModeTarget t;
     auto in = [&](std::initializer_list<int> l) { for (int x : l) if (x == std_) return true; return false; };
@@ -291,6 +316,19 @@ ModeTarget modeTargetFor(int std_, double bwHz, double rateHz, double freqHz) {
     }
     // a capture much wider than the channel holds more strong signals: keep more headroom
     if (rateHz > 0 && bwHz > 0 && rateHz / bwHz > 50 && t.kind != ModeKind::Pulsed) t.headroomDb += 2;
+    // Auto v2 constraints per kind (the climb maximises the objective; headroom is only a floor): see docs/AUTOGAIN.md
+    switch (t.kind) {
+    case ModeKind::BroadcastTv: t.minHeadroomDb = 4; t.improveDb = 0.5; t.comfortDb = 6; break;
+    case ModeKind::Ofdm: t.minHeadroomDb = 4; t.improveDb = 0.5; t.comfortDb = 6; break;
+    case ModeKind::FmBroadcast: t.minHeadroomDb = 5; t.improveDb = 0.8; t.comfortDb = 8; break;
+    case ModeKind::NarrowVoice: t.minHeadroomDb = 5; t.improveDb = 1.0; t.comfortDb = 6; break;
+    case ModeKind::NarrowData: t.minHeadroomDb = 5; t.improveDb = 1.0; t.comfortDb = 6; break;
+    case ModeKind::Pulsed: t.minHeadroomDb = 3; t.improveDb = 0.5; t.comfortDb = 1e9; t.usePeakHold = true; break;   // judged on the 2 s peak-hold: pulses are < 0.1 % of the samples
+    case ModeKind::Gnss: t.minHeadroomDb = 6; t.improveDb = 1.0; t.comfortDb = 1e9; break;
+    case ModeKind::WideSpan: t.minHeadroomDb = 6; t.improveDb = 1.5; t.comfortDb = 1e9; break;
+    default: t.minHeadroomDb = 5; t.improveDb = 1.0; t.comfortDb = 6; break;
+    }
+    applyModeRefinement(t, std_);
     if (freqHz > 0) applyBandBias(t, freqHz);
     return t;
 }

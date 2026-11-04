@@ -35,6 +35,8 @@ struct PagerMessage {
     std::string text;            // numeric digits or text; "secure, not shown" for secure pages
     int fixed = 0;               // bits that the BCH code corrected in the code words of this page
     bool damaged = false;        // a code word of the message could not be repaired: the text is incomplete
+    int copies = 1;              // transmissions of this message that were combined (multi-copy combining, #20); 1 = a single copy
+    bool combined = false;       // code words were rebuilt from other copies of the message
     // POCSAG pages with a message: both readings, so the UI can switch between them; empty for FLEX and tone pages
     std::string numText, alphaText;
     bool looksAlpha = false;     // the alphanumeric reading looks like real text (pager::pocsagLooksAlpha)
@@ -42,7 +44,13 @@ struct PagerMessage {
     // whole-span decoding (wide_modes.h): the carrier that sent it; carrierId 0 = the single receiver. carrierHz: relative to the radio's centre.
     int carrierId = 0;
     double carrierHz = 0;
+    // a five-tone selective call (CCIR / ZVEI / EEA / EIA / DZVEI) heard on the same channel: text = the digits, selStd = the plan, address 0
+    bool selcall = false;
+    std::string selStd;
 };
+
+// The name of the Protocol column: the paging speed or the five-tone plan
+inline std::string pagerProtoName(const PagerMessage& m) { return m.selcall ? "Selcall " + m.selStd : std::string(pagerSpeedName(m.speed)); }
 
 // How a POCSAG message is read. Networks often ignore the standard (function 0 = numeric): Australian emergency paging sends text with function 0.
 enum PocsagReadMode { kPocsagReadAuto, kPocsagReadByFunction, kPocsagReadAlpha, kPocsagReadNumeric, kPocsagReadModes };
@@ -55,6 +63,28 @@ inline const char* pocsagReadHowName(int h) {
     static const char* const n[] = {"function", "auto", "forced", "address"};
     return h >= 0 && h <= kPocsagHowAddress ? n[h] : "?";
 }
+// National character sets for the 7-bit alphanumeric text. German (DIN 66003, used by German POCSAG networks): [ \\ ] { | } ~ are Ä Ö Ü ä ö ü ß.
+enum PagerCharset { kPagerCharAscii = 0, kPagerCharGerman = 1, kPagerCharsets = 2 };
+inline const char* pagerCharsetName(int c) { return c == kPagerCharGerman ? "German (ä ö ü ß)" : "ASCII"; }
+inline std::string pagerApplyCharset(const std::string& in, int cs) {
+    if (cs != kPagerCharGerman) return in;
+    std::string o;
+    o.reserve(in.size() + 4);
+    for (char c : in) {
+        switch (c) {
+        case '[': o += "\xC3\x84"; break;    // Ä
+        case '\\': o += "\xC3\x96"; break;   // Ö
+        case ']': o += "\xC3\x9C"; break;    // Ü
+        case '{': o += "\xC3\xA4"; break;    // ä
+        case '|': o += "\xC3\xB6"; break;    // ö
+        case '}': o += "\xC3\xBC"; break;    // ü
+        case '~': o += "\xC3\x9F"; break;    // ß
+        default: o += c;
+        }
+    }
+    return o;
+}
+
 // Picks the reading of a POCSAG message (type, text, readHow) for a mode; byAddress marks a per-address override. FLEX and tone pages are left alone.
 inline void pocsagApplyRead(PagerMessage& m, int mode, bool byAddress = false) {
     if (m.flex || (m.type != kPagerNumeric && m.type != kPagerAlpha)) return;

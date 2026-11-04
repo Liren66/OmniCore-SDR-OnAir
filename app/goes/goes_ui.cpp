@@ -2,9 +2,11 @@
 // selected product in the Products tab: an image that grows as its lines arrive (Rice and plain images; JPEG / GIF once complete) or
 // its text (EMWIN ZIP files unpacked); Save, and Save automatically into <data folder>/goes/. The receiver's state and the constellation.
 // A dish (about 1 m, or a grid) with an LNA at the feed is needed: a note says so while nothing is received.
+#include "ui/kit/mode_panel.h"
 #include "app.h"
 #include "panels/gallery.h"
 #include "gfx/gfx.h"
+#include "map/wx_overlay.h"
 #include "platform/platform.h"
 #include "dect2/goes/goes_proto.h"
 #include "dect2/goes/goes_rx.h"
@@ -219,6 +221,22 @@ void showProduct(App& a, const Product& p) {
                   complete ? "" : ", receiving", errors ? ", with errors" : "");
     ImGui::TextDisabled("%s", info);
     ImGui::PopTextWrapPos();
+    if (p.kind == goes::KFullDisk && p.w > 0 && wxoverlay::wanted(a, 10.0)) {   // the full disk on the map (View > Map), rows not received yet clear
+        std::vector<uint32_t> px; int w = 0, hh = 0; uint64_t ver = 0;
+        {
+            std::lock_guard<std::mutex> lk(p.mu);
+            const int step = std::max(1, (std::max(p.w, p.h) + 2047) / 2048);
+            w = p.w / step; hh = p.h / step; ver = p.version;
+            px.assign((size_t)w * hh, 0u);
+            for (int y = 0; y < hh; y++) {
+                const size_t sy = (size_t)y * step;
+                if (sy >= p.rowDone.size() || !p.rowDone[sy]) continue;
+                const uint8_t* r = p.pix.data() + sy * p.w;
+                for (int x = 0; x < w; x++) { const uint32_t v = r[(size_t)x * step]; px[(size_t)y * w + x] = 0xFF000000u | v << 16 | v << 8 | v; }
+            }
+        }
+        wxoverlay::setGeos(p.id, ver, p.name, w, hh, px);
+    }
     if (isImage(p)) {
         upload(p);
         if (!S.tex || S.texId != p.id) { ImGui::TextDisabled("%s", S.texFailed ? "this picture could not be decoded here (it is saved as it came)" : "waiting for the picture"); return; }
@@ -420,6 +438,12 @@ void meters(const App& a, std::vector<ModeMeter>& out) {
 
 } // namespace
 
+// Simple view: the picture with its controls, and the signal and the products / channels beside it
+static void command(App& a) {
+    modepanel::panes({{"##goescpic", nullptr, [&a] { tab(a); }, 2.2f, 300.f},
+                      {"##goescsig", tr("Signal"), [&a] { receiver(a); ImGui::Spacing(); list(a); }, 1.f, 240.f}}, 340.f);
+}
+
 extern const ModeUi kGoesUi;
 const ModeUi kGoesUi = {
     .sideTitle = "PRODUCTS",
@@ -434,4 +458,5 @@ const ModeUi kGoesUi = {
     .tuner = tuner,
     .tick = tick,
     .meters = meters,
+    .command = command,
 };

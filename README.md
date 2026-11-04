@@ -1,10 +1,10 @@
-# OmniCore-SDR-OnAir 3.3.0
+# OmniCore-SDR-OnAir 3.6.0
 
 **本项目是从 [adswill/OnAir](https://github.com/adswill/OnAir) fork 的独立项目，已接入 OmniCore SDR（AD9361）。** 桌面版通过 OmniCore Host 原生设备接口，支持接收（RX）、发射（TX）和全双工收发，并保留上游电视、广播和数字信号解码功能。Android 版支持 USB 直连接收，沿用上游的仅接收界面，暂不提供 TX。
 
 This is an independent fork of OnAir with native OmniCore SDR integration, including RX, TX and full-duplex operation.
 
-- [下载 Windows / Linux / Android 3.3.0](https://github.com/Liren66/OmniCore-SDR-OnAir/releases/tag/v3.3.0)
+- [下载 Windows / Linux / Android 3.6.0](https://github.com/Liren66/OmniCore-SDR-OnAir/releases/tag/v3.6.0)
 - [OmniCore Host 驱动库](https://github.com/Liren66/OmniCore-SDR-Host)
 - [OmniCore 设备使用说明](DEVICES.md#omnicoresdr-omnicore-host)
 - [上游完整说明与致谢](README.upstream.md)
@@ -16,13 +16,13 @@ This is an independent fork of OnAir with native OmniCore SDR integration, inclu
 - 无线电设置面板显示 RX RSSI；控制链路失效后重新打开设备。
 - 更新检查指向本仓库，不会自动替换成上游发行包。
 
-版本号跟随上游，当前统一为 **3.3.0**，不再添加 `-omnicore.*` 或 Android 后缀。程序名称保留 **OmniCore-SDR-OnAir**，以区分本分支和上游。2026-10-30 再次拉取上游，`main` 仍为已合并的 `8ee15736`；保留上游 Git 历史和本地 OmniCore 功能提交。
+版本号跟随上游，当前统一为 **3.6.0**，不再添加 `-omnicore.*` 或 Android 后缀。程序名称保留 **OmniCore-SDR-OnAir**，以区分本分支和上游。本版合并上游 `25034214`，并在三个平台捆绑 OmniCore Host **0.5.0**；保留上游 Git 历史和本地 OmniCore 功能提交。
 
 | 发布包 | 平台 | OmniCore 功能 |
 | --- | --- | --- |
-| `OmniCore-SDR-OnAir-3.3.0-windows-x64.zip` | Windows x64 | RX / TX / 全双工 |
-| `OmniCore-SDR-OnAir-3.3.0-linux-x86_64.tar.gz` | Ubuntu 24.04 x86-64 | RX / TX / 全双工 |
-| `OmniCore-SDR-OnAir-3.3.0-android-arm64-v8a.apk` | Android 9+ ARM64，需 USB Host/OTG | USB RX |
+| `OmniCore-SDR-OnAir-3.6.0-windows-x64.zip` | Windows x64 | RX / TX / 全双工 |
+| `OmniCore-SDR-OnAir-3.6.0-linux-x86_64.tar.gz` | Ubuntu 24.04 x86-64 | RX / TX / 全双工 |
+| `OmniCore-SDR-OnAir-3.6.0-android-arm64-v8a.apk` | Android 9+ ARM64，需 USB Host/OTG | USB RX |
 
 发布附件仅包含这三个程序包及 `SHA256SUMS` 校验和，不单独上传日志、测试报告或源码压缩包；源码可从本仓库的版本标签获取。macOS 暂不发布。
 
@@ -68,9 +68,9 @@ OmniCore Host 可以另行安装，或在同一构建树中从它的源码构建
 
 已修复早期 APK 的驱动能力登记和 USB 设备列表未接入主界面问题，用户已在 Android 17 设备上确认修复版可以使用。持续吞吐性能取决于手机、USB 接口和供电；本次版本统一不额外进行射频测试。
 
-3.3.0 同时修正 Table 页无数据、搜索无结果时的提前退出方式，解决用户日志中的界面闪退，并修正消息、飞行器、船舶及 RDS 页的相同写法。
+保留自 3.3.0 的修复，修正 Table 页无数据、搜索无结果时的提前退出方式，解决用户日志中的界面闪退，并修正消息、飞行器、船舶及 RDS 页的相同写法。
 
-对外版本为 `3.3.0`；Android 内部安装版本号为 `3030099`，高于早期 APK 的 `3030001` / `3030002`。应用包名和签名保持一致，可以直接覆盖安装并保留设置。环境配置、构建步骤和签名说明见 [Android README](android/README.md)。
+对外版本为 `3.6.0`；Android 内部安装版本号为 `3060099`，高于早期 APK 的 `3030001` / `3030002`。应用包名和签名保持一致，可以直接覆盖安装并保留设置。环境配置、构建步骤和签名说明见 [Android README](android/README.md)。
 
 ## 许可证与来源
 

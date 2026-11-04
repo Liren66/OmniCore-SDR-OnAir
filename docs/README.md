@@ -4,6 +4,7 @@ The user guides and notes that live in the repository. The same text is on the [
 
 | File | Topic | What it covers |
 |---|---|---|
+| [IPTV.md](IPTV.md) | Internet TV (IPTV) | Plays playlists (M3U) and single streams (HLS, MPEG-TS over HTTP, UDP, RTP) with a channel list, favourites and an XMLTV guide. Ships no channels, no DRM. How https works in the FFmpeg-free fetcher. |
 | [asterix.md](asterix.md) | ASTERIX surveillance data | Receive only. The mode ASTERIX decodes CAT 021, 048 and 062 radar and ADS-B data from UDP or a file into a track table and a map. |
 | [audio-cleanup.md](audio-cleanup.md) | Audio cleanup | A chain that cleans the sound you hear. |
 | [auto-gain.md](auto-gain.md) | Auto gain (AGC) | The AGC keeps a radio's front end at the best operating point for the active mode. |
@@ -33,6 +34,7 @@ The user guides and notes that live in the repository. The same text is on the [
 | [mt63.md](mt63.md) | MT63 | MT63 is the keyboard-to-keyboard mode of Pawel Jalocha (SP9VRC) that is built to survive fading, interference and a badly tuned dial: |
 | [multi-sdr.md](multi-sdr.md) | Several radios at once (multi-SDR) | Warning shown when a receiver is added: |
 | [noise-remover.md](noise-remover.md) | Neural noise remover (Listen) | Removes steady background noise from speech with RNNoise (Xiph.Org, BSD-3-Clause; vendored in |
+| [DIVERSITY.md](DIVERSITY.md) | Diversity pair (two radios, one better signal) | Two radios on one frequency combined by selection or maximal-ratio combining for weak narrowband signals; off until a pair is made; start-up alignment, delay / offset / drift tracking, tested SNR gains and limits. |
 | [nrsp-st.md](nrsp-st.md) | SDRplay nRSP-ST (network) | Source: |
 | [optimising-a-mode.md](optimising-a-mode.md) | Optimising a mode | The rule: |
 | [PACKS.md](PACKS.md) | Data packs (work without internet) | View > Data packs lists data you can download once and then use offline: |
@@ -58,6 +60,7 @@ The user guides and notes that live in the repository. The same text is on the [
 | [TRANSCRIBE.md](TRANSCRIBE.md) | Live transcripts: airband and marine voice as text | > **Off until you turn it on, and no speech model is included.** OnAir downloads one only when you click, or reads a file you put in the models folder. |
 | [TRANSMIT.md](TRANSMIT.md) | Transmit | **You are responsible.** OnAir limits nothing: |
 | [trunking.md](trunking.md) | Trunking follower (P25, DMR Tier III) | Receive only. |
+| [TV-CHANNELS.md](TV-CHANNELS.md) | TV channels | The Channel selector of every TV mode: the channel plan of a country for DVB-T/T2, ATSC, ISDB-T, DTMB, DVB-C and analog, with sources. |
 | [tv-recorder.md](tv-recorder.md) | TV recorder: programme guide, recordings, timeshift, subtitles | Works on the DVB transport stream that OnAir already decodes (DVB-T/T2, DVB-C, DVB-S/S2, ISDB-T, DTMB and the others that deliver an MPEG-TS). |
 | [UPDATE-MIRROR.md](UPDATE-MIRROR.md) | Updating when GitHub is blocked or slow | OnAir normally asks `api.github.com` for the newest release and downloads the package from `github.com`. |
 | [watchlists.md](watchlists.md) | Watchlists and alerts | View > Watchlists. |
@@ -66,6 +69,7 @@ The user guides and notes that live in the repository. The same text is on the [
 | [esubghz.md](esubghz.md) | Flipper Zero Sub-GHz chat | Chat with Flipper Zero devices (Enhanced Sub-GHz Chat app), plain or AES-256-GCM encrypted, receive and send. |
 | [roshf.md](roshf.md) | ROS (HF) detector | Detects the ROS weak-signal HF mode and names its sub-mode; text decoding partial (needs a public spec). |
 | [ssdv.md](ssdv.md) | SSDV pictures | Balloon and satellite pictures from SSDV packets (FSK / RTTY-framed), built up while they arrive. |
+| [nrf24.md](nrf24.md) | nRF24L01 | Enhanced ShockBurst frames on one 2.4 GHz channel, 250 kbit/s / 1 / 2 Mbit/s, address sniffer (needs a 2.4 GHz SDR; needs a user test). |
 | [INMARSAT.md](INMARSAT.md) | Inmarsat (all carriers) | Every Aero P and Inmarsat-C carrier of one wide capture at once; C voice not decoded (needs a user test). |
 | [ebicab.md](ebicab.md) | EBICab / Eurobalise | Balise up-link telegrams per SUBSET-036 (needs a user test); EBICab formats not public. |
 
@@ -131,6 +135,10 @@ The user guides and notes that live in the repository. The same text is on the [
 | [goes-dcs.md](goes-dcs.md) | GOES / Meteosat DCS |
 | [ifkp.md](ifkp.md) | IFKP (Incremental Frequency Keying Plus) |
 | [marine-vhf.md](marine-vhf.md) | Marine VHF (channels 1 to 88, 156 to 162 MHz) |
+| [GK2A.md](GK2A.md) | GK-2A (Korea, 128.2 E) LRIT 1692.14 MHz BPSK and HRIT 1695.4 MHz QPSK: xRIT files, JPEG 2000 pictures, KMA DES keys, sensitivity |
+| [selcal.md](selcal.md) | SELCAL, the tone call of aircraft on HF and VHF voice channels |
+| [atis.md](atis.md) | ATIS, the transmitter identification of the European inland waterways (Rhine, Danube) |
+| [fy3.md](fy3.md) | FY-3 AHRPT and FY-3 MPT: the Fengyun-3 polar weather satellites (VIRR, MERSI pictures), what is decoded and how sensitive it is |
 | [modeac.md](modeac.md) | Mode A/C |
 | [propagation.md](propagation.md) | Propagation (Tools > Propagation) |
 | [qo100-auto.md](qo100-auto.md) | QO-100 narrowband: presets, auto decoder, conversation manager |

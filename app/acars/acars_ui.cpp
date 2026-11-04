@@ -1,5 +1,8 @@
 // ACARS screens: the message list with a detail pane, the aircraft table and the channel bars.
 #include "dect2/common/time_fmt.h"
+#include "ui/kit/mode_panel.h"
+#include "ui/kit/session_list.h"
+#include "ui/kit/mode_frame.h"
 #include "../panels/photo_links_ui.h"
 #include "../adsb/adsb_map.h"
 #include "app.h"
@@ -164,7 +167,8 @@ void detailPane(const App& a, const dect2::AcarsMessage* m) {
     auto kv = [&](const char* k, const char* fmt, auto... v) { ImGui::TextDisabled("%s", k); kvColumn(110 * gUi); ImGui::PushFont(a.mono, 0); ImGui::PushTextWrapPos(0); ImGui::Text(fmt, v...); ImGui::PopTextWrapPos(); ImGui::PopFont(); };
     kv("time", "%s%s  %.4f MHz  %.0f dB", clock(m->wallTime).c_str(), dect2::timefmt::sfx(), m->freqHz / 1e6, m->levelDb);
     kv("aircraft", "%s%s%s", m->reg.empty() ? "-" : m->reg.c_str(), m->flightId.empty() ? "" : "  flight ", m->flightId.c_str());
-    kv("direction", "%s, mode %c, block id %c, %s", m->downlink ? "downlink" : "uplink", m->mode ? m->mode : '-', m->blockId ? m->blockId : '-', m->finalBlock ? "last block" : "more blocks follow");
+    kv("direction", "%s, mode %c, block id %c, %s", m->downlink ? "downlink" : "uplink", m->mode ? m->mode : '-', m->blockId ? m->blockId : '-', m->incomplete ? "joined, last block missing" : m->blocks > 1 ? "joined from several blocks" : m->finalBlock ? "last block" : "more blocks follow");
+    if (m->blocks > 1) kv("blocks", "%d joined into this message%s", m->blocks, m->incomplete ? " (the end did not arrive)" : "");
     kv("label", "%s  %s", m->label.c_str(), m->labelText.empty() ? "(not in the table)" : m->labelText.c_str());
     if (!m->msgNum.empty() || m->msgSeq) kv("message", "%s%c", m->msgNum.c_str(), m->msgSeq ? m->msgSeq : ' ');
     if (!m->sublabel.empty() || !m->mfi.empty()) kv("prefix", "%s %s", m->sublabel.c_str(), m->mfi.c_str());
@@ -536,7 +540,9 @@ void channelView(const App& a) {
 
 void tab(App& a) {
     loadState();
-    subNav("acarsv", S.viewMode, {"Messages", "Aircraft map", "Aircraft", "Channels"});
+    kit::modeHeader({16, "ACARS", live(a) ? 1 : a.engine.running() ? 2 : 0, -1000.f, a.freqMhz * 1e6});
+    kit::modeNav("acarsv", S.viewMode, {{tr("Live"), 0}, {tr("Tracks"), 4}, {tr("Map"), 1}, {tr("Aircraft"), 2, true}, {tr("Channels"), 3, true}});
+    if (S.viewMode == 4) { kit::sessionItems(16, 3, "acars"); return; }
     if (S.viewMode == 0) messageView(a);
     else if (S.viewMode == 1) mapView(a);
     else if (S.viewMode == 2) aircraftView(a);
@@ -667,6 +673,15 @@ void meters(const App& a, std::vector<ModeMeter>& out) {
 // For the map upload (app/map/map_send.cpp)
 derivedkin::Info acarsKinematics(const dect2::AcarsAircraft& c, double now) { return kinOf(c, now); }
 
+// Simple view: the live messages, the aircraft and the channels side by side
+static void command(App& a) {
+    loadState();
+    kit::modeHeader({16, "ACARS", live(a) ? 1 : a.engine.running() ? 2 : 0, -1000.f, a.freqMhz * 1e6});
+    modepanel::panes({{"##acmsgs", tr("Messages"), [&a] { messageView(a); }, 1.7f, 260.f},
+                      {"##acair", tr("Aircraft"), [&a] { aircraftView(a); }, 1.f, 220.f},
+                      {"##acchan", tr("Channels"), [&a] { channelView(a); }, 0.9f, 200.f}}, 320.f);
+}
+
 extern const ModeUi kAcarsUi;
 const ModeUi kAcarsUi = {
     .sideTitle = "AIRCRAFT",
@@ -682,4 +697,5 @@ const ModeUi kAcarsUi = {
     .synth = synth,
     .tick = tick,
     .meters = meters,
+    .command = command,
 };

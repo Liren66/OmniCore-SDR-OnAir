@@ -1,5 +1,8 @@
 // Mesh (LoRa) receiver: the channel plan of the region, one channel filter per frequency and bandwidth, one LoRa demodulator per
 // setting, the packet layer on every good frame, and the tables of MeshTelemetry.
+#include "dect2/session/mode_adapters.h"
+// STOP: a change here also needs a run of the full mesh rates test, which ctest does not run: test_mesh_rates --full
+// (tests/mesh/test_mesh_rates.cpp).
 #include "dect2/common/time_source.h"
 #include "dect2/net/feeds.h"
 #include "dect2/automation/engine.h"
@@ -701,6 +704,7 @@ bool MeshReceiver::telemetry(MeshTelemetry& out, uint64_t lastSeq) {
     std::lock_guard<std::mutex> lk(p_->mu);
     if (p_->pub.seq <= lastSeq) return false;
     out = p_->pub;
+    sess::observeMesh(out);
     return true;
 }
 void MeshReceiver::setLogCallback(std::function<void(const std::string&)> cb) { std::lock_guard<std::mutex> lk(p_->mu); p_->log = std::move(cb); }

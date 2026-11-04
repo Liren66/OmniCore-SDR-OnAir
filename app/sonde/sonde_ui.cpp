@@ -1,6 +1,10 @@
 // Radiosonde screens: the map with every sonde's track and a balloon marker, the table of sondes heard, the detail of the selected one
 // (all fields, altitude and temperature plots, calibration progress), the carriers the search found in the band, and the test signal options.
 #include "app.h"
+#include "ui/kit/export.h"
+#include "ui/kit/mode_panel.h"
+#include "ui/kit/session_list.h"
+#include "ui/kit/mode_frame.h"
 #include "dect2/sonde/sonde_land.h"
 #include "dect2/geo/maidenhead.h"
 #include "../adsb/adsb_map.h"
@@ -32,6 +36,14 @@ void loadState() {
     S.loaded = true;
     plat::Prefs& d = plat::prefs();
     S.map.zoom = (int)d.getI("sondeZoom", 8);
+}
+
+// landing prediction with the descent smoothed over the user's averaging window (Advanced, 0 to 60 s; 0 is the instantaneous velocity)
+float avgWindowS() { return std::min(60.f, std::max(0.f, (float)plat::prefs().getD("sondeAvgS", 10.0))); }
+dect2::SondeLanding landing(const SondeInfo& s) {
+    dect2::SondeLandOpts o; o.windowS = avgWindowS();
+    static const std::vector<dect2::SondeTrackPoint> none;
+    return dect2::predictSondeLandingTrack(s.trackIncluded ? s.track : none, s.lat, s.lon, s.altM, s.vSpeed, s.hSpeed, s.headingDeg, o);
 }
 
 ImU32 typeColour(int kind, float alpha = 1.f) {
@@ -111,7 +123,7 @@ void mapView(App& a, ImVec2 size) {
         }
         if (isSel) dl->AddCircle(q, 10 * gUi, IM_COL32(255, 255, 255, 230), 28, 1.6f);
         if (s.hasVel && s.vSpeed < -1.0) {   // predicted landing: a dashed line and a cross
-            const dect2::SondeLanding ld = dect2::predictSondeLanding(s.lat, s.lon, s.altM, s.vSpeed, s.hSpeed, s.headingDeg);
+            const dect2::SondeLanding ld = landing(s);
             if (ld.valid) {
                 const ImVec2 e = adsbmap::project(ld.lat, ld.lon);
                 const float dx = e.x - q.x, dy = e.y - q.y, len = std::hypot(dx, dy);
@@ -152,6 +164,16 @@ void sondeTable(App& a, bool compact) {
     const SondeTelemetry& t = a.rx.sonde;
     const bool on = live(a);
     const int cols = compact ? 5 : 11;
+    {
+        static std::string note;
+        resexp::Table x; x.cols = {"serial", "type", "frequency_mhz", "lat", "lon", "alt_m", "vspeed_ms", "hspeed_ms", "heading_deg", "temp_c", "humidity", "pressure_hpa", "sats", "snr_db", "frames_ok", "frames_bad"};
+        if (on) for (const auto& s : t.sondes)
+            x.add({s.serial, s.type, s.freqHz > 0 ? resexp::num(s.freqHz / 1e6, 4) : "", s.hasPos ? resexp::num(s.lat, 6) : "", s.hasPos ? resexp::num(s.lon, 6) : "",
+                   s.hasPos ? resexp::num(s.altM, 0) : "", s.hasVel ? resexp::num(s.vSpeed, 1) : "", s.hasVel ? resexp::num(s.hSpeed, 1) : "", s.hasVel ? resexp::num(s.headingDeg, 0) : "",
+                   s.hasTemp ? resexp::num(s.tempC, 1) : "", s.hasHumidity ? resexp::num(s.humidity, 0) : "", s.hasPressure ? resexp::num(s.pressureHpa, 1) : "",
+                   s.sats >= 0 ? std::to_string(s.sats) : "", resexp::num(s.snrDb, 0), std::to_string(s.framesOk), std::to_string(s.framesBad)});
+        kit::exportBar(x, "sonde", note, compact ? "sdxs" : "sdxf");
+    }
     if (!ImGui::BeginTable(compact ? "##sd_s" : "##sd_f", cols, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_ScrollX | ImGuiTableFlags_SizingFixedFit, ImVec2(0, ImGui::GetContentRegionAvail().y))) return;
     ImGui::TableSetupScrollFreeze(0, 1);
     ImGui::TableSetupColumn("Type"); ImGui::TableSetupColumn("Serial"); ImGui::TableSetupColumn("Alt m");
@@ -223,7 +245,7 @@ void detailCard(const App& a) {
     if (sp && s.burstKillS >= 0) snprintf(b, sizeof b, "%d min", s.burstKillS / 60); else snprintf(b, sizeof b, "-");
     kv("kill timer", b);
     if (sp && s.hasPos && s.hasVel && s.vSpeed < -1.0) {   // a falling sonde: where it should land and how far that is from you
-        const dect2::SondeLanding ld = dect2::predictSondeLanding(s.lat, s.lon, s.altM, s.vSpeed, s.hSpeed, s.headingDeg);
+        const dect2::SondeLanding ld = landing(s);
         if (ld.valid) {
             snprintf(b, sizeof b, "%.4f, %.4f in %d:%02d", ld.lat, ld.lon, (int)ld.secondsLeft / 60, (int)ld.secondsLeft % 60);
             kv("landing (estimate)", b);
@@ -293,7 +315,9 @@ void carrierStrip(const App& a, ImVec2 size) {
 // ---------------------------------------------------------------- the hooks
 
 void tab(App& a) {
-    subNav("sondev", S.viewMode, {"Map", "Table"});
+    kit::modeHeader({13, "Radiosondes", live(a) ? 1 : a.engine.running() ? 2 : 0, -1000.f, a.freqMhz * 1e6});
+    kit::modeNav("sondev", S.viewMode, {{tr("Live"), 0}, {tr("Tracks"), 2}, {tr("Table"), 1, true}});
+    if (S.viewMode == 2) { kit::sessionItems(13, 3, "sonde"); return; }
     const float W = ImGui::GetContentRegionAvail().x, H = ImGui::GetContentRegionAvail().y;
     if (S.viewMode == 1) { sondeTable(a, false); return; }
     const float cw = std::min(300.f * gUi, W * 0.32f);
@@ -447,6 +471,12 @@ void decoder(App& a, bool&) {
     sameLineIf(ImGui::CalcTextSize("clear list").x + 2 * ImGui::GetStyle().FramePadding.x, 8 * gUi);
     if (ImGui::SmallButton("clear list")) { a.engine.sonde().clearSondes(); S.sel.clear(); }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Forget the sondes heard so far (the receiver keeps following the carriers).");
+    if (ImGui::TreeNodeEx("Advanced##sdadv", ImGuiTreeNodeFlags_NoTreePushOnOpen)) {
+        float w = avgWindowS();
+        ImGui::TextDisabled("landing average"); ImGui::SameLine(); ImGui::SetNextItemWidth(std::min(100 * gUi, ImGui::GetContentRegionAvail().x));
+        if (ImGui::SliderFloat("##sdavg", &w, 0.f, 60.f, "%.0f s")) plat::prefs().setD("sondeAvgS", w);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("A sonde under its parachute swings and spirals, which makes the landing prediction jump.\nThe drift is averaged over this many seconds (default 10) and the wind of the layers still below is taken from the way up.\n0 uses the instantaneous velocity.");
+    }
 }
 
 void synth(App& a, bool& changed) {
@@ -497,6 +527,14 @@ void meters(const App& a, std::vector<ModeMeter>& out) {
 
 } // namespace
 
+// Simple view: the map, the sonde table and the readout of the picked sonde side by side
+static void command(App& a) {
+    kit::modeHeader({13, "Radiosondes", live(a) ? 1 : a.engine.running() ? 2 : 0, -1000.f, a.freqMhz * 1e6});
+    modepanel::panes({{"##sdcmap", tr("Map"), [&a] { mapView(a, ImGui::GetContentRegionAvail()); }, 1.3f, 260.f},
+                      {"##sdctab", tr("Table"), [&a] { sondeTable(a, false); }, 1.f, 220.f},
+                      {"##sdcsel", tr("Selected"), [&a] { detailCard(a); }, 0.8f, 200.f}}, 300.f);
+}
+
 extern const ModeUi kSondeUi;
 const ModeUi kSondeUi = {
     .sideTitle = "SONDES",
@@ -513,4 +551,5 @@ const ModeUi kSondeUi = {
     .synth = synth,
     .tick = tick,
     .meters = meters,
+    .command = command,
 };

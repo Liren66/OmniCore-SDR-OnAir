@@ -1,6 +1,9 @@
 // VDL Mode 2 screens: the message log with a filter and a detail pane, a map of the positions the messages carry, the aircraft and
 // ground stations, and the channel list with its activity.
 #include "dect2/common/time_fmt.h"
+#include "ui/kit/mode_panel.h"
+#include "ui/kit/session_list.h"
+#include "ui/kit/mode_frame.h"
 #include "../adsb/adsb_map.h"
 #include "app.h"
 #include "map/pos_predict.h"
@@ -46,8 +49,8 @@ struct State {
     char fText[32] = "";                 // filter: the summary or detail contains this
     int fKind = 0;                       // 0 all, 1 ACARS, 2 ATN (X.25 / CLNP), 3 link (XID, S, U)
     uint64_t selected = 0;
-    char chans[160] = "";                // channel list in MHz, empty = the European six
-    char pushedChans[160] = "\x01";
+    char chans[400] = "";                // channel list in MHz, empty = the European set (any number of channels, #400)
+    char pushedChans[400] = "\x01";
     bool wasRunning = false;
     adsbmap::View map;
     bool mapFollow = true;
@@ -125,7 +128,7 @@ void feedEstimates(const dect2::Vdl2Telemetry& t) {
     for (const auto& m : t.messages) {   // newest first: route / ETA / destination lines of ACARS downlinks
         if (m.serial <= gTextSerial) break;
         newest = std::max(newest, m.serial);
-        if (m.fromAir && m.acars && !m.acarsText.empty()) gPred.hub.feedText(dect2::track::keyFromIcao(m.src), m.label, m.acarsText, m.timeSec, (double)(m.wallTime % 86400));
+        if (m.fromAir && m.acars && !m.part && !m.acarsText.empty()) gPred.hub.feedText(dect2::track::keyFromIcao(m.src), m.label, m.acarsText, m.timeSec, (double)(m.wallTime % 86400));
     }
     gTextSerial = newest;
     gPred.hub.purge(t.nowSec, 3 * 3600);
@@ -175,6 +178,7 @@ void tick(App& a) {
 // ---------------------------------------------------------------- messages
 
 bool passes(const dect2::Vdl2Telemetry& t, const dect2::Vdl2Message& m) {
+    if (m.part) return false;   // an ETB block: the joined message stands in for it (the frame log keeps it)
     if (S.fKind == 1 && !m.acars) return false;
     if (S.fKind == 2 && !(m.proto == "X.25" || m.proto == "CLNP" || m.proto == "COTP" || m.proto == "ES-IS" || m.proto == "IDRP")) return false;
     if (S.fKind == 3 && (m.acars || m.frameKind == 'I')) return false;
@@ -480,11 +484,15 @@ void aircraftView(const App& a) {
     const dect2::Vdl2Telemetry& t = a.rx.vdl2;
     {
         static std::string note;
-        resexp::Table x; x.cols = {"icao", "registration", "flight", "lat", "lon", "alt_ft", "gs_kt", "track_deg", "gs_derived_kt", "track_derived_deg", "vrate_derived_fpm", "derived_dt_s"};
+        double refLat = 0, refLon = 0;
+        receiverLocation(refLat, refLon);
+        resexp::Table x; x.cols = {"icao", "registration", "type", "flight", "lat", "lon", "alt_ft", "distance_nm", "gs_kt", "track_deg", "gs_derived_kt", "track_derived_deg", "vrate_derived_fpm", "derived_dt_s"};
         if (live(a)) for (const auto& c : t.aircraft) {
             if (!c.hasPos) continue;
             const derivedkin::Info k = kinOf(c, t.nowSec);
-            x.add({hex6(c.icao), c.reg, c.flight, resexp::num(c.lat, 5), resexp::num(c.lon, 5), c.hasAlt ? std::to_string(c.altFt) : "",
+            double rnm = 0;
+            const bool hasRange = receiverLocationSet() && dect2::vdl2AircraftRangeNm(c, t.nowSec, refLat, refLon, rnm);
+            x.add({hex6(c.icao), c.reg, adsbTypeOfIcao(c.icao), c.flight, resexp::num(c.lat, 5), resexp::num(c.lon, 5), c.hasAlt ? std::to_string(c.altFt) : "", hasRange ? resexp::num(rnm, 1) : "",
                    c.hasKin ? resexp::num(c.groundKt, 0) : "", c.hasKin && c.hasTrack ? resexp::num(c.trackDeg, 0) : "",
                    k.d.ok ? resexp::num(k.d.gsKt, 0) : "", k.d.ok && k.d.hasTrack ? resexp::num(k.d.trackDeg, 0) : "", k.d.ok && k.d.hasVs ? resexp::num(k.d.vsFpm, 0) : "",
                    k.d.ok ? resexp::num(k.d.dtSec, 0) : ""});
@@ -492,10 +500,10 @@ void aircraftView(const App& a) {
         resexp::saveButton(x, "vdl2_aircraft", note, "svvdair");
         if (!note.empty()) { ImGui::SameLine(); ImGui::TextDisabled("%s", note.c_str()); }
     }
-    if (!ImGui::BeginTable("##vdair", 12, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_ScrollX | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV, ImVec2(0, ImGui::GetContentRegionAvail().y))) return;
+    if (!ImGui::BeginTable("##vdair", 14, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_ScrollX | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV, ImVec2(0, ImGui::GetContentRegionAvail().y))) return;
     ImGui::TableSetupScrollFreeze(0, 1);
-    ImGui::TableSetupColumn("ICAO"); ImGui::TableSetupColumn("Reg"); ImGui::TableSetupColumn("Flight"); ImGui::TableSetupColumn("ADS-B");
-    ImGui::TableSetupColumn("Frames"); ImGui::TableSetupColumn("MHz"); ImGui::TableSetupColumn("Last heard"); ImGui::TableSetupColumn("Ground st."); ImGui::TableSetupColumn("Position");
+    ImGui::TableSetupColumn("ICAO"); ImGui::TableSetupColumn("Reg"); ImGui::TableSetupColumn("Type"); ImGui::TableSetupColumn("Flight"); ImGui::TableSetupColumn("ADS-B");
+    ImGui::TableSetupColumn("Frames"); ImGui::TableSetupColumn("MHz"); ImGui::TableSetupColumn("Last heard"); ImGui::TableSetupColumn("Ground st."); ImGui::TableSetupColumn("Position"); ImGui::TableSetupColumn("Dist");
     ImGui::TableSetupColumn("Speed"); ImGui::TableSetupColumn("Track"); ImGui::TableSetupColumn("V/S");
     ImGui::TableHeadersRow();
     if (live(a))
@@ -503,6 +511,7 @@ void aircraftView(const App& a) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn(); ImGui::TextUnformatted(hex6(c.icao).c_str());
             ImGui::TableNextColumn(); ImGui::TextUnformatted(c.reg.c_str());
+            ImGui::TableNextColumn(); { const std::string ty = adsbTypeOfIcao(c.icao); ImGui::TextUnformatted(ty.empty() ? "-" : ty.c_str()); }   // from aircraft.csv (#394)
             ImGui::TableNextColumn(); ImGui::TextUnformatted(c.flight.c_str());
             ImGui::TableNextColumn(); { auto it = adsbSeen().find(c.icao); ImGui::TextUnformatted(it != adsbSeen().end() ? (it->second.callsign.empty() ? "seen" : it->second.callsign.c_str()) : "-"); }
             ImGui::TableNextColumn(); ImGui::Text("%u", c.messages);
@@ -517,6 +526,10 @@ void aircraftView(const App& a) {
                 positionNow(c, t.nowSec, plat, plon, altFt, pred);
                 ImGui::Text("%s%.3f %.3f%s", pred ? "~" : "", plat, plon, (c.hasAlt || altFt) ? (" " + std::to_string(pred ? altFt : c.altFt) + " ft").c_str() : "");
             } else ImGui::TextUnformatted("-");
+            ImGui::TableNextColumn();
+            { double rnm = 0, rl = 0, ro = 0; receiverLocation(rl, ro);
+              if (receiverLocationSet() && dect2::vdl2AircraftRangeNm(c, t.nowSec, rl, ro, rnm)) ImGui::Text("%s %s", adsbDistText(rnm).c_str(), adsbDistUnit());
+              else ImGui::TextUnformatted("-"); }
             const derivedkin::Info k = c.hasPos ? kinOf(c, t.nowSec) : derivedkin::Info();
             ImGui::TableNextColumn(); ImGui::TextUnformatted(derivedkin::gsText(k.v).c_str()); if (ImGui::IsItemHovered() && !derivedkin::explain(k).empty()) ImGui::SetTooltip("%s", derivedkin::explain(k).c_str());
             ImGui::TableNextColumn(); ImGui::TextUnformatted(derivedkin::trackText(k.v).c_str());
@@ -585,7 +598,9 @@ void channelView(const App& a) {
 
 void tab(App& a) {
     loadState();
-    subNav("vdl2v", S.viewMode, {"Messages", "Map", "Aircraft", "Ground stations", "Channels"});
+    kit::modeHeader({27, "VDL2", live(a) ? 1 : a.engine.running() ? 2 : 0, -1000.f, a.freqMhz * 1e6});
+    kit::modeNav("vdl2v", S.viewMode, {{tr("Live"), 0}, {tr("Tracks"), 5}, {tr("Map"), 1}, {tr("Aircraft"), 2, true}, {tr("Ground stations"), 3, true}, {tr("Channels"), 4, true}});
+    if (S.viewMode == 5) { kit::sessionItems(27, 3, "vdl2"); return; }
     if (S.viewMode == 0) messageView(a);
     else if (S.viewMode == 1) mapView(a);
     else if (S.viewMode == 2) aircraftView(a);
@@ -665,8 +680,20 @@ void tuner(App& a, bool&) {
     (void)a;
     ImGui::TextDisabled("Channels MHz");
     ImGui::SetNextItemWidth(std::min(230 * gUi, ImGui::GetContentRegionAvail().x));
-    if (ImGui::InputTextWithHint("##vdch", "Europe: 136.725 - 136.975", S.chans, sizeof S.chans)) plat::prefs().setS("vdl2Chans", S.chans);
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The VDL2 channels to decode, separated by spaces. Empty: the European set,\n136.725 136.775 136.825 136.875 136.900 and 136.975 (the common signalling channel).\nNorth America uses 136.650 136.700 136.800 136.975. Tune between the channels: every channel inside the sample band is decoded.\nWhole span (top right of the spectrum): every VDL2 channel used worldwide inside the capture, plus this list.");
+    if (ImGui::InputTextWithHint("##vdch", "Europe: 136.675 - 136.975", S.chans, sizeof S.chans)) plat::prefs().setS("vdl2Chans", S.chans);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The VDL2 channels to decode, separated by spaces. Empty: the European set,\n136.675 136.725 136.775 136.825 136.850 136.875 136.900 and 136.975 (the common signalling channel).\nThere is no limit on the number of channels.\nNorth America uses 136.650 136.700 136.800 136.975. Tune between the channels: every channel inside the sample band is decoded.\nWhole span (top right of the spectrum): every VDL2 channel used worldwide inside the capture, plus this list.");
+    auto fill = [&](const std::vector<double>& v) {
+        std::string t;
+        for (double f : v) { char b[16]; snprintf(b, sizeof b, "%s%.3f", t.empty() ? "" : " ", f / 1e6); t += b; }
+        snprintf(S.chans, sizeof S.chans, "%s", t.c_str());
+        plat::prefs().setS("vdl2Chans", S.chans);
+    };
+    if (ImGui::SmallButton("Europe")) { S.chans[0] = 0; plat::prefs().setS("vdl2Chans", S.chans); }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Europe 2027")) fill(dect2::vdl2Europe2027Channels());
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The 12 channels 136.700 .. 136.975 MHz that Europe brings in from January 2027.");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("North America")) S.chans[0] = 0, snprintf(S.chans, sizeof S.chans, "136.100 136.300 136.650 136.800 136.975"), plat::prefs().setS("vdl2Chans", S.chans);
 }
 
 void synth(App& a, bool& changed) {
@@ -716,6 +743,15 @@ bool vdl2EstimatedPosition(uint32_t icao, double now, double& lat, double& lon, 
 // For the map upload (app/map/map_send.cpp)
 derivedkin::Info vdl2Kinematics(const dect2::Vdl2Aircraft& c, double now) { return kinOf(c, now); }
 
+// Simple view: the live messages, the aircraft and the ground stations side by side
+static void command(App& a) {
+    loadState();
+    kit::modeHeader({27, "VDL2", live(a) ? 1 : a.engine.running() ? 2 : 0, -1000.f, a.freqMhz * 1e6});
+    modepanel::panes({{"##vdmsgs", tr("Messages"), [&a] { messageView(a); }, 1.7f, 260.f},
+                      {"##vdair", tr("Aircraft"), [&a] { aircraftView(a); }, 1.f, 220.f},
+                      {"##vdgs", tr("Ground stations"), [&a] { stationView(a); }, 0.9f, 200.f}}, 320.f);
+}
+
 extern const ModeUi kVdl2Ui;
 const ModeUi kVdl2Ui = {
     .sideTitle = "AIRCRAFT",
@@ -727,8 +763,8 @@ const ModeUi kVdl2Ui = {
     .status = status,
     .summary = summary,
     .tuner = tuner,
-    .decoder = rxWidthControl,
     .synth = synth,
     .tick = tick,
     .meters = meters,
+    .command = command,
 };

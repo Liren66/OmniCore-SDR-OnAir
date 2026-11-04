@@ -18,7 +18,7 @@ struct Builtin {
         add({"fmDeemph", [](const App& a) { return a.fmMode; }, [](const App& a) { return std::to_string(a.fmDeemph); }, [](App& a, const std::string& v) { a.fmDeemph = s2i(v) == 75 ? 75 : 50; }});
         add({"fmMono", [](const App& a) { return a.fmMode; }, [](const App& a) { return b2s(a.fmMono); }, [](App& a, const std::string& v) { a.fmMono = v == "1"; a.fmStereo = a.fmMono ? 1 : 0; }});
         add({"fmChanKhz", [](const App& a) { return a.fmMode; }, [](const App& a) { return std::to_string(a.fmChanKhz); },
-             [](App& a, const std::string& v) { const int k = s2i(v); a.fmChanKhz = k <= 0 ? 0 : std::max(100, std::min(300, k)); }});
+             [](App& a, const std::string& v) { const int k = s2i(v); a.fmChanKhz = k <= 0 ? 0 : std::max(10, k); }});
         add({"fmRegion", [](const App& a) { return a.fmMode; }, [](const App& a) { return std::to_string(a.fmRegion); }, [](App& a, const std::string& v) { a.fmRegion = std::max(0, std::min(2, s2i(v))); }});
         add({"pagerNarrow", [](const App& a) { return a.family == 23; }, [](const App& a) { return b2s(a.pagerNarrow); }, [](App& a, const std::string& v) { a.pagerNarrow = v == "1"; }});
         add({"packetNarrow", [](const App& a) { return a.family == 24; }, [](const App& a) { return b2s(a.packetNarrow); }, [](App& a, const std::string& v) { a.packetNarrow = v == "1"; }});
@@ -49,13 +49,13 @@ int memoryModeIndex(const std::string& key) { return scanModeIndex(key); }
 dect2::Memory memoryCapture(const App& a) {
     dect2::Memory m;
     m.freqHz = (uint64_t)std::llround(a.freqMhz * 1e6);
-    if (a.family == 55) { const double hz = generalListenHz(a); if (hz > 0) m.freqHz = (uint64_t)std::llround(hz); }   // the general receiver listens off its dial
+    if (isGeneralFamily(a.family)) { const double hz = generalListenHz(a); if (hz > 0) m.freqHz = (uint64_t)std::llround(hz); }   // the general receiver listens off its dial
     for (int i = 0; i < kNumModes; i++) if (modeSelected(a, kModes[i])) { m.mode = memoryModeKey(kModes[i]); break; }
     m.family = a.family;
     if (const dect2::SubMode* s = curSub(a)) m.subId = s->id;
     m.stdMode = engineStd(a);
     m.sampleRateHz = savedSampleRate(a);
-    m.bandwidthHz = a.tune.bandwidthMhz * 1e6;
+    m.bandwidthHz = a.tune.signalBwMhz() * 1e6;
     if (a.devIdx >= 0 && a.devIdx < (int)a.devices.size()) m.radio = a.devices[a.devIdx].name;
     m.hasGain = true; m.lna = a.tune.lnaDb; m.vga = a.tune.vgaDb; m.amp = a.tune.ampOn; m.gainDb = a.tune.gainDb;
     for (const MemoryOption& o : memoryOptions()) if (o.applies(a)) m.options[o.key] = o.get(a);
@@ -111,7 +111,7 @@ struct AppHost : dect2::MemoryHost {
     }
     void setFrequencyHz(uint64_t hz) override {
         const double mhz = (double)hz / 1e6;
-        if (a.family == 55) generalRecallHz(a, (double)hz);
+        if (isGeneralFamily(a.family)) generalRecallHz(a, (double)hz);
         if (a.engine.running() && !restart) { tuneFreq(a, mhz); return; }
         a.freqMhz = std::min(dect2::kMaxTuneMhz, std::max(0.001, mhz));
         a.tune.centerHz = a.freqMhz * 1e6;

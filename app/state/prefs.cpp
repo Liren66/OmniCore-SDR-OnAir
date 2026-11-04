@@ -3,6 +3,7 @@
 // spectrum range, the FM station lists, the wide-capture mask) are written out below the table.
 #include "../app.h"
 #include "state_internal.h"
+#include "../ais/ais_alerts_ui.h"
 #include <algorithm>
 #include <climits>
 #include <cstring>
@@ -71,10 +72,10 @@ PrefKey rx1(PrefKey p) { p.rx1Load = true; return p; }
 
 int fixDtmbBw(int v) { return v == 6 ? 6 : 8; }
 int fixIsdbtBw(int v) { return v == 0 || v == 7 || v == 8 ? v : 6; }
-int fixRegion(int v) { return v == 1 || v == 2 ? v : 0; }
+int fixRegion(int v) { return v >= 1 && v <= 3 ? v : 0; }
 int fixDeemph(int v) { return v == 75 ? 75 : v == 0 ? 0 : 50; }   // 0: off
 int fixAudioBw(int v) { return v == 12000 || v == 8000 || v == 5000 ? v : 0; }
-int fixChanKhz(int v) { return v > 0 ? std::min(300, std::max(100, v)) : 0; }
+int fixChanKhz(int v) { return v > 0 ? std::max(10, v) : 0; }   // (3.4: any manual width; the slider runs 100 - 300 kHz, a typed one goes beyond)
 int fixTone(int v) { return std::max(-6, std::min(6, v)); }
 int fixRecFormat(int v) { return v == 1 || v == 2 ? v : 0; }
 
@@ -97,6 +98,7 @@ const std::vector<PrefKey>& keyTable() {
         num("tetraSlotMode", AT(a.tetraSlotMode), 0, 0, 3, true), num("tetraSlotNum", AT(a.tetraSlotNum), 1, 1, 4, true),
         num("tetraSlotId", AT(a.tetraSlotId), 0, 0, 16777215, true),
         num("tetraSingle", AT(a.tetraSingle), 0, 0, 1, true),
+        num("tetraSearchPct", AT(a.tetraSearchPct), 72, 1, 99, true),
         num("wfMap3", AT(a.wf.map), cmap::NavyHeat, -1, (int)Waterfall::NumMaps - 1, true),   // 3.0: a new key, everyone starts on Navy heat (the old looks set their own maps)
         flagB("wfAutoFloor", AT(a.wf.autoTrack), true),   // new key with the floor-anchored range (3.0): everyone starts on auto
         flagB("specAutoDb", AT(a.specAutoDb), true), flagB("specPerHz", AT(a.specPerHz), true),
@@ -113,6 +115,7 @@ const std::vector<PrefKey>& keyTable() {
         flagB("minHold", AT(a.minHold), false, false, true), flagB("showLive", AT(a.showLive), false, false, true),
         flagB("nbOn", AT(a.nbOn), false, false, true), real("nbThr", AT(a.nbThr), 2, 40), real("nbWidthUs", AT(a.nbWidthUs), 2, 2000),
         real("specZoom", AT(a.specZoom), 0, 1, true),
+        flagB("genAutoOn", AT(a.genAutoOn), true, false, true), flagB("genAutoDecode", AT(a.genAutoDecode), false, false, true), num("genAutoReleaseKhz", AT(a.genAutoReleaseKhz), 0, 0, 100000000, true),
         flagB("specHold", AT(a.peakHold), false, false, true),
         real("holdDecay", AT(a.holdDecay), 0, 60),
         real("specAvg", AT(a.specAvgSec), 0, 5), num("specFft", AT(a.specFft), 0, 0, 262144, true), real("specLine", AT(a.specLine), 0.6, 3),
@@ -146,6 +149,7 @@ const std::vector<PrefKey>& keyTable() {
         shared(scaled("splitBot2", AT(a.splitBot2), 1, 0, 1, 0, false)),
         shared(text("modeGroupsOpen", AT(a.modeGroupsOpen))),
         shared(text("modeHidden", AT(a.modeHidden))), shared(text("modeHiddenGroups", AT(a.modeHiddenGroups))), shared(text("modeFavs", AT(a.modeFavs))),
+        shared(text("modeRecent", AT(a.modeRecent))),
         shared(flagB("modeFavsOnly", AT(a.modeFavsOnly), false)),
         shared(num("uiVariant", AT(a.uiVariant), 0, 0, 7, true)),
         shared(numFix("dtmbBw", AT(a.dtmbBwMhz), 8, fixDtmbBw)),
@@ -159,6 +163,7 @@ const std::vector<PrefKey>& keyTable() {
         shared(num("mtvGrid", AT(a.mtvGrid), 0, 0, 2, true)),
         shared(flagI("reduceCpuHidden", AT(a.reduceCpuHidden), true)),
         shared(flagI("perfOverlay", AT(a.perfOverlay), false)),
+        shared(flagI("verboseLog", AT(a.verboseLog), false)),
         shared(num("powerLowMode", AT(a.powerLowMode), 1, 0, 2, true)), shared(num("powerHidden", AT(a.powerHidden), 1, 0, 2, true)),
         shared(flagI("discordOn", AT(a.discordOn), false)), shared(flagI("discordFreq", AT(a.discordFreq), true)),
         shared(rx1(flagI("mapSend", AT(a.mapSend), false, false))), shared(rx1(flagI("mapConsent", AT(a.mapConsent), false, false))), shared(rx1(flagI("mapMsgs", AT(a.mapMsgs), false, false))), shared(rx1(flagI("mapJam", AT(a.mapJam), false, false))), shared(rx1(flagI("mapHam", AT(a.mapHam), false, false))), shared(rx1(flagI("mapHamConsent", AT(a.mapHamConsent), false, false))), shared(rx1(flagI("mapHam6", AT(a.mapHam6), false, false))), shared(rx1(flagI("mapVoice", AT(a.mapVoice), false, false))),
@@ -167,7 +172,7 @@ const std::vector<PrefKey>& keyTable() {
         shared(flagI("lightUi", AT(a.lightUi), false)), shared(flagI("highContrast", AT(a.highContrast), false)),
         shared(text("uiLang", AT(a.uiLang))),
         shared(text("bandPlan", AT(a.bandPlan))),
-        shared(num("uiTheme32", AT(a.uiTheme), 3, 0, 4, true)),   // 3.2: Dev A is the default look; an older "uiTheme" is carried over once in loadPrefs
+        shared(num("uiTheme32", AT(a.uiTheme), 3, 0, 7, true)),   // 3.2: Dev A is the default look; an older "uiTheme" is carried over once in loadPrefs
         shared(flagB("layoutUnified", AT(a.layoutUnified), false, true)), shared(flagB("sideCollapsed", AT(a.sideCollapsed), false, true)),
         shared(num("uniSide", AT(a.uniSide), 0, 0, 2, true)), shared(text("uniSplit", AT(a.uniSplit))),
         shared(num("audioIq", AT(a.audioIqMode), 0, 0, 3)),
@@ -179,6 +184,7 @@ const std::vector<PrefKey>& keyTable() {
         shared(flagFn("iqCorrect", [](const App& a) { return (bool)a.engine.iqFix().iq.load(); }, [](App& a, bool v) { a.engine.iqFix().iq = v; })),
         shared(text("filePath", AT(a.file.path), true)),
         shared(dbl("fileCentreHz", AT(a.file.centreHz), 0)),
+        shared(flagFn("spurNotch", [](const App& a) { return a.engine.spurNotch(); }, [](App& a, bool v) { a.engine.setSpurNotch(v); })),
         shared(flagFn("fileDcNotch", [](const App& a) { return a.engine.dcNotch(); }, [](App& a, bool v) { a.engine.setDcNotch(v); })),
         shared(chars("outPath", AT(a.filePath[0]), sizeof(App::filePath), true)),
         shared(chars("udpHost", AT(a.udpHost[0]), sizeof(App::udpHost), true)),
@@ -312,7 +318,7 @@ void loadModeAndGains(plat::Prefs& d, App& a) {
     if (const SubMode* sm = curSub(a)) {   // the protocol entry's own frequency
         const ModeTuning* mt = modeTuning(sm->stdMode);
         const double fr = a.famFreq[modeSlot(a)];
-        if (mt && !(a.freqMhz >= mt->minMhz && a.freqMhz <= mt->maxMhz && fr > 0)) a.freqMhz = fr >= mt->minMhz && fr <= mt->maxMhz ? fr : sm->defMhz;
+        if (mt && !(a.freqMhz >= mt->minMhz && a.freqMhz <= mt->maxMhz && fr > 0 && rememberedFreqOk(mt, sm->defMhz, a.freqMhz))) a.freqMhz = rememberedFreqOk(mt, sm->defMhz, fr) ? fr : sm->defMhz;
     }
 }
 
@@ -370,6 +376,7 @@ void syncNetRadios(App& a) {
 void loadPrefs(App& a) {
     plat::Prefs& d = plat::prefs();
     a.netRadios = netRadiosFromString(d.getS("netRadios", ""));
+    a.vfoRows = vfoRowsFromString(d.getS("vfoRows", ""));   // multi-VFO channels
     a.netRadiosSeen = a.netRadios;
     a.synthGroups = synthGroupsFromString(d.getS("synthGroups", ""));
     a.hamlibRigs = hamlibRigsFromString(d.getS("hamlibRigs", ""));
@@ -422,6 +429,7 @@ void loadPrefs(App& a) {
     if (d.has("fmSaved")) {   // the saved-stations library, separate from the band-scan list in fmStations
         for (const auto& r : fmSavedDecode(d.getS("fmSaved", ""))) a.fmSaved.push_back(r);
     }
+    aisAlertsLoadPrefs(a);   // the AIS alerts also run with the AIS tab closed
     if (a.rxId == 1) loadFeedPrefs(a);   // the feeds are shared by all receivers: RX 1 owns their settings
     a.channels = d.getChannels();
     tvHdLoad(a);
@@ -459,6 +467,7 @@ void savePrefs(const App& a) {
         d.setS("netRadios", netRadiosToString(merged));
         a.netRadiosSeen = merged;
     }
+    d.setS("vfoRows", vfoRowsToString(a.vfoRows));
     if (a.rxId == 1) {
         d.setS("synthGroups", synthGroupsToString(a.synthGroups));
         d.setS("hamlibRigs", hamlibRigsToString(a.hamlibRigs));

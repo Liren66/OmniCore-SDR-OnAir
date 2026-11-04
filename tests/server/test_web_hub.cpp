@@ -243,6 +243,25 @@ static void testKickIdleQueue() {
     Drained d = drainAll(h, u);
     CHECK(!d.alive && d.kick == "test", "kicked: %s", d.kick.c_str());
     CHECK(!h.kick(9999, ""), "no such session");
+    {   // ban: the address is blocked and its sessions are kicked; others are not touched; unban lets it back
+        AdmitRequest ba; ba.ip = "198.51.100.7"; ba.cls = UserClass::Public;
+        std::string bc, bw;
+        const int b1 = h.admit(ba, bc, bw);
+        CHECK(b1 > 0, "admitted before the ban: %s", bw.c_str());
+        CHECK(!h.ban(424242, 10, ""), "ban of an unknown session");
+        CHECK(h.ban(b1, 10, "spam"), "ban");
+        Drained bd = drainAll(h, b1);
+        CHECK(!bd.alive && bd.kick.find("spam") != std::string::npos, "banned session kicked: %s", bd.kick.c_str());
+        CHECK(h.admit(ba, bc, bw) == 0 && bc == err::Forbidden, "banned address refused: %s", bc.c_str());
+        const std::string bj = h.bansJson();
+        CHECK(bj.find("\"address\"") != std::string::npos && bj.find("minutes_left") != std::string::npos, "bans listed: %s", bj.c_str());
+        const size_t at = bj.find("\"address\":\"") + 11;
+        const std::string tag = bj.substr(at, bj.find('"', at) - at);
+        CHECK(h.unban(tag) && h.bansJson().find("\"address\"") == std::string::npos, "unban");
+        const int b2 = h.admit(ba, bc, bw);
+        CHECK(b2 > 0, "admitted after unban: %s", bw.c_str());
+        h.leave(b2);
+    }
     // idle
     L.idleMin = 1;
     h.setLimits(L);
@@ -276,7 +295,28 @@ static void testSettings() {
     CHECK(fl.blocked("1.2.3.4", 101) && !fl.blocked("1.2.3.5", 101) && !fl.blocked("1.2.3.4", 161), "failed logins block for 60 s");
 }
 
+// web_spectrum=0 (the setup window's "audio only"): the spectrum request is refused with a sentence and no rows are ever sent, audio still works
+static void testAudioOnly() {
+    WebHub h;
+    HubLimits L; L.spectrum = false;
+    h.setLimits(L);
+    std::string c, w;
+    size_t pos = 0;
+    pushTones(h, {}, 0.01, pos);
+    AdmitRequest a; a.ip = "10.0.0.1";
+    const int u = h.admit(a, c, w);
+    h.handle(u, msg("{\"type\":\"audio\",\"on\":true,\"codec\":\"pcm16\",\"rate\":12000}"));
+    h.handle(u, msg("{\"type\":\"spectrum\",\"on\":true,\"bins\":512,\"fps\":10}"));
+    pushTones(h, {1000}, 0.5, pos);
+    Drained d = drainAll(h, u);
+    int rows = 0, frames = 0;
+    for (auto& b : d.bin) { if ((uint8_t)b[0] == kFrameSpectrum) rows++; else frames++; }
+    CHECK(rows == 0 && frames > 0, "audio only: %d spectrum rows, %d audio frames", rows, frames);
+    CHECK(hasText(d, "audio only"), "the listener is told why");
+}
+
 int main() {
+    testAudioOnly();
     testAdmission();
     testTwoListeners();
     testPolicyAndDecoders();

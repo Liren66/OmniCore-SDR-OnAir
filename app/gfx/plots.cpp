@@ -21,6 +21,15 @@ static void identifyPlotInput(App& a, int plotId) {
     const bool hov = plt::IsPlotHovered();
     const bool select = a.identifyTool || io.KeyShift;
     double rlo = 0, rhi = 0;
+    if (plotId == 0 && a.engine.wideAll()) {   // Everything in view: each signal found, as a band (green decoding, amber identifying, grey off / paused)
+        const double rc = radioCenterMhz(a);
+        for (const dect2::WsEntry& e : a.engine.wideAllSession().entries()) {
+            const double c = rc + e.offsetHz / 1e6, hw = std::max(e.bandwidthHz, 8000.0) * 0.5e-6;
+            plt::Spec ws; ws.FillColor = e.state == dect2::WsState::Running ? ImVec4(0.25f, 0.85f, 0.35f, 0.16f) : e.state == dect2::WsState::Identifying ? ImVec4(0.95f, 0.8f, 0.3f, 0.16f) : ImVec4(0.6f, 0.6f, 0.6f, 0.12f);
+            char nm[32]; snprintf(nm, sizeof nm, "##wab%d", e.id);
+            plt::PlotVBand(nm, c - hw, c + hw, ws);
+        }
+    }
     if (plotId == 0 && identifyRegionMhz(rlo, rhi)) { plt::Spec rs; rs.FillColor = ImVec4(0.30f, 0.65f, 1.0f, 0.12f); plt::PlotVBand("##idregion", rlo, rhi, rs); }
     if (hov && select && ImGui::IsMouseClicked(0) && a.engine.running()) { dragPlot = plotId; x0 = plt::GetPlotMousePos().x; }
     if (dragPlot == plotId) {
@@ -73,7 +82,7 @@ static int gBoxPlot = -1;
 static double gBoxGrab = 0;   // MHz from the box centre to where it was grabbed
 static bool fileBoxDragging(int plotId) { return gBoxPlot >= 0 && gBoxPlot == plotId; }
 static bool fileBoxDrag(App& a, int plotId) {
-    if (!fileVfoActive(a) || a.family == 55 || a.second.drawing || a.touchUi || a.identifyTool || ImGui::GetIO().KeyShift) { gBoxPlot = -1; return false; }
+    if (!fileVfoActive(a) || isGeneralFamily(a.family) || a.second.drawing || a.touchUi || a.identifyTool || ImGui::GetIO().KeyShift) { gBoxPlot = -1; return false; }
     if (fileBoxDragging(plotId)) {
         ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
         if (ImGui::IsMouseDown(0)) { fileSetVfo(a, plt::GetPlotMousePos().x - gBoxGrab); return true; }
@@ -137,21 +146,33 @@ double clickTuneMhz(const App& a, double mhz, bool snap) {
     return snap ? std::round(c / grid) * grid : c;
 }
 
+static double gXLo = 0, gXHi = 0;   // the frequency view the spectrum and the waterfall share
 static void clickToTune(App& a, int plotId) {
+    if (generalAutoHovered()) return;   // the mouse is on a General / Auto label
     if (autoLabelsHovered()) return;   // the mouse is on a name: it tunes (autolabel.cpp)
+    if (vfoPlotMouse(a, plotId)) return;   // multi-VFO: Add channel click, a channel's centre dragged
     if (fileBoxDrag(a, plotId)) return;
-    if (a.family == 55) { generalPlotMouse(a, plotId); return; }   // the general receiver: its channel marker, without retuning the radio
+    if (isGeneralFamily(a.family)) { generalPlotMouse(a, plotId); return; }   // the general receiver: its channel marker, without retuning the radio
     if (bandEdgeDrag(a, plotId)) return;
     if (!plt::IsPlotHovered() || a.fmScan.running) return;
     if (a.identifyTool || ImGui::GetIO().KeyShift) return;   // the Identify tool and Shift+drag select a signal instead of tuning (identifyPlotInput)
     const double mhz = clickTuneMhz(a, plt::GetPlotMousePos().x);
     if (std::isnan(mhz)) return;
     const ImVec2 d = ImGui::GetMouseDragDelta(0, 0);
-    if (ImGui::IsMouseReleased(0) && std::fabs(d.x) < 4 && std::fabs(d.y) < 4 && std::fabs(mhz - a.freqMhz) > 1e-6) {
+    // target style: a click acts unless it is on the radio centre already (the marker may be off-centre; comparing with it ignored such clicks)
+    const bool acts = tunedrag::targetClickActs(mhz, a.freqMhz, radioCenterMhz(a), a.centreTuning && a.tuningMode != 1 && !a.fmMode);
+    if (ImGui::IsMouseReleased(0) && std::fabs(d.x) < 4 && std::fabs(d.y) < 4 && acts) {
+        const double oldC = radioCenterMhz(a);
         spectrumTune(a, mhz);
+        const double newC = radioCenterMhz(a);
+        if (a.centreTuning && a.tuningMode != 1 && std::fabs(newC - oldC) > 1e-9 && gXHi > gXLo) {   // the radio moved to the click: the view follows, the signal in its middle
+            const double fs = (a.engine.sampleRate() > 0 ? a.engine.sampleRate() : a.tune.sampleRate) / 1e6;
+            const tunedrag::View v = tunedrag::centreView(gXLo, gXHi, mhz, newC - fs / 2, newC + fs / 2);
+            gXLo = v.lo; gXHi = v.hi;
+        }
         return;
     }
-    if (std::fabs(mhz - a.freqMhz) > 1e-6) {
+    if (acts) {
         const plt::Rect lim = plt::GetPlotLimits();   // a red line where a click would tune to
         if (!ImGui::IsMouseDown(0)) {   // the ghost of the channel box: where it will sit after the click, so the whole signal can be put inside it
             const ChanWidth cw = channelWidth(a);
@@ -207,7 +228,7 @@ ChanWidth channelWidth(const App& a) {
     } else if (a.family == 7) { w.mhz = a.dtmbBwMhz; w.settable = w.manual = true; }
     else if (a.family == 40 && a.engine.running() && a.rx.standard == 41 && a.rx.dvbc.symbolRate > 0) w.mhz = a.rx.dvbc.symbolRate * (1 + a.rx.dvbc.rollOff) / 1e6;
     else if (a.family == 6 && a.engine.running() && a.rx.standard == 7 && a.rx.dvbs.symbolRate > 0) w.mhz = a.rx.dvbs.symbolRate * (1 + a.rx.dvbs.rollOff) / 1e6;
-    else if (a.family == 55) w.mhz = generalChannelWidthMhz(a);
+    else if (isGeneralFamily(a.family)) w.mhz = generalChannelWidthMhz(a);
     else if (const ModeTuning* mt = modeTuning(a.family + 2)) w.mhz = mt->bandwidthMhz;
     return w;
 }
@@ -243,7 +264,7 @@ void channelWidthPopup(App& a) {
         ImGui::SameLine();
         int k = a.fmChanKhz > 0 ? a.fmChanKhz : 220;
         ImGui::SetNextItemWidth(150 * gUi);
-        if (ImGui::SliderInt("##fmchw", &k, (int)(FmReceiver::kMinChannelWidthHz / 1e3), (int)(FmReceiver::kMaxChannelWidthHz / 1e3), "%d kHz")) a.fmChanKhz = (k + 5) / 10 * 10;
+        if (ImGui::SliderInt("##fmchw", &k, 100, (int)(FmReceiver::kMaxChannelWidthHz / 1e3), "%d kHz")) a.fmChanKhz = std::max(10, (k + 5) / 10 * 10);   // (Ctrl-click to type any width)
         if (ImGui::IsItemDeactivatedAfterEdit()) savePrefs(a);
         ImGui::EndDisabled();
         ImGui::TextDisabled("%s", tr("The receiver's channel filter. Narrower keeps a strong neighbour out (150 kHz copes with one 10 dB stronger 150 kHz away); "
@@ -261,7 +282,7 @@ void channelWidthPopup(App& a) {
         ImGui::SameLine();
         if (ImGui::RadioButton(tr("6 MHz (Cuba)"), a.dtmbBwMhz == 6) && a.dtmbBwMhz != 6) setDtmbBandwidth(a, 6);
         ImGui::TextDisabled("%s", tr("Set by the country: there is nothing to measure it from. A receiver set to the wrong width finds nothing."));
-    } else if (a.family == 55) {
+    } else if (isGeneralFamily(a.family)) {
         ImGui::TextUnformatted("Demodulator");
         generalDemodPicker();
         ImGui::TextDisabled("%s", "The width follows the filter preset in the receiver controls under the spectrum.");
@@ -315,8 +336,8 @@ static void tunerDraw(const App& a, bool spectrum) {
     tstyle::draw(ImGui::GetWindowDrawList(), I);
 }
 
-static void channelBand(const App& a, bool fill) {
-    if (a.family == 55) { generalChannelBand(a, fill); return; }
+static void channelBandMain(const App& a, bool fill) {
+    if (isGeneralFamily(a.family)) { generalChannelBand(a, fill); return; }
     if (a.tunerStyle > 0) { if (!fill) tunerDraw(a, false); return; }   // the spectrum draws it over the trace (below)
     const ChanWidth cw = channelWidth(a);
     if (lookOn(a)) { specLookBand(a, a.freqMhz - std::max(0.0, cw.mhz) / 2, a.freqMhz + std::max(0.0, cw.mhz) / 2, a.freqMhz, fill, bandEdgeDragging(fill ? 0 : 1)); return; }
@@ -328,6 +349,8 @@ static void channelBand(const App& a, bool fill) {
     plt::PlotInfLines("bandedges", edges, 2, es);
 }
 
+static void channelBand(const App& a, bool fill) { channelBandMain(a, fill); vfoBands(a, fill); }   // + the multi-VFO channels' bands
+
 // "BW 7 MHz auto" in the top right corner of the spectrum: the width the band shows, and a click opens channelWidthPopup().
 // Left out when it would cover yLabel, which the plot draws in its top left corner.
 float gBwBtnW = 0, gWideBtnW = 0;   // width of the BW button as drawn this frame (0: none), for the switch beside it
@@ -336,7 +359,7 @@ void channelWidthButton(App& a, ImVec2 plotMin, ImVec2 plotSize, const char* yLa
     const ChanWidth cw = channelWidth(a);
     if (cw.mhz <= 0) return;
     char b[64], demodTag[16] = "";
-    if (a.family == 55) snprintf(demodTag, sizeof demodTag, "%s  ", generalDemodLabel());   // the general receiver's demodulator, before the width
+    if (isGeneralFamily(a.family)) snprintf(demodTag, sizeof demodTag, "%s  ", generalDemodLabel());   // the general receiver's demodulator, before the width
     snprintf(b, sizeof b, "%sBW %s%s###bwbtn", demodTag, widthText(cw.mhz).c_str(), cw.hasAuto ? (cw.manual ? " manual" : " auto") : "");
     const ImVec2 sz = ImGui::CalcTextSize(b, nullptr, true);
     const float w = sz.x + 2 * ImGui::GetStyle().FramePadding.x, m = 4 * gUi;
@@ -350,10 +373,10 @@ void channelWidthButton(App& a, ImVec2 plotMin, ImVec2 plotSize, const char* yLa
     if (ImGui::SmallButton(b)) ImGui::OpenPopup("##bwpop");
     ImGui::PopStyleColor(2);
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("%s\n\n%s", a.family == 55 ? "Demodulator (NFM, WFM, AM, USB, LSB, CW) and the width of the light band.\nClick to choose the demodulator."
+        ImGui::SetTooltip("%s\n\n%s", isGeneralFamily(a.family) ? "Demodulator (NFM, WFM, AM, USB, LSB, CW) and the width of the light band.\nClick to choose the demodulator."
                                       : tr(cw.settable ? "Channel width: the band the receiver works with (the light band).\nClick to choose automatic or a manual width."
                                       : "Channel width: the band the receiver works with (the light band), set by the standard."),
-                          tr("Zoom: mouse wheel (both axes), Ctrl+wheel (frequency), Shift+wheel (level).\nCtrl+PageUp / PageDown: step the view by one screen in frequency. Double click: reset."));
+                          tr("Zoom: mouse wheel (both axes), Ctrl+wheel (frequency), Shift+wheel (level).\nCtrl+PageUp / PageDown: step the view by one screen in frequency. Double click: tune. Home: show the whole band."));
     ImGui::SetNextWindowPos(ImVec2(ImGui::GetItemRectMax().x, ImGui::GetItemRectMax().y + 2 * gUi), ImGuiCond_Appearing, ImVec2(1, 0));   // under the button, right-aligned
     if (ImGui::BeginPopup("##bwpop")) { channelWidthPopup(a); ImGui::EndPopup(); }
     restoreCursor(keep);
@@ -538,7 +561,6 @@ static void markerLayer(const App& a, bool labels) {
 }
 
 // The spectrum and the waterfall share one frequency axis: panning or zooming either moves both, and a retune brings both back to the band.
-static double gXLo = 0, gXHi = 0;
 static void setupFreqAxis(const App& a) {
     const double fs = (a.engine.sampleRate() > 0 ? a.engine.sampleRate() : a.tune.sampleRate) / 1e6;
     static double lastC = 0, lastFs = 0;
@@ -612,7 +634,24 @@ static void syncSpecZoomFromFreqView(App& a) {
 
 static bool gFreqZoomSliderActive = false;
 
+// Target mode: the view keeps the tuner marker in its middle. Switching to it, or tuning in it, eases the view over (a drag or a pinned view stops it).
+static void followTunerMarker(App& a) {
+    static bool lastCentre = false, follow = false; static double lastMarker = 0;
+    const bool centre = a.centreTuning && a.tuningMode != 1 && !a.fmMode;
+    if (centre && (!lastCentre || std::fabs(a.freqMhz - lastMarker) > 1e-9)) follow = true;
+    lastCentre = centre; lastMarker = a.freqMhz;
+    if (!centre || !follow || !(gXHi > gXLo)) { if (!centre) follow = false; return; }
+    if (ImGui::IsMouseDown(0)) { follow = false; return; }   // the user took the view
+    const double fs = sampleRateMhz(a), rc = radioCenterMhz(a);
+    const double k = a.specSmoothZoom ? 1.0 - std::exp(-std::min(0.1, (double)ImGui::GetIO().DeltaTime) * 18.0) : 1.0;
+    bool done = false;
+    const tunedrag::View v = tunedrag::followMarker(gXLo, gXHi, a.freqMhz, rc - fs / 2, rc + fs / 2, k, done);
+    gXLo = v.lo; gXHi = v.hi;
+    if (done) follow = false;
+}
+
 static void specFreqZoomBeforePlots(App& a) {
+    followTunerMarker(a);
     if (gFreqZoomSliderActive) applyFreqZoomSlider(a, a.specZoom);
     else syncSpecZoomFromFreqView(a);
 }
@@ -984,6 +1023,7 @@ static bool levelSlider(const char* id, float* v, float lo, float hi, const char
 }
 
 void wfDisplayPopup(App& a) {
+    vfoPopupSection(a);   // multi-VFO: Add channel, the channel list
     if (ImGui::Button(tr("Reset spectrum"))) resetSpectrum(a);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Restore the default spectrum and waterfall levels and the usual half-and-half split (does not change panel layout)"));
     ImGui::Separator();
@@ -1439,7 +1479,8 @@ static double gWfScrollLo = 0, gWfScrollHi = 0; static bool gWfScrollPending = f
 static double wheelStepHz(const App& a) { return inputmap::stepHzFor(inputmap::settings(), ownTuneGridMhz(a) * 1e6); }
 
 static void tuneBySteps(App& a, int n) {
-    if (!n || a.fmScan.running || a.family == 55) return;
+    if (!n || a.fmScan.running) return;
+    if (isGeneralFamily(a.family)) { generalWheelTune(a, n, inputmap::settings().stepHz > 0 ? inputmap::settings().stepHz : 0); return; }
     const double step = wheelStepHz(a) * 1e-6;
     const double mhz = clickTuneMhz(a, a.freqMhz + n * step, inputmap::settings().stepHz == 0);
     if (!std::isnan(mhz) && std::fabs(mhz - a.freqMhz) > 1e-9) spectrumTune(a, mhz);
@@ -1504,9 +1545,12 @@ static void wheelPolicy(App& a, inputmap::Area area, ImVec2 size) {
 static void extraInputActions(App& a, bool hov) {
     using namespace inputmap;
     Settings& st = settings();
+    // tuning and the step work anywhere in the window (not only over the plots), except while typing in a text box (pressed() checks that)
+    if (pressed(Action::TuneUp, true)) tuneBySteps(a, 1);
+    if (pressed(Action::TuneDown, true)) tuneBySteps(a, -1);
+    if (pressed(Action::StepNext)) { st.stepHz = stepShift(st.stepHz, 1); save(); toast(std::string(tr("Tuning step")) + ": " + stepText(st.stepHz)); }
+    if (pressed(Action::StepPrev)) { st.stepHz = stepShift(st.stepHz, -1); save(); toast(std::string(tr("Tuning step")) + ": " + stepText(st.stepHz)); }
     if (hov) {
-        if (pressed(Action::TuneUp, true)) tuneBySteps(a, 1);
-        if (pressed(Action::TuneDown, true)) tuneBySteps(a, -1);
         if (gXHi > gXLo) {
             const double c = (gXLo + gXHi) * 0.5, sp = gXHi - gXLo;
             if (pressed(Action::ZoomIn, true)) { gXLo = c - sp * 0.4; gXHi = c + sp * 0.4; clampFreqViewToBand(a); }
@@ -1515,8 +1559,6 @@ static void extraInputActions(App& a, bool hov) {
             if (pressed(Action::PanRight, true)) { gXLo += sp * 0.25; gXHi += sp * 0.25; clampFreqViewToBand(a); }
         }
         if (pressed(Action::ZoomReset)) { const double fs = sampleRateMhz(a), rc = radioCenterMhz(a); gXLo = rc - fs / 2; gXHi = rc + fs / 2; }
-        if (pressed(Action::StepNext)) { st.stepHz = stepShift(st.stepHz, 1); save(); toast(std::string(tr("Tuning step")) + ": " + stepText(st.stepHz)); }
-        if (pressed(Action::StepPrev)) { st.stepHz = stepShift(st.stepHz, -1); save(); toast(std::string(tr("Tuning step")) + ": " + stepText(st.stepHz)); }
         if (pressed(Action::WfPause)) a.wf.paused = !a.wf.paused;
     }
 }
@@ -1547,7 +1589,8 @@ static void spectrumPlot(App& a, ImVec2 size, int extraFlags) {
     const slook::LookSet& L = curLook(a);
     plt::SetNextPlotLook(plotLook(a, true));
     wheelPolicy(a, inputmap::Area::Spectrum, size);
-    if (plt::BeginPlot("##spec", size, plt::Flags_NoLegend | plt::Flags_NoTitle | plt::Flags_Overlay | (a.specSmoothZoom ? plt::Flags_SmoothZoom : 0) | extraFlags | ((a.family == 55 && generalDragging(0)) || bandEdgeDragging(0) || fileBoxDragging(0) ? plt::Flags_NoPan : 0) | (a.identifyTool ? plt::Flags_NoPan : 0) | (ImGui::GetIO().KeyShift ? plt::Flags_NoDrag : 0))) {
+    plt::SetNextZoomMarker(a.freqMhz, 10 * gUi);
+    if (plt::BeginPlot("##spec", size, plt::Flags_NoLegend | plt::Flags_NoTitle | plt::Flags_Overlay | plt::Flags_NoDoubleReset | (a.specSmoothZoom ? plt::Flags_SmoothZoom : 0) | extraFlags | ((isGeneralFamily(a.family) && generalDragging(0)) || bandEdgeDragging(0) || fileBoxDragging(0) ? plt::Flags_NoPan : 0) | (a.identifyTool ? plt::Flags_NoPan : 0) | (ImGui::GetIO().KeyShift ? plt::Flags_NoDrag : 0))) {
         drawn = true;
         plt::SetupAxes(nullptr, kYLabel, (a.specGrid ? 0 : plt::AxisFlags_NoGridLines), plt::AxisFlags_Inside | (a.specGrid ? 0 : plt::AxisFlags_NoGridLines));   // the frequencies along the bottom edge, inside, as in SDR++
         setupFreqAxis(a);
@@ -1691,12 +1734,13 @@ static void spectrumPlot(App& a, ImVec2 size, int extraFlags) {
             }
         }
         if (look) specLookCursor(a, 0, plotMin, plotSize);
-        if (a.tunerStyle > 0 && a.family != 55) tunerDraw(a, true);   // the lines over the trace
+        if (a.tunerStyle > 0 && !isGeneralFamily(a.family)) tunerDraw(a, true);   // the lines over the trace
         wideMarkers(a);
         fileSpikeAndEdges(a, 0, plotMin, plotSize);
         multiMarkers(a);
         markerLayer(a, true);
         autoLabelsDraw(a, 0, plotMin, plotSize, plt::GetPlotLimits().X.Min, plt::GetPlotLimits().X.Max);
+        generalAutoPlot(a, 0, plotMin, plotSize, plt::GetPlotLimits().X.Min, plt::GetPlotLimits().X.Max);
         clickToTune(a, 0);
         identifyPlotInput(a, 0);
         visLo = plt::GetPlotLimits().X.Min; visHi = plt::GetPlotLimits().X.Max;
@@ -1713,7 +1757,8 @@ static void spectrumPlot(App& a, ImVec2 size, int extraFlags) {
                                 tr("Spectrum: averaging, max hold, peak markers, fill, grid and the unit (dBFS or dBm)"), specDisplayPopup);
         const float idW = identifyButton(a, plotMin, plotSize, gBwBtnW + gWideBtnW + gSpecBtnW);
         const float alW = autoLabelsButton(a, plotMin, plotSize, gBwBtnW + gWideBtnW + gSpecBtnW + idW);
-        tuneStyleButtons(a, plotMin, plotSize, gBwBtnW + gWideBtnW + gSpecBtnW + idW + alW);
+        const float gaW = generalAutoButton(a, plotMin, plotSize, gBwBtnW + gWideBtnW + gSpecBtnW + idW + alW);
+        tuneStyleButtons(a, plotMin, plotSize, gBwBtnW + gWideBtnW + gSpecBtnW + idW + alW + gaW);
     }
     dragRetune(a);
     // right-click: what is this signal?
@@ -1841,7 +1886,8 @@ static void waterfallPlot(App& a, ImVec2 size, int extraFlags) {
     const bool look = lookOn(a);
     plt::SetNextPlotLook(plotLook(a, false));
     wheelPolicy(a, inputmap::Area::Waterfall, size);
-    if (plt::BeginPlot("##wf", size, plt::Flags_NoLegend | plt::Flags_NoTitle | plt::Flags_Overlay | (a.specSmoothZoom ? plt::Flags_SmoothZoom : 0) | extraFlags | ((a.family == 55 && generalDragging(1)) || bandEdgeDragging(1) || fileBoxDragging(1) ? plt::Flags_NoPan : 0) | (a.identifyTool ? plt::Flags_NoPan : 0) | (ImGui::GetIO().KeyShift ? plt::Flags_NoDrag : 0))) {
+    plt::SetNextZoomMarker(a.freqMhz, 10 * gUi);
+    if (plt::BeginPlot("##wf", size, plt::Flags_NoLegend | plt::Flags_NoTitle | plt::Flags_Overlay | plt::Flags_NoDoubleReset | (a.specSmoothZoom ? plt::Flags_SmoothZoom : 0) | extraFlags | ((isGeneralFamily(a.family) && generalDragging(1)) || bandEdgeDragging(1) || fileBoxDragging(1) ? plt::Flags_NoPan : 0) | (a.identifyTool ? plt::Flags_NoPan : 0) | (ImGui::GetIO().KeyShift ? plt::Flags_NoDrag : 0))) {
         drawn = true;
         plt::SetupAxes(nullptr, a.wf.clockLabels ? tr("time of day") : tr("seconds ago"), plt::AxisFlags_NoTickLabels | (a.specGrid ? 0 : plt::AxisFlags_NoGridLines), plt::AxisFlags_Inside | (a.specGrid ? 0 : plt::AxisFlags_NoGridLines));   // the spectrum above shows the frequencies
         double fs = (a.engine.sampleRate() > 0 ? a.engine.sampleRate() : a.tune.sampleRate) / 1e6;
@@ -1902,6 +1948,7 @@ static void waterfallPlot(App& a, ImVec2 size, int extraFlags) {
         }
         wfScaleBar(a, plotMin, plotSize);
         autoLabelsDraw(a, 1, plotMin, plotSize, plt::GetPlotLimits().X.Min, plt::GetPlotLimits().X.Max);
+        generalAutoPlot(a, 1, plotMin, plotSize, plt::GetPlotLimits().X.Min, plt::GetPlotLimits().X.Max);
         clickToTune(a, 1);
         identifyPlotInput(a, 1);
         plt::EndPlot();

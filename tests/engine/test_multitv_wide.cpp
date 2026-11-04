@@ -3,6 +3,7 @@
 // generated signals, and the same through the engine from a recorded 8-bit capture. Nothing here needs hardware; what a real LimeSDR's USB link
 // sustains at 61.44 Msps is not tested.
 #include "dect2/engine/channelizer.h"
+#include "../common/cpu_report.h"
 #include "../common/ci_slack.h"
 #include "dect2/engine/engine.h"
 #include "dect2/engine/multitv.h"
@@ -34,7 +35,7 @@ static void testSlotsAndRates() {
     DeviceInfo lime; lime.kind = DeviceInfo::Native; lime.board = "lime"; lime.minRateHz = 0.1e6; lime.maxRateHz = 61.44e6;
     auto e = rateEntries(rateLimitsOf(lime), 0);
     CHECK(has(e, 30.72e6) && has(e, 40e6) && has(e, 61.44e6) && has(e, 20e6), "LimeSDR rate list lacks the wide rates (%zu entries)", e.size());
-    CHECK(checkManualRate(rateLimitsOf(lime), 0, 61.44e6).ok && !checkManualRate(rateLimitsOf(lime), 0, 62e6).ok, "manual rate limits");
+    CHECK(checkManualRate(rateLimitsOf(lime), 0, 61.44e6).why.empty() && checkManualRate(rateLimitsOf(lime), 0, 62e6).ok && !checkManualRate(rateLimitsOf(lime), 0, 62e6).why.empty(), "manual rate: a warning above the radio's list, never a refusal");
     DeviceInfo mini = lime; mini.maxRateHz = 30.72e6;
     e = rateEntries(rateLimitsOf(mini), 0);
     CHECK(has(e, 30.72e6) && !has(e, 40e6) && !has(e, 61.44e6), "LimeSDR Mini list stops at 30.72");
@@ -55,6 +56,7 @@ static void testFilterCost() {
         while (done < 61440000) { o.clear(); g.process(in.data(), in.size(), o); done += in.size(); }
         const double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() * 61.44e6 / (double)done;
         printf("  channeliser at %+.0f MHz: %.2f s of one core per second of a 61.44 Msps capture\n", off / 1e6, s);
+        cpuCal("multitv_wide", "channeliser at " + std::to_string((long long)std::lround(off / 1e6)) + " MHz", s, "cores", '<', 0.9 * ciSlack());
         CHECK(s < 0.9 * ciSlack(), "one channel needs %.2f cores: it must stay below one", s);
     }
     // the tone test at the wide rate: the wanted tone passes, a neighbour 8 MHz away does not

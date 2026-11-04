@@ -36,6 +36,7 @@ static void tickReceiver(App& a) {
     if (const ModeUi* mu = modeUi(a.family)) if (mu->tick) mu->tick(a);
     syncAdsbReference(a);
     wideSync(a);
+    a.engine.monitor().setMuted(a.muted);   // every frame: the Source panel that configures the monitor is not always drawn
     secondModeTick(a);
     dabScanStep(a);
     fmScanStep(a);
@@ -117,6 +118,8 @@ static void classicTopBar(App& a, ImVec2 disp) {
         if (sourceOptionsOpen(a)) sourceOptions(a);
     a.tgMin[TgToolbar] = ImVec2(tb0.x - 4, tb0.y - 3); a.tgMax[TgToolbar] = ImVec2(tb0.x + ImGui::GetContentRegionAvail().x + 4, ImGui::GetCursorScreenPos().y);
     const ImVec2 sw0 = ImGui::GetCursorScreenPos();
+    modePickerButton(a);   // the Mode Browser (mode_picker.cpp)
+    ImGui::SameLine(0, 6 * gUi);
     standardSwitch(a);
     if (a.devices[a.devIdx].isRadio()) { ImGui::SameLine(disp.x - 64 - 410 * gUi); radioSettingsUi(a, false); }   // the top bar is full
     ImGui::SameLine(disp.x - 64 - 370 * gUi);
@@ -203,6 +206,10 @@ static void floatingWindows(App& a, ImVec2 disp) {
     scanViewWindow(a);
     sweepWindow(a);
     stationHealthWindow(a);
+    receptionDoctorWindow(a);
+    rfFingerprintWindow(a);
+    wideAllWindow(a);
+    trunkPoolWindow(a);
     calibrateFrequencyDraw(a);
     memoryWindow(a);
     freqdbWindow(a);
@@ -219,6 +226,9 @@ static void floatingWindows(App& a, ImVec2 disp) {
     lessonsUi(a, disp);
     if (gIdentifyDev && a.engine.running() && ImGui::GetFrameCount() > 120) { gIdentifyDev = false; identifyStart(a, radioCenterMhz(a) * 1e6, 0, 0, radioCenterMhz(a) * 1e6); }
     identifyWindow(a);
+    generalAutoFrame(a);
+    vfoSync(a);
+    vfoPanelWindow(a);
     dect2::PskReporter::get().setDialHz(a.freqMhz * 1e6);
     dect2::WsprNet::get().setDialHz(a.freqMhz * 1e6);
     a.engine.setWideDecode(a.wideDecode && modeSupportsWideHf(a.family));
@@ -236,6 +246,8 @@ static void floatingWindows(App& a, ImVec2 disp) {
     pluginManagerWindow(a);
     msgdbWindow(a);
     watchlistWindow(a);
+    ssbConvWindow(a);
+    integrationsWindow(a);
     txTick(a);
     autodetTick(a);
     shareTick(a);
@@ -330,6 +342,7 @@ void drawUI(App& a, ImVec2 disp, bool draw) {
     }
     floatingWindows(a, disp);
     commandPalette(a);   // Ctrl+K (ui/command_palette.h)
+    modePicker(a);       // the Mode Browser: M key and the window (ui/mode_picker.cpp)
     crashNotePopup(disp);
     codecNotePopup(disp);
     hiddenPopOut(a);

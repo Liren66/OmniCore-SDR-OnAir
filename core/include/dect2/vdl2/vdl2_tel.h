@@ -40,6 +40,12 @@ struct Vdl2Message {
     bool acars = false;
     std::string reg, flight, label, labelText, msgNum, acarsText;
     char blockId = 0;
+    bool acarsFinal = true;      // ETX; false: ETB, more blocks follow
+    char acarsSeq = 0;           // downlink block sequence letter
+    bool downlinkBlock = false;  // the ACARS block id said downlink
+    bool part = false;           // an ETB block held back for a joined message: kept for the session log, hidden from the lists
+    int acarsBlocks = 1;         // blocks joined into this message
+    bool acarsIncomplete = false;// joined, but a block was missed or the end never came
     bool acarsCrcOk = false;
     // a position the message carried (ADS-C, ACARS text report, XID aircraft / ground station location)
     bool hasPos = false;
@@ -121,6 +127,16 @@ inline bool vdl2AircraftPositionNow(const Vdl2Aircraft& c, double nowSec, double
     vdl2MoveFlat(c.lat, c.lon, trk, kt, dt, lat, lon);
     if (c.hasAlt && c.hasKin && std::abs(c.vsFpm) > 50) altFt = c.altFt + (int)std::lround(c.vsFpm * dt / 60.0);
     predicted = true;
+    return true;
+}
+
+// Distance in nautical miles from the receiver (refLat, refLon) to the aircraft's position now (as vdl2AircraftPositionNow); false without a position (#394)
+inline bool vdl2AircraftRangeNm(const Vdl2Aircraft& c, double nowSec, double refLat, double refLon, double& nm) {
+    double lat = 0, lon = 0;
+    int alt = 0;
+    bool pred = false;
+    if (!vdl2AircraftPositionNow(c, nowSec, lat, lon, alt, pred)) return false;
+    nm = vdl2DistNm(refLat, refLon, lat, lon);
     return true;
 }
 

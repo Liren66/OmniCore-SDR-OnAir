@@ -12,8 +12,8 @@
 +#endif
 +    // Android owns permissions; the USB interface claim provides exclusivity.
      usb.open(d.path);require(usb.has(0x82)&&usb.has(0x02),OCH_PROTOCOL,"control endpoints 02/82 missing");
-     const auto packet_size=usb.pipes.at(0x81).MaximumPacketSize;
-     info.usb_speed_mbps=packet_size==1024?5000:packet_size==512?480:12;
+     // The bridge bootloader keeps the USB identity but has no SDK behind it.
+     firmware_probe(usb,firmware,info.serial);
 --- a/src/transport/libusb.hpp
 +++ b/src/transport/libusb.hpp
 @@ -67,6 +67,9 @@

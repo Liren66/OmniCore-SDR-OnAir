@@ -46,3 +46,8 @@ sdk/rust/**/Cargo.lock
 /dist/
 /scratchpad/
 /release/
+# Voice codec plug-ins are built by the user and never committed or shipped
+/onair-codec-*
+*/onair-codec-*.dylib
+*/onair-codec-*.so
+*/onair-codec-*.dll

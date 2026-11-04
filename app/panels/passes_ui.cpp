@@ -11,6 +11,7 @@
 #include "dect2/geo/doppler_fit.h"
 #include "dect2/lorasat/lorasat_presets.h"
 #include "dect2/geo/pass_sched.h"
+#include "dect2/source/mount_track.h"
 #include "dect2/automation/engine.h"
 #include <algorithm>
 #include <atomic>
@@ -25,6 +26,8 @@
 #include <sstream>
 #include <thread>
 #include <vector>
+
+void rotatorPassStep(const dect2::MountPlan& m);   // rotator_ui.cpp
 
 namespace {
 
@@ -357,6 +360,7 @@ void disarmOnce() {
 
 void endPass(App& a, bool los) {
     S.inPass = false;
+    rotatorPassEnd();   // the mount parks (or stops)
     a.engine.log("pass of " + S.passName + (los ? " ends (LOS)" : ": tracking stopped"));
     if (los && dect2::automation::wants(dect2::automation::FSatellite)) {   // the automations (satellite.los)
         dect2::automation::Event ev("satellite.los");
@@ -436,7 +440,7 @@ void trackTick(App& a) {
     if (S.once && !S.track) { S.once = false; S.autoStart = S.prevStart; S.autoRecord = S.prevRec; }   // Track was switched off by hand
     if (S.inPass && (!have || !track || S.sats[S.selSat].name != S.passName)) { endPass(a, false); return; }
     if (S.inPass && now > S.passLos) { endPass(a, true); return; }
-    if (!have || !track) return;
+    if (!have || !track) { rotatorPassEnd(); return; }
     const Sat& sat = S.sats[S.selSat];
     const Row* r = nullptr;
     if (sch) {
@@ -447,6 +451,10 @@ void trackTick(App& a) {
         if (!r && !S.inPass) { disarmOnce(); return; }   // it has gone (the list was rebuilt without it)
     } else r = activeOrNext(S.selSat);
     const bool active = r && r->p.aos <= now && now <= r->p.los;
+    if (r && rotatorPassDrive()) {   // antenna mount: wait at the rise point, follow the pass (rotator_ui.cpp)
+        dect2::Observer ob; ob.latDeg = S.lat; ob.lonDeg = S.lon; ob.altKm = S.altM / 1000;
+        rotatorPassStep(dect2::planMountForPass(sat.sgp, ob, r->p, now));
+    }
     if (active && !S.inPass) {   // AOS
         S.inPass = true; S.passLos = r->p.los; S.passName = sat.name; S.weStarted = false; S.weRecord = false; S.recTried = false; S.nominalMhz = sat.mhz; S.lastTune = 0;
         a.engine.log("pass of " + sat.name + " begins (AOS)");
@@ -472,8 +480,8 @@ void trackTick(App& a) {
     if (!S.inPass) return;
     if (autoRecord && !S.recTried && a.engine.running() && !a.engine.recordingStats().active && a.devices[a.devIdx].isRadio()) {
         S.recTried = true;
-        const FileFormat f = a.recFormat >= 1 ? FileFormat::CF32 : FileFormat::CS8;
-        const std::string path = plat::dataDir() + "/recordings/" + (a.recFormat == 2 ? blueRecordingName(a.engine.recordingName(f)) : a.engine.recordingName(f));
+        const FileFormat f = (FileFormat)recFileFormatOf(a.recFormat);
+        const std::string path = recordingsDir() + "/" + (a.recFormat == 2 ? blueRecordingName(a.engine.recordingName(f)) : a.engine.recordingName(f));
         std::string err;
         if (a.engine.startRecording(path, f, err)) { S.weRecord = true; a.recDonePath.clear(); a.engine.log("pass of " + sat.name + ": recording IQ to " + path); }
         else a.engine.log("recording failed: " + err);
@@ -977,6 +985,11 @@ void drawWindow(App& a) {
     ImGui::BeginDisabled(!S.track);
     ImGui::Checkbox(tr("Auto start at AOS, stop at LOS"), &S.autoStart);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", tr("Switches to the satellite's mode and starts the receiver at AOS (when it is stopped), and stops it at LOS"));
+    {
+        bool drive = rotatorPassWanted();
+        if (ImGui::Checkbox(tr("Point the antenna mount"), &drive)) rotatorPassSetDrive(drive);
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", tr("Drives the rotator or telescope mount set up in View > Antenna rotator: waits at the rise point, follows the satellite, parks at LOS"));
+    }
     ImGui::Checkbox(tr("Auto record IQ"), &S.autoRecord);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip(tr("Records the radio's IQ during the pass, as Record IQ does (format from the Record IQ setting), into %s/recordings"), plat::dataDir().c_str());
     ImGui::SetNextItemWidth(110 * gUi);
@@ -1006,6 +1019,8 @@ void drawWindow(App& a) {
 }
 
 }  // namespace
+
+void passesDownloadTles() { loadState(); startDownload(); }
 
 // dev: --tle <file> loads TLEs from a file as pasted ones would (tests without the network)
 void passesDevTle(const std::string& path) {

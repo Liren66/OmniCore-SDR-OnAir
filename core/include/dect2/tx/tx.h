@@ -28,11 +28,13 @@
 //
 // No frequency and no power limit is applied here: see TxTune in source.h.
 #pragma once
+#include "dect2/mesh/mesh_tx.h"
 #include "dect2/engine/mode_synth.h"
 #include "dect2/source/source.h"
 #include "dect2/audio/audioin.h"
 #include "dect2/audio/videoin.h"
 #include "dect2/tv/demo_ts.h"
+#include "dect2/tx/tx_iqstream.h"
 #include <atomic>
 #include <condition_variable>
 #include <deque>
@@ -115,6 +117,9 @@ std::unique_ptr<TxSink> makeNullTxSink();
 // signal goes out that far below the frequency asked for (APRS 50 kHz down, #351). The modes with their own transmit chain place theirs themselves.
 double txModeTuneOffsetHz(const TxModeSpec& m);
 
+// The analog FM voice's CTCSS tone: fm.ctcssIdx 1 .. 50 is the standard tone of that number (67.0 .. 254.1 Hz), 0 or beyond is none.
+double txCtcssToneHz(int idx);
+
 class TxGenerator {
 public:
     virtual ~TxGenerator() = default;
@@ -137,6 +142,7 @@ struct TxRequest {
     std::string callsign;          // FT8, APRS, D-STAR, M17, …
     std::string grid;              // Maidenhead (FT8 / WSPR)
     std::string text;              // RTTY / CW / PSK / pager / APRS comment / free-text
+    MeshTxIdentity mesh;           // Mesh (LoRa): the sender's own node identity, channel and hop limit (used when text is not empty)
     std::string payload;           // a message prepared as it goes on the air (the Flipper chat screen: the encrypted octets); empty: built from the fields
     std::string dest;              // APRS destination, D-STAR UR, M17 dst, FT8 report target
     std::string path;              // APRS digipeater path, e.g. WIDE1-1,WIDE2-1
@@ -234,6 +240,7 @@ public:
     // Change frequency / gain / bandwidth while sending (a radio that cannot says so in err and goes on as it was). Applied between two writes by the sender thread.
     bool retune(const TxTune& t, std::string& err);
     bool dryRun() const { return dry_; }
+    int iqClients() const { return iq_ ? iq_->clients() : -1; }   // TCP IQ stream: connected clients, -1 when the stream is off or could not open
     Stats stats() const;
     std::vector<std::string> log() const;          // what was sent and what happened, oldest first, each with the time
     void setLogCallback(std::function<void(const std::string&)> f) { std::lock_guard<std::mutex> lk(mu_); cb_ = std::move(f); }
@@ -249,6 +256,7 @@ private:
     void tapWrite(const cf32* x, size_t n);
 
     std::unique_ptr<TxSink> sink_;
+    std::unique_ptr<TxIqStream> iq_;   // the IQ on a TCP socket (tx_iqstream.h), when the setting is on
     std::unique_ptr<TxGenerator> gen_;
     std::unique_ptr<AudioIn> audio_;
     std::unique_ptr<VideoIn> video_;

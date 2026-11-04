@@ -4,6 +4,8 @@
 #include "dect2/atv/atv_testkit.h"
 #include "dect2/common/stable_random.h"
 #include "dect2/dsp/exact_resampler.h"
+#include "../common/cpu_report.h"
+#include "../common/cpu_time.h"
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -82,9 +84,9 @@ Result decode(const std::vector<cf32>& x, double rate) {
     const size_t chunk = 65536;
     for (size_t done = 0; done < x.size();) {
         const size_t n = std::min(chunk, x.size() - done);
-        const std::clock_t c0 = std::clock();
+        const double c0 = processCpuSecs();
         rx.feed(x.data() + done, n);
-        cpu += (double)(std::clock() - c0) / CLOCKS_PER_SEC;
+        cpu += (processCpuSecs() - c0);
         done += n;
         AtvTelemetry t;
         if (rx.telemetry(t, seq)) { seq = t.seq; r.tel = t; if (t.state == 2 && r.lockedAfterMs < 0) r.lockedAfterMs = (int)(1000.0 * (double)done / rate); }
@@ -116,6 +118,7 @@ void check(const char* name, const FmOptions& o, double secs, int maxLockMs, dou
     for (const auto& l : r.log) printf("  log: %s\n", l.c_str());
     printf("  receiver: %.0f %% of real time\n", r.cpuPct);
     // the speed check only on a quiet machine: CI runs many tests side by side (and the Linux build in an emulating container)
+    cpuCal("atv_fm", name, r.cpuPct, "%-realtime", '<', 85, ciSlack() == 1);
     if (!std::getenv("CI")) CHECK(r.cpuPct < 85, "%s: %.0f %% of real time", name, r.cpuPct);
     CHECK(t.modulation == 1, "%s: not in FM mode", name);
     CHECK(t.state == 2 && t.dataValid, "%s: not locked (state %d)", name, t.state);

@@ -1,6 +1,7 @@
 // Shared parts of the native radio drivers (source_rtlsdr.cpp, source_airspy.cpp, source_sdrplay.cpp, ...): loading a radio's own library at run time and the
 // base class every native source builds on.
 #pragma once
+#include "dect2/common/verbose_log.h"
 #include "dect2/common/thread_name.h"
 #include "dect2/source/source.h"
 #include "dect2/codec/codec_paths.h"
@@ -517,13 +518,11 @@ private:
             if (open_) streamLoop();
             if (!run_ || waitStop(std::chrono::milliseconds(100))) return;   // a stop that was already on its way is not a loss
             if (open_) {
-                fprintf(stderr, "radio lost: the stream ended (unplugged?); trying to open it again every second\n");
-                fflush(stderr);
+                dect2::diagLog("radio lost: the stream ended (unplugged?); trying to open it again every second");
                 if (!closeWhileRunning()) return;
             }
             while (!reopen()) if (waitStop(std::chrono::milliseconds(kReconnectMs))) return;
-            fprintf(stderr, "radio reconnected\n");
-            fflush(stderr);
+            dect2::diagLog("radio reconnected");
         }
     }
     // true when stop() was asked for within d
@@ -570,8 +569,7 @@ private:
             if (!run_) return false;
             if (e != reconnectErr_) {   // each new reason once, not every second
                 reconnectErr_ = e;
-                fprintf(stderr, "radio not available yet: %s\n", e.c_str());
-                fflush(stderr);
+                dect2::diagLog("radio not available yet: %s", e.c_str());
             }
             return false;
         }
@@ -581,7 +579,7 @@ private:
             std::lock_guard<std::mutex> dl(devMu_);
             if (lastGen_ != gen) {   // settings changed while the radio was being opened
                 std::string ce;
-                if (!configure(last_, ce, true) && !ce.empty()) { fprintf(stderr, "radio reconnected, but the new settings were not taken: %s\n", ce.c_str()); fflush(stderr); }
+                if (!configure(last_, ce, true) && !ce.empty()) dect2::diagLog("radio reconnected, but the new settings were not taken: %s", ce.c_str());
             }
             open_ = true;
             reconnectErr_.clear();
@@ -612,6 +610,7 @@ inline std::string trimmed(const char* s, size_t max) {
 // one entry per radio: list the connected ones, and open one (the arguments come from the list)
 void listRtl(std::vector<DeviceInfo>& out);
 void listAirspy(std::vector<DeviceInfo>& out);
+void listHydra(std::vector<DeviceInfo>& out);    // source_hydrasdr.cpp: HydraSDR RFOne
 void listBlade(std::vector<DeviceInfo>& out);
 void listLime(std::vector<DeviceInfo>& out);
 void listPluto(std::vector<DeviceInfo>& out);
@@ -621,6 +620,7 @@ bool limeLibraryState(std::string* path, int* radios);   // LimeSuite: loaded or
 bool sdrplayApiInstalled();   // the SDRplay API library (sdrplay_api.dll / libsdrplay_api) was found
 std::unique_ptr<IqSource> makeRtl(const DeviceInfo& d);
 std::unique_ptr<IqSource> makeAirspy(const DeviceInfo& d);
+std::unique_ptr<IqSource> makeHydra(const DeviceInfo& d);
 std::unique_ptr<IqSource> makeBlade(const DeviceInfo& d);
 std::unique_ptr<IqSource> makeLime(const DeviceInfo& d);
 std::unique_ptr<IqSource> makePluto(const DeviceInfo& d);

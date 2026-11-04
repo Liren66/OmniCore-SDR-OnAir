@@ -48,6 +48,10 @@ bool decodeImage(const std::string& path, int& w, int& h, std::vector<uint32_t>&
 std::string cacheDir();
 // A folder for downloaded files the user keeps (map tiles kept until deleted): system cleaners leave it alone. Created on demand. UTF-8.
 std::string dataDir();
+// The built-in data folder, where the pointer to a chosen folder is kept; and setting that choice ("" = back to the built-in one). Takes effect at the next start;
+// the existing files are not moved (the settings window says so). DECT2_DATA_DIR still wins.
+std::string defaultDataDir();
+bool setDataDir(const std::string& path);
 // Downloads url into file (UTF-8 path) with the curl program, which Windows 10 and later, macOS and nearly every Linux have (no TLS library
 // is linked). On Windows it runs without a console window. Gives up after about 15 s. False when the download did not work.
 bool fetchUrl(const std::string& url, const std::string& file, const std::string& userAgent);
@@ -65,6 +69,14 @@ struct HttpResult { int status = 0; int net = 0; std::string body; std::string d
 HttpResult httpRequest(const std::string& method, const std::string& url, const std::string& body, const std::string& userAgent, int timeoutSec);
 // Starts a program with arguments and does not wait for it. No shell is ever involved: every argument stays one argument. False and err when it did not start.
 bool spawnProgram(const std::string& program, const std::vector<std::string>& args, std::string& err);
+// Starts a program that keeps running, its output (both streams) written to logFile. Returns its process id, 0 and err when it did not start.
+// childAlive() asks whether it still runs, stopChild() asks it to end. Used by the OnAir Web easy setup.
+long spawnChild(const std::string& program, const std::vector<std::string>& args, const std::string& logFile, std::string& err);
+bool childAlive(long pid);
+std::string exePath();   // the running program's full path
+void stopChild(long pid);
+void killChild(long pid);   // ends it at once (a program that did not end after stopChild)
+std::string childName(long pid);   // the program name of a process id ("onair-server"), "" when it is not running or the system will not say (used to clean up leftovers after a crash)
 // A desktop notification (Notification Center on macOS, a toast on Windows, notify-send on Linux when installed). False when the system could not show one.
 bool notify(const std::string& title, const std::string& body);
 // The position from the system's location service (on macOS this is Wi-Fi positioning and needs the user's permission).

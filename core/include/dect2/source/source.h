@@ -1,5 +1,6 @@
 // IQ sample sources: HackRF, recorded file, built-in synthetic DVB-T2-like signal.
 #pragma once
+#include <functional>
 #include <cstdio>
 #include "dect2/common/ring.h"
 #include "dect2/t2/t2gen.h"
@@ -33,12 +34,15 @@ struct SynthConfig {
 };
 
 struct TuneSettings {
-    double bandwidthMhz = 8;
+    double bandwidthMhz = 8;           // the mode's channel width, or the custom capture bandwidth the user typed (Advanced > Custom): the radio's filter and the rate follow it
+    double channelBwMhz = 0;           // the signal's own channel width when a custom capture bandwidth replaced bandwidthMhz (DVB-T2 / DVB-T / DTMB decode with it); 0 = bandwidthMhz is both
     int isdbtBwMhz = 6;                // ISDB-T channel width: 6 (Japan, the Americas), 7, 8 MHz (the Maldives); 0 = automatic (6, 7 and 8 tried)
     SynthConfig synth;
+    double signalBwMhz() const { return channelBwMhz > 0 ? channelBwMhz : bandwidthMhz; }   // the signal's own width (SNR in the channel, gain, the decoders that need it), not the custom capture width
     double centerHz = 522e6;
     double sampleRate = 18285714.2857; // 2x native rate for an 8 MHz channel
     double basebandFilterHz = 0;       // 0 = auto
+    bool rateChosen = false;           // the user chose this sample rate (Custom): a driver's own safety cap on the rate (an RTL-SDR's 2.56 Msps) does not hold it down; the driver may still refuse it and says so
     double gainDb = 30;                // overall gain of generic (SoapySDR) radios; the three HackRF stages below are not used there
     int lnaDb = 16;                    // 0..40 step 8
     int vgaDb = 20;                    // 0..62 step 2
@@ -113,6 +117,11 @@ RadioSetting ppmSetting(double step = 0.1);
 RadioSetting boolSetting(const std::string& key, const std::string& label, const std::string& help, bool def = false, bool restart = false);
 RadioSetting choiceSetting(const std::string& key, const std::string& label, const std::string& help, std::vector<std::string> values,
                            std::vector<std::string> names, const std::string& def, bool restart = false);
+
+// HackRF baseband filter (3.5): the Advanced "Baseband filter" choice (Auto + the MAX2837 widths) and the width the driver sets for it.
+// Auto (key "bbfilter" unset or "auto") follows the sample rate / the mode (hackrfAutoFilterHz); a listed width in Hz is used as given.
+RadioSetting hackrfFilterSetting();
+uint32_t hackrfFilterFor(const TuneSettings& s);
 
 // How a sound-card source turns captured stereo audio into complex IQ (Audio source, source_audio.cpp).
 enum class AudioIqMode { StereoIq = 0, Usb = 1, Lsb = 2, MonoReal = 3 };
@@ -239,6 +248,8 @@ std::unique_ptr<IqSource> makeNativeSource(const DeviceInfo& d);
 // Every radio found: HackRF first, then the native ones, then the SoapySDR ones (a radio found natively is not listed again through SoapySDR).
 std::vector<DeviceInfo> listRadios(std::string& err);
 std::unique_ptr<IqSource> makeSource(const DeviceInfo& d);
+// Tests only: makeSource() asks this first and uses its source when it returns one (an empty function turns it off)
+void setTestSourceFactory(std::function<std::unique_ptr<IqSource>(const DeviceInfo&)> f);
 
 // File format helpers (sidecar-free for now): .cs8 interleaved signed 8-bit IQ, .cu8 unsigned, .cf32 float.
 enum class FileFormat { CS8, CU8, CF32, CI16, CU16 };   // CI16 / CU16 come from SigMF and WAV files only

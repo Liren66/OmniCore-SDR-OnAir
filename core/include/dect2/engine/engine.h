@@ -6,12 +6,14 @@
 #include "dect2/dsp/exact_resampler.h"
 #include "dect2/audio/audio_monitor.h"
 #include "dect2/source/delivery_check.h"
+#include "dect2/source/gain_meter.h"
 #include "dect2/source/source.h"
 #include "dect2/source/iq_record.h"
 #include "dect2/source/time_machine.h"
 #include "dect2/dsp/spectrum.h"
 #include "dect2/dsp/noise_blanker.h"
 #include "dect2/t2/t2rx.h"
+#include "dect2/t2/t2mi_out.h"
 #include "dect2/dvbt/dvbt_rx.h"
 #include "dect2/atsc/atsc_rx.h"
 #include "dect2/dab/dab.h"
@@ -23,6 +25,9 @@
 #include "dect2/atv/atv_rx.h"
 #include "dect2/dmr/dmr_rx.h"
 #include "wide_modes.h"
+#include "wide_session.h"
+#include "vfo.h"
+#include "dect2/audio/audioout.h"
 #include "dect2/drm/drm_rx.h"
 #include "dect2/adsb/adsb_rx.h"
 #include "dect2/gnss/gnss_rx.h"
@@ -47,6 +52,7 @@
 #include "dect2/vor/vor_rx.h"
 #include "dect2/ndb/ndb_rx.h"
 #include "dect2/dme/dme_live.h"
+#include "dect2/sitor/sitor_live.h"
 #include "dect2/m17/m17_rx.h"
 #include "dect2/hfdl/hfdl_rx.h"
 #include "dect2/cell/cell_rx.h"
@@ -77,6 +83,7 @@
 #include "dect2/general/general_rx.h"
 #include "dect2/time/time_rx.h"
 #include "dect2/cubesat/cubesat_rx.h"
+#include "dect2/cubesat/cubesat_smart.h"
 #include "dect2/globalstar/globalstar_rx.h"
 #include "dect2/vdes/vdes_rx.h"
 #include "dect2/zigbee/zigbee_rx.h"
@@ -101,6 +108,12 @@
 #include "dect2/ssdv/ssdv_rx.h"
 #include "dect2/ebicab/ebicab_rx.h"
 #include "dect2/inmsat/inmsat_rx.h"
+#include "dect2/nrf24/nrf24_rx.h"
+#include "dect2/atis/atis_rx.h"
+#include "dect2/selcal/selcal_rx.h"
+#include "dect2/fy3/fy3_rx.h"
+#include "dect2/pactorhf/pactorhf_rx.h"
+#include "dect2/shortwave/shortwave_rx.h"
 #include "dect2/pskdsp/pskdsp_rx.h"
 #include "dect2/wisun/wisun_rx.h"
 #include "dect2/zwave/zwave_rx.h"
@@ -131,6 +144,8 @@
 #include "dect2/nr/nr_rx.h"
 #include "dect2/goes/goes_rx.h"
 #include "dect2/elektro/elektro_rx.h"
+#include "dect2/gk2a/gk2a_rx.h"
+#include "dect2/fygeo/fygeo_rx.h"
 #include "dect2/lbj/lbj_rx.h"
 #include "dect2/railway/railway_rx.h"
 #include "dect2/horus/horus_rx.h"
@@ -174,6 +189,7 @@
 #include <memory>
 #include "dect2/power/power.h"
 #include "dect2/dsp/dc_notch.h"
+#include "dect2/dsp/spur_notch.h"
 #include <map>
 #include <utility>
 
@@ -214,6 +230,8 @@ public:
     ~Engine();
 
     bool start(const DeviceInfo& dev, const TuneSettings& tune, const FileOptions& file);
+    // Why the last start() returned false, in the driver's own words (empty when it succeeded): the app shows it when a rate or bandwidth the user typed is refused
+    std::string startError() const { std::lock_guard<std::mutex> lk(noteMu_); return startErr_; }
     // The number of this receiver (RX 1, RX 2 ...): the radio it opens is claimed for it (device_claims.h), another receiver cannot open it too
     void setReceiverId(int id) { receiverId_ = id; }
     int receiverId() const { return receiverId_; }
@@ -242,11 +260,13 @@ public:
     // 8 = DVB-S/S2, 9 = DTMB, 10 = analog TV, 11 = DMR, 12 = DRM, 13 = ADS-B, 14 = GNSS,
     // 15 = radiosonde, 16 = AIS, 17 = marine, 18 = ACARS, 19 = Inmarsat-C, 20 = Inmarsat Aero, 21 = Iridium, 22 = mesh,
     // 23 = HD Radio, 24 = CDR, 25 = pagers, 26 = APRS / packet, 27 = HF digital, 28 = airband, 29 = VDL Mode 2, 30 = ISM sensors, 32 = VOR / ILS, 33 = M17, 34 = cell towers, 35 = D-STAR, 36 = CW, 37 = HFDL, 38 = PSK31, 39 = JS8Call, 42 = DVB-C, 46 = Orbcomm, 40 = NXDN, 41 = GSM-R, 45 = Mode S uplink, 47 = dPMR, 51 = HF ALE, 48 = TETRA, 49 = MAC, 50 = radio astronomy, 51 = HF ALE, 52 = P25, 53 = Bluetooth LE, 54 = ionospheric sounders
-    static constexpr int kPollSeqSlots = 186;   // pollMode() seqs[] indices; LBJ uses slot 76
+    static constexpr int kPollSeqSlots = 201;   // pollMode() seqs[] indices; LBJ uses slot 76
     void setStandard(int m) { stdMode_ = m; stdReq_ = true; refreshIdle(); }
     int standardMode() const { return stdMode_.load(); }
     int activeStandard() const { return activeStd_.load(); }  // 0 = DVB-T2, 1 = DVB-T, 2 = ATSC, 3 = DAB, 4 = ATSC 3.0, 5 = ISDB-T, 6 = FM, 7 = DVB-S/S2, 8 = DTMB, 9 = analog TV, 10 = DMR, 11 = DRM, 12 = ADS-B, 13 = GNSS, 14 to 27 = radiosonde, AIS, marine, ACARS, Inmarsat-C, Inmarsat Aero, Iridium, mesh, HD Radio, CDR, pagers, APRS / packet, HF digital, airband, VDL Mode 2, ISM sensors, VOR / ILS, M17, 34 = D-STAR, 35 = CW, 36 = HFDL, 37 = PSK31, 38 = JS8Call, 41 = DVB-C, 44 = Mode S uplink, 45 = Orbcomm, 46 = dPMR, 39 = NXDN, 47 = TETRA, 48 = MAC, 49 = radio astronomy, 50 = HF ALE, 51 = P25, 52 = Bluetooth LE, 53 = ionospheric sounders , 54 = QO-100, 55 = Wi-Fi networks, 56 = general receiver (always the standard code minus one)
     double sampleRate() const { return rate_; }
+    // The automatic gain's sensors (every sample of the radio's block, on the engine thread; take() from any thread): docs/AUTOGAIN.md
+    ag::GainMeter& gainMeter() { return gainMeter_; }
     double radioRate() const { return srcRate_; }   // the rate the radio (or file) runs at, as it confirmed it at the start
     // Channel bandwidth: with automatic detection on, the engine measures the width of the signal in the spectrum while nothing is
     // locked and reconfigures the receivers by itself. setBandwidth() forces a value (used by the scanner).
@@ -338,6 +358,9 @@ public:
     bool setSecondaryDvbs(double freqHz, double symbolRate);
 
     void setPlpDump(std::function<void(const PlpResult&)> cb) { plpDump_ = std::move(cb); }
+    // DVB-T2: export the BB frames of the decoded PLP as raw frames or T2-MI, to a file and/or UDP (t2mi_out.h). Empty config: off. Returns "" or the reason it failed.
+    std::string setT2Export(const T2ExportConfig& c);
+    uint64_t t2ExportFrames() const { return t2Export_ ? t2Export_->frames() : 0; }
 
     // Multi-channel TV (DVB-T / DVB-T2, multitv.h): when the capture is wide enough for more than one channel of the chosen width, one receiver runs for
     // every occupied channel of the raster (up to maxChannels), each with its own telemetry and service list; one channel plays at a time while the others
@@ -394,6 +417,11 @@ public:
     // "Ignore DC spike": a notch at the capture's centre in front of the receiver (the spectrum still shows the spike)
     void setDcNotch(bool on) { dcNotch_ = on; }
     bool dcNotch() const { return dcNotch_.load(); }
+    // "Clean the input" (auto gain, 3.6): an adaptive notch for the radio's own spurs (dsp/spur_notch.h), off by default. Cuts persistent narrow lines
+    // outside the wanted channel, and inside it only when the same baseband line was seen under another radio centre (instrumental, not a signal).
+    void setSpurNotch(bool on) { spurNotch_ = on; }
+    bool spurNotch() const { return spurNotch_.load(); }
+    int spurNotchLines() const { return spurLines_.load(); }
     // DAB / DAB+: the ensemble found on the channel, and the station to play (a sub-channel id, -1 = none)
     DabEnsemble dabEnsemble() const { return rxD_.ensemble(); }
     DabFicAnalysis dabFic() const { return rxD_.ficAnalysis(); }
@@ -477,6 +505,13 @@ public:
     PskdReceiver& pskd() { return rxPskd_; }       // PSK demodulator: settings, analyse again, clear
     RoshfReceiver& roshf() { return rxRoshf_; }   // ROS (HF): clear the detections, sideband (telemetry through latestRx)
     SsdvReceiver& ssdv() { return rxSsdv_; }   // SSDV: speed, save folder, clear the pictures (telemetry through latestRx)
+    Fy3Receiver& fy3Ahrpt() { return rxFy3a_; }   // FY-3 AHRPT: satellite preset, symbol rate, roll-off, new pictures (telemetry through latestRx)
+    Fy3Receiver& fy3Mpt() { return rxFy3m_; }     // FY-3 MPT: the same
+    PactorHfReceiver& pactorHf(int variant) { return variant == 3 ? rxPh3_ : variant == 4 ? rxPh4_ : rxPh2_; }   // PACTOR-II / -III / -IV: clear the results (telemetry through latestRx)
+    SelcalReceiver& selcal() { return rxSelcal_; }   // SELCAL: call log, aircraft table, Listen volume / mute (telemetry through latestRx)
+    AtisReceiver& atis() { return rxAtis_; }   // ATIS (inland waterways): clear the lists, Listen volume / mute (telemetry through latestRx)
+    ShortwaveReceiver& shortwave() { return rxSw_; }   // Shortwave: the general receiver and the one-click decoders (telemetry through latestRx)
+    Nrf24Receiver& nrf24() { return rxNrf_; }   // nRF24L01: clear the lists (telemetry through latestRx)
     InmsatReceiver& inmsat() { return rxInmsat_; }   // Inmarsat all carriers: budget, focus, voice mixer (telemetry through latestRx)
     EbicabReceiver& ebicab() { return rxEbi_; }   // EBICab / Eurobalise: clear the lists (telemetry through latestRx)
     EsubghzReceiver& esubghz() { return rxEsg_; }   // Flipper Zero Sub-GHz chat: the key, the lines sent, clear the chat (telemetry through latestRx)
@@ -515,12 +550,15 @@ public:
     RidReceiver& rid() { return rxRid_; }   // Drone Remote ID: clear the drone table (telemetry through latestRx)
     HrptReceiver& hrpt() { return rxHrpt_; }   // HRPT / AHRPT: variant, new picture (telemetry through latestRx)
     GoesReceiver& goes() { return rxGoes_; }   // GOES HRIT: clear the products (telemetry through latestRx)
+    Gk2aReceiver& gk2aLrit() { return rxGkL_; }   // GK-2A LRIT (family 230): clear, keys (telemetry through latestRx)
+    Gk2aReceiver& gk2aHrit() { return rxGkH_; }   // GK-2A HRIT (family 231)
+    FygeoReceiver& fygeo() { return rxFy_; }   // FengYun geostationary: FY-4A / FY-4B LRIT, FY-4A HRIT, FY-2 S-VISSR (telemetry through latestRx)
     ElektroReceiver& elektro() { return rxEl_; }   // Elektro-L HRIT / LRIT / GGAK (telemetry through latestRx)
-    ElLoranReceiver& eloran() { return rxEloran_; }   // eLoran / Loran-C (WIP): GRI, stations, arrival times (telemetry through latestRx)
+    ElLoranReceiver& eloran() { return rxEloran_; }   // eLoran / Loran-C: GRI, stations, arrival times (telemetry through latestRx)
     NfcReceiver& nfc() { return rxNfc_; }   // NFC / RFID 13.56 MHz: frame log, tag table, NDEF (telemetry through latestRx)
     IsdbsReceiver& isdbs() { return rxIsdbs_; }   // ISDB-S (BS satellite TV): stream selection (telemetry through latestRx; the packets go to the TV player like DVB-S)
-    MptReceiver& mpt1327() { return rxMpt_; }   // MPT1327 trunking control channel (WIP): messages and channel table (telemetry through latestRx)
-    FusionReceiver& fusion() { return rxFusion_; }   // Yaesu Fusion (WIP): callsigns and slow data, the speech codec plug-in (telemetry through latestRx)
+    MptReceiver& mpt1327() { return rxMpt_; }   // MPT1327 trunking control channel: messages and channel table (telemetry through latestRx)
+    FusionReceiver& fusion() { return rxFusion_; }   // Yaesu Fusion: callsigns and slow data, the speech codec plug-in (telemetry through latestRx)
     LtrReceiver& ltr() { return rxLtr_; }   // LTR control channel (telemetry through latestRx)
     MarineVhfReceiver& marineVhf() { return rxMarineVhf_; }   // Marine VHF voice: all channels of the span (telemetry through latestRx)
     EdacsReceiver& edacs() { return rxEdacs_; }   // EDACS control channel (telemetry through latestRx)
@@ -548,7 +586,8 @@ public:
     M17Receiver& m17() { return rxM17_; }   // M17: the receiver's own controls and results (the interface reads telemetry through latestRx)
     AirbandReceiver& airband() { return rxAirband_; }   // Airband: the receiver's own controls and results (the interface reads telemetry through latestRx)
     VorReceiver& vor() { return rxVor_; }   // VOR / ILS: the receiver's own controls and results (the interface reads telemetry through latestRx)
-    DmeLiveReceiver& dme() { return rxDme_; }   // DME (WIP): channel X or Y, pair rate, the Morse ident (telemetry through latestRx)
+    SitorLiveReceiver& sitor() { return rxSitor_; }   // SITOR-B (FEC) text from NAVTEX and HF coast stations (telemetry through latestRx)
+    DmeLiveReceiver& dme() { return rxDme_; }   // DME: channel X or Y, pair rate, the Morse ident (telemetry through latestRx)
     NdbReceiver& ndb() { return rxNdb_; }   // NDB: long-wave non-directional beacons, the Morse ident (telemetry through latestRx)
     TeletextDecoder& teletext() { return ttx_; }
     DvbSubDecoder& dvbSubtitles() { return dvbsub_; }
@@ -563,6 +602,16 @@ public:
     // Takes effect at once; the single-channel receiver is untouched while it is on. Needs a restart-free toggle: the carriers appear within a second.
     void setWideVoice(bool on) { wideOn_.store(on); for (auto& v : wideSeq_) v = 0; }
     bool wideVoice() const { return wideOn_.load(); }
+    // "Decode everything in view": one wide capture, every signal in it found, identified and decoded at once (wide_session.h). While on it takes
+    // the capture before the mode's own receiver (the mode's receiver is idle); off: nothing here runs.
+    // Smart CubeSat (docs/CUBESAT-SMART.md): in the CubeSat mode the whole capture goes to the smart decoder (any thread to switch and read)
+    void setSmartCube(bool on) { smartCubeOn_.store(on); }
+    bool smartCube() const { return smartCubeOn_.load(); }
+    cubesat::SmartCubesat& smartCubeDecoder() { return smartCube_; }
+    void setWideAll(bool on) { wideAllOn_.store(on); }
+    bool wideAll() const { return wideAllOn_.load(); }
+    WideSession& wideAllSession() { return wideAll_; }   // entries(), status() and the controls (any thread)
+    void setWideAllBudget(double frac) { wideAllBudget_.store(frac); }   // CPU limit as a share of one core (0: none); default 0.8
     void setWideMuted(bool m) { wide_.setMuted(m); }
     void setWideVolume(float v) { wide_.setVolume(v); }   // the volume slider reaches every carrier receiver of the whole-span modes
     void setWideSelected(int carrierId) { wide_.setSelected(carrierId); }   // the carrier whose sound plays and whose detail shows (0: the best locked)
@@ -575,6 +624,17 @@ public:
     // IQ of one carrier of the running mode to an IQ WAV file in dir (the path, "" on failure)
     std::string startWideRecording(int carrierId, const std::string& dir) { return wide_.startRecording(activeStd_.load(), carrierId, dir); }
     void stopWideRecording(int carrierId) { wide_.stopRecording(activeStd_.load(), carrierId); }
+    // Multi-VFO (vfo.h): extra channels on the same capture, each with its own frequency, mode, squelch and mixer settings; their sound is mixed
+    // and played beside the mode's own. Offsets are from the capture centre (captureCentreHz()). With no channels nothing runs. Any thread.
+    void setVfoChannels(const std::vector<VfoConfig>& c) { vfo_.setChannels(c); vfoN_.store((int)c.size()); if (c.empty()) vfoCloseSound(); }
+    size_t vfoChannelCount() const { return (size_t)vfoN_.load(); }
+    std::vector<VfoStatus> vfoStatus() const { return vfo_.status(); }
+    bool vfoPager(int id, PagerTelemetry& t) const { return vfo_.pagerTelemetry(id, t); }
+    bool vfoPacket(int id, PacketTelemetry& t) const { return vfo_.packetTelemetry(id, t); }
+    double vfoLoad() const { return vfo_.load(); }                       // above 1 the channels fall behind: warn, never refuse
+    std::string vfoWarning(int id) const { return vfo_.warning(id); }
+    void vfoClearResults() { vfo_.clearResults(); }
+    void setVfoSound(bool on) { vfoSoundOn_.store(on); }                // false: decode and measure, never open the sound device (tests, --mute)
     void clearAllResults();                              // the lists of every mode at once (the top bar's Clear all)
     // the files of the DSM-CC carousels of the stream received, saved to dir/pid_XXXX/path (clear broadcast data); returns the number of files written
     size_t saveCarouselFiles(const std::string& dir) { std::lock_guard<std::mutex> lk(tsMu_); return demux_.saveCarouselFiles(dir); }
@@ -623,6 +683,8 @@ private:
     void catchUp();
     void logRxEvents(const RxTelemetry& t);
     std::function<void(const PlpResult&)> plpDump_;
+    std::unique_ptr<T2Export> t2Export_;
+    std::mutex t2ExportMu_;
     void onPlp(const PlpResult& r);
     // multi-channel TV (setMultiChannel)
     std::shared_ptr<MultiTv> mtv_;
@@ -656,6 +718,10 @@ private:
     std::atomic<double> fileCentreHz_{0};
     std::atomic<bool> dcNotch_{false};
     DcNotch dcn_;
+    std::atomic<bool> spurNotch_{false};
+    std::atomic<int> spurLines_{0};
+    SpurNotch spurn_;
+    double spurRate_ = 0;
     void fileFollowVfo(const TuneSettings& t);
     OffsetMixer decodeMix_;
     // with offset tuning the radio runs faster than the mode needs; right after the shift the samples go back to the mode's own rate, so the
@@ -663,6 +729,8 @@ private:
     ExactResampler offRs_;
     bool offResample_ = false;
     std::vector<cf32> offBuf_;
+    ag::GainMeter gainMeter_;
+    double gmRate_ = 0;
     double srcRate_ = 0;   // the radio's rate (rate_ is what the receivers get: the same, or the mode's rate with offset tuning)
     bool offsetAllowed() const;
     // the steps of start() (engine_start.cpp), called in this order
@@ -723,6 +791,22 @@ private:
     AtvReceiver rxAtv_;
     DmrReceiver rxDmr_;
     WideModes wide_;
+    WideSession wideAll_;
+    std::atomic<bool> wideAllOn_{false};
+    std::atomic<double> wideAllCentre_{0}, wideAllBudget_{0.8};
+    double wideAllKeyRate_ = 0, wideAllKeyCentre_ = -1; bool wideAllKeyOn_ = false;
+    void syncWideAll();
+    cubesat::SmartCubesat smartCube_;
+    std::atomic<bool> smartCubeOn_{false};
+    double smartKeyRate_ = 0, smartKeyCentre_ = -1; bool smartKeyOn_ = false;
+    void syncSmartCube();
+    VfoBank vfo_;
+    std::atomic<int> vfoN_{0};
+    std::atomic<bool> vfoSoundOn_{true};
+    std::unique_ptr<AudioOut> vfoOut_;
+    std::mutex vfoOutMu_;
+    void vfoFeed(const cf32* x, size_t n);
+    void vfoCloseSound();
     std::atomic<bool> wideOn_{false};
     uint64_t wideSeq_[256] = {};
     DrmReceiver rxDrm_;
@@ -747,6 +831,7 @@ private:
     VorReceiver rxVor_;
     NdbReceiver rxNdb_;
     DmeLiveReceiver rxDme_;
+    SitorLiveReceiver rxSitor_;
     M17Receiver rxM17_;
     HfdlReceiver rxHfdl_;
     CellReceiver rxCell_;
@@ -823,6 +908,12 @@ private:
     SsdvReceiver rxSsdv_;
     EbicabReceiver rxEbi_;
     InmsatReceiver rxInmsat_;
+    Nrf24Receiver rxNrf_;
+    AtisReceiver rxAtis_;
+    SelcalReceiver rxSelcal_;
+    Fy3Receiver rxFy3a_{0}, rxFy3m_{1};
+    PactorHfReceiver rxPh2_{2}, rxPh3_{3}, rxPh4_{4};   // PACTOR-II (family 237), -III (238), -IV (239)
+    ShortwaveReceiver rxSw_;
     PskdReceiver rxPskd_;
     MscatterLiveReceiver rxMs_;
     GoesDcsReceiver rxGd_;
@@ -834,6 +925,9 @@ private:
     NrReceiver rxNr_;
     GoesReceiver rxGoes_;
     ElektroReceiver rxEl_;
+    Gk2aReceiver rxGkL_{0};
+    Gk2aReceiver rxGkH_{1};
+    FygeoReceiver rxFy_;
     LbjReceiver rxLbj_;
     RailwayReceiver rxKlw_;
     RailwayReceiver rxTdcs_{railway::Protocol::Tdcs};
@@ -978,6 +1072,7 @@ private:
     uint64_t rateOff0_ = 0;    // offered-sample count at rateT0_
     std::string reconnectErr_;
     mutable std::mutex noteMu_;
+    std::string startErr_;
     std::string note_, retuneNote_;     // sourceNote(): the driver's note at the start, at the last retune
     void setNote(const std::string& n, bool retune);
     std::atomic<double> rate_{0};

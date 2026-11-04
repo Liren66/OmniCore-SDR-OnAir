@@ -55,6 +55,26 @@ int RadioProfile::settableCount(bool incUser) const {
     for (const auto& s : stages) if (s.settable && (incUser || !s.userOnly)) n++;
     return n;
 }
+bool RadioProfile::calibrated() const {
+    for (const auto& s : stages) if (s.settable && !s.actualDb.empty() && s.actualDb.size() == s.steps.size()) return true;
+    return false;
+}
+// the real gain of an overall setting: linear interpolation in the measured table (the table is by step, ascending)
+static double realOf(const GainStage& s, double nominal) {
+    if (s.actualDb.empty() || s.actualDb.size() != s.steps.size() || s.steps.size() < 2) return nominal;
+    if (nominal <= s.steps.front()) return s.actualDb.front() + (nominal - s.steps.front());
+    if (nominal >= s.steps.back()) return s.actualDb.back() + (nominal - s.steps.back());
+    size_t i = 1;
+    while (i + 1 < s.steps.size() && s.steps[i] < nominal) i++;
+    const double span = s.steps[i] - s.steps[i - 1];
+    const double f = span > 1e-9 ? (nominal - s.steps[i - 1]) / span : 0;
+    return s.actualDb[i - 1] + f * (s.actualDb[i] - s.actualDb[i - 1]);
+}
+double RadioProfile::realDelta(double a, double b) const {
+    if (settableCount() != 1) return b - a;
+    for (const auto& s : stages) if (s.settable) return realOf(s, b) - realOf(s, a);
+    return b - a;
+}
 double RadioProfile::minTotal(bool ampOn) const {
     double t = 0;
     for (const auto& s : stages) {
@@ -157,6 +177,17 @@ std::vector<RadioProfile> buildProfiles() {
         v.push_back(r);
     }
     {
+        RadioProfile r;   // the Airspy R2's successor: the same tuner stages and gain tables (libhydrasdr)
+        r.id = "hydrasdr"; r.name = "HydraSDR RFOne"; r.adcBits = 12; r.hasBias = true; r.driverSplits = true; r.settleSec = 0.25;
+        r.stages.push_back(stage("overall", "Gain step", StageKind::Overall, range(0, 21, 1), 3.5, 7, -8, true,
+                                 "libhydrasdr's 22-step gain table (linearity or sensitivity, the radio's Gain mode setting): each step sets LNA, mixer and VGA together. Steps, not dB."));
+        r.stages.push_back(info(stage("alna", "LNA", StageKind::Lna, range(0, 15, 1), 3.5, 8, -10, true, "R820T2 LNA, 0-15.")));
+        r.stages.push_back(info(stage("amix", "Mixer", StageKind::Mixer, range(0, 15, 1), 9, 0, 0, true, "R820T2 mixer, 0-15.")));
+        r.stages.push_back(info(stage("avga", "VGA", StageKind::Vga, range(0, 15, 1), 15, 0, 10, false, "IF VGA after the filter, 0-15.")));
+        r.notes = "12-bit ADC. The Gain mode setting picks the table: Linearity (the default) for strong signals, Sensitivity for weak ones.";
+        v.push_back(r);
+    }
+    {
         RadioProfile r;
         r.id = "airspyhf"; r.name = "Airspy HF+"; r.adcBits = 16; r.hasAmp = true; r.driverSplits = true; r.settleSec = 0.25;
         r.stages.push_back(stage("overall", "Gain", StageKind::Overall, range(0, 48, 6), 6, 6, 10, true,
@@ -167,7 +198,7 @@ std::vector<RadioProfile> buildProfiles() {
     }
     {
         RadioProfile r;
-        r.id = "sdrplay"; r.name = "SDRplay RSP (1A / 1B / 2 / dx / duo)"; r.adcBits = 14; r.hasBias = true; r.driverSplits = true; r.settleSec = 0.3;
+        r.id = "sdrplay"; r.name = "SDRplay RSP (1A / 1B / 2 / dx / duo)"; r.adcBits = 14; r.hasBias = true; r.driverSplits = true; r.settleSec = 0.3; r.splitKey = "gainsplit";
         r.stages.push_back(stage("overall", "Gain", StageKind::Overall, range(0, 100, 1), 4, 10, -10, true,
                                  "One gain for OnAir: the driver turns it into an LNA state (RFGR) and an IF gain reduction (IFGR 20-59 dB). Reductions: more reduction = less gain."));
         GainStage rf = stage("rfgr", "RF gain reduction (LNA state)", StageKind::Lna, range(0, 9, 1), 4, 12, -10, true,
@@ -214,6 +245,7 @@ std::vector<RadioProfile> buildProfiles() {
     overallRadio("kiwisdr", "KiwiSDR (network)", 14, 0, 120, 1, 1.0, false, "The Kiwi's manual gain (its own AGC when 'Gain control' is automatic).", {}, "Shared by many listeners.");
     overallRadio("generic", "Other radio (one overall gain)", 12, 0, 60, 1, 0.3, false, "The driver's overall gain; the driver spreads it over its stages.", {}, "");
     for (auto& r : v) if (r.remote || r.id == "spyserver" || r.id == "kiwisdr") r.remote = true;
+    for (auto& r : v) if (r.id == "spyserver" || r.id == "kiwisdr" || r.id == "generic") r.stepsUncertain = true;
     return v;
 }
 
@@ -325,6 +357,7 @@ StagePlan planStages(const RadioProfile& r, double totalDb, Policy pol, uint32_t
     StagePlan p;
     p.db.assign(r.stages.size(), 0.0);
     p.ampOn = ampOn;
+    p.pol = pol; p.polMatters = !r.splitKey.empty();
     std::vector<int> movable;
     double fixedSum = 0;
     for (size_t i = 0; i < r.stages.size(); i++) {

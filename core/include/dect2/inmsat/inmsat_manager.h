@@ -11,6 +11,7 @@
 #include "dect2/aero/aero_tel.h"
 #include "dect2/inmc/inmc_tel.h"
 #include "inmsat_satid.h"
+#include "inmsat_voice.h"
 #include <functional>
 #include <memory>
 #include <string>
@@ -21,6 +22,9 @@ namespace dect2::inmsat {
 enum class CarrierType { Unknown, AeroP, InmarsatC, AeroC };
 const char* carrierTypeName(CarrierType t);
 
+// the P channel rate a carrier of this width most likely is (a guess for the carrier list until a decoder holds sync)
+int rateGuessForWidth(double widthHz, CarrierClass cls);
+
 struct CarrierRow {
     int id = 0;
     double offsetHz = 0;          // against the centre of the capture
@@ -30,6 +34,7 @@ struct CarrierRow {
     CarrierClass cls = CarrierClass::Narrow;
     CarrierType type = CarrierType::Unknown;   // what actually decodes; Unknown while nothing is in sync
     int bitRate = 0;              // P channels: 600 / 1200 / 10500; Inmarsat-C: 1200 (symbols/s)
+    int rateGuess = 0;            // while bitRate is 0: the P channel rate the carrier's width suggests (600 narrow, 10500 wide), 0 = no guess
     int state = 0;                // 0 seen, 1 locked, 2 frames in sync, 3 data
     float ebn0Db = 0;
     uint64_t frames = 0;
@@ -37,7 +42,10 @@ struct CarrierRow {
     std::string region;           // Inmarsat-C: ocean region from the bulletin board
     std::string station;          // Inmarsat-C: station name
     std::string satellite;        // from the satellite identification (inmsat_satid.h), "" while it is not sure
-    bool voiceCandidate = false;  // wide, old enough, and no data decoder holds sync: it may be an Aero C (voice) channel (not decodable yet, see inmsat_voice.h)
+    bool voiceCandidate = false;  // wide, old enough, and no data decoder holds sync: it may be an Aero C (voice) channel that has not locked (yet)
+    uint32_t callAes = 0;         // Aero C: the aircraft of the call (24-bit address), 0 until a call-progress unit was heard
+    uint8_t callGes = 0;          // Aero C: the ground station
+    float cBer = 0;               // Aero C: channel bit error rate before decoding, last frame
     bool parked = false;          // no window: the CPU budget is used up
     bool focus = false;
     int window = -1;              // index into Snapshot::windows, -1 parked
@@ -61,6 +69,7 @@ struct Snapshot {
     std::vector<AeroAircraft> aircraft;         // most recent first, up to 200
     std::vector<InmcMessage> egc;               // Inmarsat-C messages, newest first, up to 150
     uint64_t messagesTotal = 0, positionsTotal = 0, susOk = 0, susBad = 0;
+    int cChannels = 0, cLocked = 0;             // Aero C receivers running / locked on a frame
     float floorDb = 0;
     SatResult sat;                              // which satellite this capture is looking at, with the evidence
     // the common prefix the engine copies into RxTelemetry (status bar, history plot): same meaning as in every other mode
@@ -77,6 +86,7 @@ struct ManagerConfig {
     double windowBwHz = 160000;   // width of one window
     double budget = 10;           // CPU budget in cost units (an Aero window costs 1, an added Inmarsat-C receiver 0.6)
     bool inmcOn = true;
+    bool voiceOn = true;          // try the wide carriers that no data decoder holds as Aero C channels (cost 0.5 each)
     DetectorConfig detector;      // rate is set from `rate`
 };
 
@@ -93,6 +103,9 @@ public:
     void setCenter(double hz);                   // absolute frequency of the capture centre, for the carrier table
     void setBudget(double units);
     void setInmcOn(bool on);
+    void setVoiceOn(bool on);
+    // every decoded 500 ms C-channel frame: its details and the 25 coded voice frames (300 bytes). Called on the thread that calls feed().
+    void setVoiceSink(std::function<void(const CFrameInfo&, const uint8_t*)> sink);
     void setLocation(bool known, double latDeg, double lonDeg);   // the user's position, for the geometry evidence
     void setSatelliteOverride(const std::string& name);           // "" = automatic
     void setFocus(int carrierId);                // 0 none; a focused carrier's window is never parked

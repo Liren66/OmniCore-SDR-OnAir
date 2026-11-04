@@ -48,6 +48,8 @@ const Known kKnown[] = {
 {"VDL Mode 2", "vdl2", "", "Aviation", MB(ModPsk8)|MB(ModQpsk)|MB(ModQam), ModPsk8, {10500}, {12.1e3}, 0, 2, 0, 0, SyncNone, {136.6f, 137}, "D8PSK 10.5 kBd, 25 kHz, bursts"},
 {"VDL Mode 4", "vdl4", "", "Aviation", MB(ModGmsk)|MB(ModFsk2)|MB(ModOfdm)|MB(ModPulse), ModGmsk, {19200}, {18.8e3}, 0, 2, 0, 0, SyncNone, {118, 137}, "GFSK 19.2 kBd, STDMA slots"},
 {"HFDL", "hfdl", "", "Aviation", MB(ModBpsk)|MB(ModQpsk)|MB(ModPsk8), ModBpsk, {1800}, {2.13e3}, 0, 0, 0, 0, SyncNone, {2.8f, 22}, "PSK 1800 Bd, 2.4 kHz SSB channel"},
+{"SSB voice", "general", "", "Analog voice", MB(ModPulse)|MB(ModAm)|MB(ModQam)|MB(ModFm)|MB(ModCarrier)|MB(ModUnknown)|MB(ModBpsk)|MB(ModFsk2)|MB(ModGmsk), ModAm, {}, {2.4e3}, 0, 0, 0, 0, SyncSsb, {1.8f, 30, 50, 54, 144, 148, 420, 450}, "single sideband speech: 2 to 3 kHz of one sideband, no carrier, syllabic envelope; the General receiver in USB / LSB"},
+{"NFM voice", "general", "", "Analog voice", MB(ModFm), ModFm, {}, {9e3, 5e3}, 0, 0, 0, 0, SyncNone, {30, 50, 136, 174, 400, 470}, "narrow FM speech, 12.5 / 25 kHz; the General receiver in NFM"},
 {"Airband voice", "airband", "", "Aviation", MB(ModAm)|MB(ModCarrier)|MB(ModPulse), ModAm, {}, {6.3e3}, 0, 0, 0, 0, SyncNone, {108, 137}, "AM voice, 8.33 / 25 kHz"},
 {"VOR", "vorils", "vor", "Aviation", MB(ModCarrier)|MB(ModAm), ModCarrier, {}, {250}, 0, 1, 0, 0, SyncNone, {108, 118}, "AM carrier with 30 Hz and 9960 Hz FM subcarrier"},
 {"ILS localizer", "vorils", "ils", "Aviation", MB(ModCarrier)|MB(ModAm), ModCarrier, {}, {320}, 0, 1, 0, 0, SyncNone, {108.1f, 112, 329, 335}, "AM carrier with 90 and 150 Hz tones"},
@@ -70,6 +72,9 @@ const Known kKnown[] = {
 {"GOES HRIT/LRIT", "goes", "", "Satellite", MB(ModBpsk)|MB(ModQpsk), ModBpsk, {927000, 293883}, {1.18e6}, 0, 1, 0, 0, SyncNone, {1691, 1695}, "BPSK 927 kBd (HRIT) or 293.9 kBd (LRIT) near 1694 MHz"},
 {"HRPT", "hrpt", "", "Satellite", MB(ModQpsk)|MB(ModBpsk), ModQpsk, {2.33e6, 665.4e3}, {3.13e6}, 0, 1, 0, 0, SyncNone, {1698, 1710}, "BPSK 665 kBd (NOAA) or QPSK 2.33 MBd (MetOp AHRPT) near 1700 MHz"},
 {"Elektro-L LRIT", "elektro", "", "Satellite", MB(ModBpsk)|MB(ModQpsk), ModBpsk, {665.4e3}, {845e3}, 0, 1, 0, 0, SyncNone, {1690, 1695}, "BPSK 665.4 kBd near 1691 MHz"},
+{"FengYun-4 LRIT", "fy4lrit", "", "Satellite", MB(ModQpsk), ModQpsk, {90e3, 120e3}, {112.5e3, 150e3}, 0, 1, 0, 0, SyncNone, {1695, 1699}, "DVB-S2 QPSK 2/5 (FY-4A, 90 kBd) or 8/9 (FY-4B, 120 kBd) near 1697 MHz"},
+{"FengYun-4A HRIT", "fy4ahrit", "", "Satellite", MB(ModQpsk), ModQpsk, {1e6}, {1.25e6}, 0, 1, 0, 0, SyncNone, {1677, 1681}, "DVB-S2 QPSK 5/6, 1 MBd near 1679 MHz"},
+{"FengYun-2 S-VISSR", "fy2svissr", "", "Satellite", MB(ModBpsk), ModBpsk, {660e3}, {990e3}, 0, 1, 0, 0, SyncNone, {1686, 1689}, "BPSK 660 kBd (NRZ-M) near 1687.5 MHz"},
 {"CubeSat telemetry", "cubesat", "", "Satellite", MB(ModFsk2)|MB(ModFsk4)|MB(ModGmsk), ModFsk2, {1200, 4800, 9600}, {9.5e3}, 0, 0, 0, 0, SyncNone, {144, 146, 435, 438}, "GFSK / AFSK 1200 to 9600 Bd amateur satellites"},
 {"QO-100", "qo100", "", "Satellite", MB(ModQam)|MB(ModQpsk)|MB(ModOfdm)|MB(ModAm)|MB(ModBpsk)|MB(ModCarrier)|MB(ModFm), ModQam, {}, {1.65e6}, 0, 1, 0, 0, SyncNone, {10489, 10499, 2400, 2401}, "narrowband transponder, SSB / digital 2.7 kHz to 2 MHz"},
 // ---- data, paging, IoT
@@ -92,6 +97,7 @@ const Known kKnown[] = {
 {"LoRa APRS", "mesh", "loraaprs", "Data and IoT", MB(ModChirp), ModChirp, {}, {125e3}, 0, 2, 0, 0, SyncNone, {433.7f, 433.9f}, "LoRa 125 kHz SF12 on 433.775 MHz"},
 {"MeshCom", "mesh", "meshcom", "Data and IoT", MB(ModFsk4)|MB(ModFsk2)|MB(ModGmsk), ModFsk4, {}, {248e3}, 0, 2, 0, 0, SyncNone, {433, 434}, "GFSK / LoRa hybrid on 433.175 MHz"},
 {"LoRaWAN", "mesh", "lorawan", "Data and IoT", MB(ModChirp), ModChirp, {}, {125e3}, 0, 2, 0, 0, SyncNone, {863, 870, 902, 928}, "LoRa 125 kHz uplinks on the 868 MHz channels"},
+{"LoRaWAN FSK", "lorawanwide", "", "Data and IoT", MB(ModFsk2)|MB(ModGmsk)|MB(ModPulse), ModFsk2, {50e3}, {110e3}, 25000, 2, 0, 0, SyncNone, {868.7f, 868.9f, 924.7f, 924.9f}, "GFSK 50 kbit/s, +-25 kHz, BT 1, bursts on 868.8 MHz (EU868 DR7)"},
 // ---- cellular
 {"LTE", "cell", "", "Cellular", MB(ModOfdm), ModOfdm, {66.667e-6}, {1.08e6, 2.7e6, 4.5e6, 8.85e6, 13.4e6, 17.9e6}, 0, 1, 0, 0, SyncNone, {700, 960, 1710, 2170, 2500, 2700}, "OFDM, 15 kHz carriers, 1.4 to 20 MHz"},
 {"NB-IoT", "nbiot", "", "Cellular", MB(ModOfdm), ModOfdm, {66.667e-6}, {229e3, 180e3}, 0, 1, 0, 0, SyncNone, {700, 960, 1710, 1880}, "OFDM 180 kHz carrier, in-band or guard-band of LTE"},
