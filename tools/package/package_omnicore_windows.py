@@ -99,6 +99,8 @@ def main():
     shutil.copy2(ROOT / 'LICENSE', out / 'LICENSE.txt')
     shutil.copytree(ROOT / 'LICENSES', out / 'LICENSES')
     licenses = out / 'LICENSES'
+    for name in ['LICENSE', 'README-OnAir.md']:
+        shutil.copy2(ROOT / 'third_party/openjpeg' / name, licenses / ('OpenJPEG-' + name))
     licenses.mkdir(exist_ok=True)
     shutil.copy2(source / 'LICENSE', licenses / 'OmniCore-Host-LICENSE.txt')
     shutil.copytree(source / 'third_party/driver/libusbK-3.1.0.0-src/license', licenses / 'libusbK')

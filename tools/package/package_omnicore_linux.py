@@ -24,6 +24,8 @@ for name,target in [('libomnicore.so','libomnicore.so.0.5.0'),('libomnicore.so.1
 for name in ['LICENSE','README.md','README.upstream.md','THIRD_PARTY.md','DEVICES.md']:
     shutil.copy2(root/name,out/name)
 shutil.copytree(root/'LICENSES',out/'LICENSES')
+for name in ['LICENSE', 'README-OnAir.md']:
+    shutil.copy2(root/'third_party/openjpeg'/name, out/'LICENSES'/('OpenJPEG-' + name))
 shutil.copytree(root/'packaging/icons',out/'icons')
 shutil.copy2(root/'packaging/linux/install-omnicore-desktop.sh',out/'install-desktop.sh')
 (out/'install-desktop.sh').chmod(0o755)
