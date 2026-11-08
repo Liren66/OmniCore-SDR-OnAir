@@ -130,6 +130,8 @@ OnAir drives the OmniCoreSDR (AD9361 + Zynq + CH32H417 USB 3 bridge, USB id 1a86
 (OCH, `omnicore.dll` / `libomnicore.so`, C ABI 1). The library is not shipped with OnAir; OnAir loads it at run time and the radio is listed
 only when it is found:
 
+- The OmniCore-SDR-OnAir release packages bundle OmniCore Host 0.7.1. Firmware v2026.11.07 and newer (framed USB transport,
+  `SDK_CMD_1.1` or later) needs OmniCore Host 0.6.0 or later; older Host versions refuse to open it.
 - Windows: install OmniCore Host 0.4.6 or later (0.4.7 for the RX RSSI) (`OmniCoreHost-<version>-win64-setup.exe`) and its libusbK driver (`och-driver install`).
   OnAir looks for `omnicore.dll` next to `OnAir.exe`, then in `C:\Program Files\OmniCore Host\bin`, then on the PATH.
 - Linux: build and install OmniCore Host (`tools/build-linux.sh`, `cmake --install ... --prefix /opt/omnicore/<version>`); OnAir finds

@@ -16,7 +16,9 @@ This is an independent fork of OnAir with native OmniCore SDR integration, inclu
 - 无线电设置面板显示 RX RSSI；控制链路失效后重新打开设备。
 - 更新检查指向本仓库，不会自动替换成上游发行包。
 
-版本号跟随上游，当前统一为 **3.6.0**，不再添加 `-omnicore.*` 或 Android 后缀。程序名称保留 **OmniCore-SDR-OnAir**，以区分本分支和上游。本版合并上游 `25034214`，并在三个平台捆绑 OmniCore Host **0.5.0**；保留上游 Git 历史和本地 OmniCore 功能提交。
+版本号跟随上游，当前统一为 **3.6.0**，不再添加 `-omnicore.*` 或 Android 后缀。程序名称保留 **OmniCore-SDR-OnAir**，以区分本分支和上游。本版合并上游 `25034214`，并在三个平台捆绑 OmniCore Host **0.7.1**；保留上游 Git 历史和本地 OmniCore 功能提交。
+
+> **固件要求**：内置 OmniCore Host **0.7.1**，适配固件 [v2026.11.08](https://github.com/Liren66/OmniCore-SDR-Firmware/releases/tag/v2026.11.08)（以及 v2026.11.07 起的成帧 USB 传输固件）。v2026.11.07 之前的旧固件需要先升级，旧版程序（内置 OCH 0.5.0）则无法打开新固件。板子运行 [OmniCore SDR Linux](https://github.com/Liren66/OmniCore-SDR-Linux) 1.3.x 时固件已包含在镜像中。
 
 | 发布包 | 平台 | OmniCore 功能 |
 | --- | --- | --- |

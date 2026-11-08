@@ -444,7 +444,7 @@ std::map<std::string, std::weak_ptr<OmniRadio>> gRadios;
 std::shared_ptr<OmniRadio> openRadio(const std::string& serial, std::string& err, bool& final) {
     auto& a = ochApi();
     final = false;
-    if (!a.ok) { err = "OmniCoreSDR: the OmniCore Host library (omnicore) is missing: install OmniCore Host 0.4.6 or later"; final = true; return {}; }
+    if (!a.ok) { err = "OmniCoreSDR: the OmniCore Host library (omnicore) is missing: install OmniCore Host 0.4.6 or later (0.6.0 or later for firmware v2026.11.07 and newer)"; final = true; return {}; }
     std::lock_guard<std::mutex> lk(gMu);
     if (auto r = gRadios[serial].lock()) return r;
     auto r = std::make_shared<OmniRadio>();

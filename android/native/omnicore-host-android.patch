@@ -68,7 +68,7 @@
          rc=libusb_get_active_config_descriptor(libusb_get_device(device),&raw);
 --- a/src/core/api.cpp
 +++ b/src/core/api.cpp
-@@ -78,6 +78,14 @@
+@@ -95,6 +95,14 @@
      require(match.size()==1,OCH_INVALID,"multiple devices; specify a serial number");
      auto d=std::make_unique<och_device>();d->open(match.front());*out=d.release();return OCH_OK;
  });}

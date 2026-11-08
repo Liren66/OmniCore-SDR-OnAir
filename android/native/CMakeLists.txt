@@ -58,7 +58,7 @@ file(COPY "${_android_hackrf_header}" DESTINATION "${CMAKE_BINARY_DIR}/android-h
 target_include_directories(dect2core PRIVATE "${CMAKE_BINARY_DIR}/android-host-headers")
 
 option(ONAIR_ANDROID_OMNICORE "Build OmniCore Host with Android USB descriptor support" ON)
-set(OMNICORE_HOST_SRC "" CACHE PATH "Unmodified OmniCore Host 0.5.0 source; downloaded when empty")
+set(OMNICORE_HOST_SRC "" CACHE PATH "Unmodified OmniCore Host 0.7.1 source; downloaded when empty")
 if(ONAIR_ANDROID_OMNICORE)
   if(NOT _have_libusb)
     message(FATAL_ERROR "OmniCore Android needs LIBUSB_SRC; its USB transport cannot use stubs")
@@ -66,7 +66,7 @@ if(ONAIR_ANDROID_OMNICORE)
   if(NOT OMNICORE_HOST_SRC)
     include(FetchContent)
     FetchContent_Declare(omnicore_host_source
-      URL https://github.com/Liren66/OmniCore-SDR-Host/archive/3bcce611394c4b57434396ff2f5018677d9b7003.tar.gz
+      URL https://github.com/Liren66/OmniCore-SDR-Host/archive/c51cf8774e5931ff94a317963e9ad6bff93b342c.tar.gz
       DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
     FetchContent_GetProperties(omnicore_host_source)
     if(NOT omnicore_host_source_POPULATED)
@@ -92,7 +92,8 @@ if(ONAIR_ANDROID_OMNICORE)
     ${_och}/src/core/api.cpp ${_och}/src/core/device.cpp ${_och}/src/core/configuration.cpp
     ${_och}/src/core/reconfigure.cpp ${_och}/src/core/stream.cpp ${_och}/src/core/rf.cpp
     ${_och}/src/core/firmware.cpp ${_och}/src/core/power.cpp ${_och}/src/core/board.cpp
-    ${_och}/src/dsp/codec.cpp ${_och}/src/dsp/framer.cpp)
+    ${_och}/src/core/timebase.cpp ${_och}/src/core/sync.cpp
+    ${_och}/src/dsp/codec.cpp ${_och}/src/dsp/frame.cpp)
   target_include_directories(omnicore PRIVATE "${_och}/include" "${_och}/src")
   target_compile_definitions(omnicore PRIVATE OCH_BUILD)
   target_compile_features(omnicore PRIVATE cxx_std_17)

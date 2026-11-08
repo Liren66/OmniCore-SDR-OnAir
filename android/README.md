@@ -24,7 +24,7 @@ The same pattern is corrected in Messages, aircraft/vessel lists and RDS. Tables
 by offline Robolectric tests for empty, populated and filtered states; these do not require a phone or radio.
 
 For this fork, set `LIBUSB_SRC` to libusb 1.0.27 source when building. OmniCore support defaults to ON;
-`OMNICORE_HOST_SRC` may point to the unmodified Host source at commit `3bcce611394c4b57434396ff2f5018677d9b7003`,
+`OMNICORE_HOST_SRC` may point to the unmodified Host source at commit `c51cf8774e5931ff94a317963e9ad6bff93b342c (0.7.1)`,
 otherwise CMake downloads it. The Android patch is applied only to a build-local copy.
 `ONAIR_ANDROID_OMNICORE=OFF` restores the upstream build without this additional library.
 The native build enables 16 KB page compatibility for Android 15+ devices.
