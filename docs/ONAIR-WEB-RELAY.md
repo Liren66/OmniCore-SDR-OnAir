@@ -2,6 +2,8 @@
 
 Status: the client (`server/web/web_relay.*`, started by `onair-server` when `web_relay=1`) is built and tested against a fake relay on this computer (`tests/server/test_web_relay.cpp`). The relay service is built (`relay/`, one file, Node 18+, no dependencies; tested end to end on this computer) but **not deployed yet**, so nothing in OnAir has ever contacted `relay.on-air.dev`. Until it exists the Share window falls back to the Cloudflare tunnel (see "What the window does" below). This file is the specification the relay service has to meet.
 
+**Live status (2026-11-09):** `relay.on-air.dev` is not deployed (the name does not resolve). OnAir 3.7 therefore defaults to "automatic": relay first, then a Cloudflare tunnel, so sharing works before the relay exists. See docs/ONAIR-WEB-DEPLOY.md, section 5b.
+
 ## Why a relay
 
 Most listeners' computers sit behind a home router, a mobile network (CGNAT) or a company firewall: nobody on the internet can open a connection to them. The relay turns it around. The server makes ONE outbound connection (a WebSocket, port 443, which every network lets out) to a service on the internet. The service owns a public https address, and every browser that opens that address is carried to the server inside the server's own connection. Nothing to open on the router, no helper program, no account.
@@ -60,7 +62,7 @@ What the client does with a virtual connection: it connects a TCP socket to the 
 6. **Stay blind where it can**: it never stores the bytes it carries and never lists servers (the public directory, docs/ONAIR-DIRECTORY.md, is a separate opt-in service; `web.on-air.dev` can run on the same Worker infrastructure).
 7. Optional but wanted: `GET https://relay.on-air.dev/relay/v1/status` returns `{"v":1,"ok":true}` for the window's connection test.
 
-A Cloudflare Worker with a Durable Object per server id (the host's WebSocket is held by the object, browsers' requests arrive at the Worker, which forwards them to the object and gets the frames back) fits this design; so does any small server in Go, Rust or Node. The client does not care.
+A Cloudflare Worker with Durable Objects is built in `web/relay-worker/` (docs/CF-RELAY-3.8.md; not deployed). A Cloudflare Worker with a Durable Object per server id (the host's WebSocket is held by the object, browsers' requests arrive at the Worker, which forwards them to the object and gets the frames back) fits this design; so does any small server in Go, Rust or Node. The client does not care.
 
 ## What the window does (Server > Share on web)
 

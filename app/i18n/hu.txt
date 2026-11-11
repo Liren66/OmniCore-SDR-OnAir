@@ -77,7 +77,6 @@ QO-100 path	QO-100 útvonal
 Radio ID	Rádióazonosító
 Radio text (RT)	Rádiószöveg (RT)
 RDS PI	RDS PI
-Receiver-style options (demo signal)	Vevő-stílusú opciók (demó jel)
 Report	Jelentés
 Reverse (mark is the upper tone)	Fordított (a mark a felső hang)
 RFPI	RFPI
@@ -448,7 +447,6 @@ The width of the signal is measured in the spectrum and the receiver switches be
 The receiver's channel filter. Narrower keeps a strong neighbour out (150 kHz copes with one 10 dB stronger 150 kHz away); below about 180 kHz loud passages distort a little and RDS suffers first.	A vevő csatornaszűrője. A keskenyebb kint tartja az erős szomszédot (150 kHz elbír egy 10 dB-lel erősebb, 150 kHz-re lévő állomást); kb. 180 kHz alatt a hangos részek kissé torzulnak, és az RDS szenved először.
 The width is measured in the spectrum, and 6, 8 and 7 MHz are tried in turn while nothing locks.	A szélességet a spektrumból mérjük, és 6, 8 és 7 MHz-et próbál sorban, amíg semmi sem kapcsolódik be.
 6 MHz in Japan and the Americas, 8 MHz in the Maldives (ISDB-T International). The signal is the same, scaled in time by the width.	6 MHz Japánban és Amerikában, 8 MHz a Maldív-szigeteken (ISDB-T International). A jel ugyanaz, időben a szélességgel skálázva.
-Set by the country: there is nothing to measure it from. A receiver set to the wrong width finds nothing.	Az ország határozza meg: nincs mit mérni. A rossz szélességre állított vevő semmit sem talál.
 Follows the symbol rate: symbol rate x (1 + roll-off).	Követi a szimbólumsebességet: szimbólumsebesség x (1 + roll-off).
 Choose automatic or a manual symbol rate in the tuner to change it.	A módosításhoz válassz automatikus vagy kézi szimbólumsebességet a hangolóban.
 This mode	Ez az üzemmód
@@ -465,7 +463,6 @@ Radio settings (%d changed)	Rádióbeállítások (%d módosítva)
 %s: frequency correction and the other settings of this radio	%s: frekvenciakorrekció és a rádió egyéb beállításai
 The driver's own settings show up here\nonce this radio has been started.	Az illesztőprogram saját beállításai itt jelennek meg,\nmiután a rádiót elindítottad.
 0 = libiio's default	0 = a libiio alapértéke
-Weather (137 MHz)	Időjárás (137 MHz)
 Amateur	Amatőr
 Amateur satellites	Amatőr műholdak
 downloading...	letöltés...
@@ -482,8 +479,6 @@ No TLE for:	Nincs TLE ehhez:
 no valid TLE in the pasted text (two lines per satellite, checksums must match)	nincs érvényes TLE a beillesztett szövegben (műholdanként két sor, az ellenőrzőösszegeknek egyezniük kell)
 pasted TLEs added:	beillesztett TLE-k hozzáadva:
 No TLEs yet: download them or paste some.	Még nincsenek TLE-k: tölts le vagy illessz be néhányat.
-No TLEs: open TLE data above.	Nincsenek TLE-k: nyisd meg fent a TLE-adatokat.
-No passes in the next 24 hours.	Nincs átvonulás a következő 24 órában.
 TLE data	TLE-adatok
 %d TLEs, %d satellites listed	%d TLE, %d műhold listázva
 the oldest is %.0f days old: download again	a legrégebbi %.0f napos: tölts le újat
@@ -492,23 +487,15 @@ Receiver position	A vevő helye
 The same position as the ADS-B antenna position	Ugyanaz a hely, mint az ADS-B antenna helye
 not set: the times are for a placeholder position	nincs megadva: az időpontok egy helyettesítő pozícióra vonatkoznak
 Satellite	Műhold
-AOS	AOS
-LOS	LOS
 Max el	Max. emelk.
 Duration	Időtartam
 Frequency	Frekvencia
 AOS in %d:%02d:%02d	AOS %d:%02d:%02d múlva
 %s - %s, max %.0f deg	%s - %s, max. %.0f fok
-no pass	nincs átvonulás
 az %.0f  el %.0f  %.0f km\nDoppler %+.0f Hz	azim. %.0f  emelk. %.0f  %.0f km\nDoppler %+.0f Hz
 Track	Követés
-Track (choose a pass)	Követés (válassz átvonulást)
-During each pass of this satellite, retune about once a second for the Doppler shift	A műhold minden átvonulása alatt kb. másodpercenként újrahangol a Doppler-eltolódás miatt
 Auto start at AOS, stop at LOS	Automatikus indítás AOS-nál, leállítás LOS-nál
-Switches to the satellite's mode and starts the receiver at AOS (when it is stopped), and stops it at LOS	AOS-nál átvált a műhold üzemmódjára és elindítja a vevőt (ha le van állítva), LOS-nál leállítja
 Auto record IQ	Automatikus IQ-felvétel
-Records the radio's IQ during the pass, as Record IQ does (format from the Record IQ setting), into %s/recordings	Az átvonulás alatt rögzíti a rádió IQ-jét, mint az IQ rögzítése (a formátum az IQ rögzítése beállításból), ide: %s/recordings
-OnAir has no decoder for this: auto start opens the Spectrum explorer, and Auto record keeps the IQ	Az OnAirnek nincs dekódere ehhez: az automatikus indítás a Spektrumfelfedezőt nyitja meg, az automatikus felvétel pedig megtartja az IQ-t
 tracking%s	követés%s
 , recording	, felvétel
 Sends decoded data to other programs while the mode runs. Every feed is off until you turn it on.	Dekódolt adatot küld más programoknak, amíg az üzemmód fut. Minden adatforrás ki van kapcsolva, amíg be nem kapcsolod.
@@ -923,7 +910,6 @@ WSJT, 14.078 MHz	WSJT, 14.078 MHz
 WSJT, 14.080 MHz	WSJT, 14.080 MHz
 WSJT, 14.084 MHz	WSJT, 14.084 MHz
 WSJT, 14.100 MHz	WSJT, 14.100 MHz
-%.0f deg	%.0f fok
 %s, %llu spots sent in %llu packets, %llu duplicates skipped	%s, %llu spot elküldve %llu csomagban, %llu duplikátum kihagyva
 offset %+.3f %+.3f	eltolás %+.3f %+.3f
 sigma %.3f per axis (%.0f%% of the half-distance to a neighbour)	sigma %.3f tengelyenként (a szomszédig mért fél távolság %.0f%%-a)
@@ -947,13 +933,7 @@ Automatic update	Automatikus frissítés
 Downloads the TLEs again once a day, only while this window is open or a pass is tracked. Without a network the saved lists are used.	Naponta egyszer újratölti a TLE-ket, csak amíg ez az ablak nyitva van vagy egy átvonulást követ. Hálózat nélkül a mentett listákat használja.
 last downloaded %s	utoljára letöltve: %s
 Pass of %s in %d:%02d (max %.0f deg): the receiver starts by itself	%s átvonulása %d:%02d múlva (max. %.0f fok): a vevő magától elindul
-Pass of %s in %d:%02d (max %.0f deg)	%s átvonulása %d:%02d múlva (max. %.0f fok)
 remind %.0f min before	emlékeztető %.0f perccel előtte
-A line at the top of the window and a log entry before the tracked pass rises (0: off)	Egy sor az ablak tetején és egy naplóbejegyzés a követett átvonulás kezdete előtt (0: ki)
-Record this pass	E átvonulás rögzítése
-Cancel recording this pass	E átvonulás rögzítésének törlése
-Arms this pass only: at AOS the receiver starts in the satellite's mode and frequency (when it is stopped), Doppler is followed and the IQ is recorded; at LOS it stops and tracking switches off again	Csak erre az átvonulásra: AOS-kor a vevő (ha le van állítva) a műhold módjában és frekvenciáján indul, a Doppler követve van és az IQ rögzítve; LOS-kor leáll, és a követés újra kikapcsol
-armed: %s at %s	élesítve: %s, %s
 Save PNG...	PNG mentése...
 Save CSV...	CSV mentése...
 saved	mentve
@@ -2411,13 +2391,10 @@ Room title	Szoba címe
 Also show decoded ACARS text in the room (public)	A dekódolt ACARS-szöveg megjelenítése a szobában (nyilvános)
 Needs Server > Send data to map server and Also share interesting ACARS messages.	Szükséges hozzá: Szerver > Adatok küldése a térképszervernek és Az érdekes ACARS-üzenetek megosztása is.
 Go live	Élő adás indítása
-Schedule passes by itself	Átvonulások automatikus ütemezése
-Takes the passes of the ticked groups one at a time, highest priority first, and starts, tunes and records each one without you. Overlapping passes are trimmed or skipped; a receiver you started yourself is left alone.	A bejelölt csoportok átvonulásait egymás után veszi, a legnagyobb prioritásúval kezdve, és mindegyiket magától indítja, hangolja és rögzíti. Az átfedő átvonulásokat lerövidíti vagy kihagyja; a te indította vevőhöz nem nyúl.
 Priority (higher wins)	Prioritás (a magasabb nyer)
 Keep the SDR free every day	SDR szabadon tartása naponta
 from %d:00	%d:00-tól
 to %d:00	%d:00-ig
-Nothing planned.	Nincs betervezve semmi.
 planned	betervezve
 trimmed	lerövidítve
 skipped: SDR reserved	kihagyva: az SDR le van foglalva
@@ -2816,7 +2793,6 @@ Presets	Előbeállítások
 Preview	Előnézet
 Programme type	Műsortípus
 Push to talk (hold the button)	Nyomd a beszéléshez (tartsd lenyomva a gombot)
-Puts every setting below back to its default.	Minden lenti beállítást visszaállít az alapértékre.
 RDS	RDS
 RDS level	RDS szint
 RF level	RF szint
@@ -3586,11 +3562,9 @@ Pinned: never paused by the CPU limit	Rögzítve: a CPU-korlát soha nem szünet
 Follow this signal's sound; it is never paused by the CPU limit	Ennek a jelnek a hangját követi; a CPU-korlát soha nem szünetelteti
 Remove: a signal you added is taken away, a found one is switched off	Eltávolítás: a hozzáadott jel törlődik, a megtalált kikapcsol
 # Share on web: relay, listeners, server settings
-Share my radio	Rádióm megosztása
 Connecting to the relay ...	Csatlakozás a relére ...
 Anyone with the link	Bárki, akinek megvan a link
 Invite links only	Csak meghívó linkek
-Limits that protect your computer	Az Ön számítógépét védő korlátok
 Antenna (shown to listeners, optional)	Antenna (a hallgatók látják, nem kötelező)
 Listener limits	Hallgatói korlátok
 While sharing	Megosztás közben
@@ -3616,7 +3590,6 @@ Most spectrum rows per second (0 = the default)	Legtöbb spektrumsor másodperce
 Key file for that certificate	A tanúsítvány kulcsfájlja
 A certificate needs both files.	A tanúsítványhoz mindkét fájl kell.
 Relay service address (only if you run your own relay)	Relé szolgáltatás címe (csak saját relé esetén)
-OnAir relay (recommended: no setup, no open ports)	OnAir relé (ajánlott: beállítás és nyitott port nélkül)
 Free Cloudflare tunnel (needs a small helper program, downloaded once)	Ingyenes Cloudflare-alagút (kis segédprogram kell, egyszer letöltődik)
 Only my network (a phone on the same Wi-Fi)	Csak a saját hálózatom (telefon ugyanazon a Wi-Fin)
 Password (8 characters or more)	Jelszó (legalább 8 karakter)
@@ -3631,7 +3604,6 @@ invite links only	csak meghívó linkkel
 open to anyone with the link	bárki számára, akinek megvan a link
 with a password	jelszóval
 no radio found	nem található rádió
-No radio found. Plug in a radio and press Refresh on the Radio and range tab, or pick the test signal.	Nem található rádió. Csatlakoztasson egyet, és nyomja meg a Frissítés gombot a Rádió és tartomány lapon, vagy válassza a tesztjelet.
 Join the OnAir Discord	Csatlakozz az OnAir Discordhoz
 
 # Multi-radio trunking (trunk pool)
@@ -3781,3 +3753,17 @@ Show country and zone in decoded messages	Ország és zóna megjelenítése a de
 Load file...	Fájl betöltése...
 Download from country-files.com	Letöltés a country-files.com-ról
 Reset to built-in	Visszaállítás a beépített táblára
+Remove after: VDL2	Eltávolítás ennyi után: VDL2
+Remove after: ACARS	Eltávolítás ennyi után: ACARS
+Remove after: HFDL	Eltávolítás ennyi után: HFDL
+Remove after: ADS-B	Eltávolítás ennyi után: ADS-B
+Remove after: AIS	Eltávolítás ennyi után: AIS
+Remove after: UAT	Eltávolítás ennyi után: UAT
+Remove after: Inmarsat	Eltávolítás ennyi után: Inmarsat
+How long after it was last heard an entry stays in the list and on the map. Default is the rule of the mode; Never keeps everything.	Mennyi ideig marad egy elem a listában és a térképen az utolsó vétel után. Alapértelmezett: a mód szabálya; Soha mindent megtart.
+Custom remove-after time (minutes)	Egyéni eltávolítási idő (perc)
+Used by every Remove after row set to Custom.	Minden Egyéni értékű Eltávolítás sor ezt használja.
+Default	Alapértelmezett
+Custom	Egyéni
+Join the Discord to get access to built codecs	Csatlakozz a Discordhoz, hogy hozzáférj az elkészített kodekekhez
+Opens the OnAir Discord in your browser. OnAir itself never downloads or includes a codec.	Megnyitja az OnAir Discordot a böngészőben. Maga az OnAir soha nem tölt le és nem tartalmaz kodeket.

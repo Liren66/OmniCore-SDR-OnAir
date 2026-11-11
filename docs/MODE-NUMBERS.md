@@ -61,6 +61,77 @@ Several branches picked numbers on their own; the later ones were moved (integ-3
 | PACTOR-IV | 239 | 241 | 240 | 199 | feat36-pactor | 3.6; physical layer only (1800 baud single carrier and its constellation); synthetic signals only; numbers may need to move at merge |
 | SITOR-B | 119 | 121 | 120 | 194 | feat36-modes | 3.6; FEC teletype text (NAVTEX and HF coast stations) through the marine FSK front end and the NAVTEX framing; synthetic NAVTEX signals only; the family and standards date from the WIP row, only the poll slot is new |
 | SELCAL (aircraft tone call) | 240 | 242 | 241 | 200 | feat36-dsc | 3.6; own mode for the SELCAL detector of the tone decoders (call log, codes, aircraft table); synthetic signals only; numbers may need to move at merge |
+| Sub-GHz sensors | 241 | 243 | 242 | 201 | feat37-sensors | 3.7; 433.92 MHz first (315 / 868 / 915 MHz too); decoders vendored from rtl_433, see docs/SENSORS-3.7.md; numbers may need to move at merge |
+| Sferics (lightning) | 243 | 245 | 244 | 203 | feat37-modesB | 3.7; broadband impulse counter, mains-train rejection; synthetic signals only; family 242 / std 244 / 243 / slot 202 are left for feat37-modesA; numbers may need to move at merge |
+| Thread | 244 | 246 | 245 | 204 | feat37-discord5 | 3.7; 802.15.4 receiver in Thread mode (beacons, 6LoWPAN / MLE where clear, encrypted traffic shown as encrypted); synthetic signals only; numbers may need to move at merge (feat37-modesB took 242 / 243) |
+| Inmarsat BGAN | 245 | 247 | 246 | 205 | feat37-bgan | 3.7; forward bearers, broadcast signalling only (docs/BGAN-3.7.md); synthetic signals only; numbers may need to move at merge |
+| NOAA APT | 260 | 262 | 261 | 220 | feat37-sd1 | 3.7; analogue pictures, retired 2025, recordings only; numbers may need to move at merge |
+| NOAA HRPT | 261 | 263 | 262 | 221 | feat37-sd1 | 3.7; PM Manchester, retired 2025, recordings only; numbers may need to move at merge |
+| NOAA GAC | 262 | 264 | 263 | 222 | feat37-sd1 | 3.7; retired 2025, recordings only; numbers may need to move at merge |
+| NOAA DSB | 263 | 265 | 264 | 223 | feat37-sd1 | 3.7; TIP / HIRS, retired 2025, recordings only; numbers may need to move at merge |
+| Meteor HRPT | 264 | 266 | 265 | 224 | feat37-sd1 | 3.7; MSU-MR at 1700 MHz; numbers may need to move at merge |
+| Elektro-L RDAS | 265 | 267 | 266 | 225 | feat37-sd1 | 3.7; MSU-GS, X-band 30.72 Msym/s; numbers may need to move at merge |
+| Arktika-M RDAS | 266 | 268 | 267 | 226 | feat37-sd1 | 3.7; MSU-GS, X-band 30.72 Msym/s; numbers may need to move at merge |
+| Arktika-M GGAK | 267 | 269 | 268 | 227 | feat37-sd1 | 3.7; 1703 MHz PM; numbers may need to move at merge |
+| AWS L-band | 268 | 270 | 269 | 228 | feat37-sd1 | 3.7; MWR, 1707 MHz; numbers may need to move at merge |
+| MSG Raw Data | 269 | 271 | 270 | 229 | feat37-sd2 | 3.8; SEVIRI, 1686.83 MHz; numbers may need to move at merge |
+| HimawariCast | 270 | 272 | 271 | 230 | feat37-sd2 | 3.8; Fazzt files on DVB-S2, C-band; numbers may need to move at merge |
+| GeoNetCast | 271 | 273 | 272 | 231 | feat37-sd2 | 3.8; Fazzt files on DVB-S2, C-band; numbers may need to move at merge |
+| ADS-L | 300 | 302 | 301 | 260 | feat38-adsl | 3.8; EASA ADS-L 4 SRD-860 on 868.2 / 868.4 / 869.525 MHz, feeds the FLARM receiver from the same capture (docs/ADSL-3.8.md); no live signal tested; numbers may need to move at merge |
+| RC and mesh links (Reticulum, ExpressLRS, MAVLink SiK, FrSky, FlySky) | 360 | 362 | 361 | 360 | feat38-mesh-rc | 3.8; protocol entries through subModes (362 masks 1-16); simulated signals only; family block 360-379; numbers may need to move at merge |
+| FANET | 400 | 402 | 401 | 300 | feat38-avia-road | 3.8; one receiver (`rxAvRoad_`), see docs/AVIA-ROAD-3.8.md; numbers may need to move at merge |
+| OGN tracker | 401 | 403 | 402 | 301 | feat38-avia-road | 3.8; one receiver (`rxAvRoad_`), see docs/AVIA-ROAD-3.8.md; numbers may need to move at merge |
+| GBAS VDB (bursts only) | 402 | 404 | 403 | 302 | feat38-avia-road | 3.8; one receiver (`rxAvRoad_`), see docs/AVIA-ROAD-3.8.md; numbers may need to move at merge |
+| LDACS (structure) | 403 | 405 | 404 | 303 | feat38-avia-road | 3.8; one receiver (`rxAvRoad_`), see docs/AVIA-ROAD-3.8.md; numbers may need to move at merge |
+| AeroMACS (structure) | 404 | 406 | 405 | 304 | feat38-avia-road | 3.8; one receiver (`rxAvRoad_`), see docs/AVIA-ROAD-3.8.md; numbers may need to move at merge |
+| AAR end of train | 405 | 407 | 406 | 305 | feat38-avia-road | 3.8; one receiver (`rxAvRoad_`), see docs/AVIA-ROAD-3.8.md; numbers may need to move at merge |
+| DSRC road toll | 406 | 408 | 407 | 306 | feat38-avia-road | 3.8; one receiver (`rxAvRoad_`), see docs/AVIA-ROAD-3.8.md; numbers may need to move at merge |
+| 802.11p V2X | 407 | 409 | 408 | 307 | feat38-avia-road | 3.8; one receiver (`rxAvRoad_`), see docs/AVIA-ROAD-3.8.md; numbers may need to move at merge |
+| C-V2X (structure) | 408 | 410 | 409 | 308 | feat38-avia-road | 3.8; one receiver (`rxAvRoad_`), see docs/AVIA-ROAD-3.8.md; numbers may need to move at merge |
+| ERMES | 409 | 411 | 410 | 309 | feat38-avia-road | 3.8; one receiver (`rxAvRoad_`), see docs/AVIA-ROAD-3.8.md; numbers may need to move at merge |
+| Marine radar | 410 | 412 | 411 | 310 | feat38-avia-road | 3.8; one receiver (`rxAvRoad_`), see docs/AVIA-ROAD-3.8.md; numbers may need to move at merge |
+| Weather radar | 411 | 413 | 412 | 311 | feat38-avia-road | 3.8; one receiver (`rxAvRoad_`), see docs/AVIA-ROAD-3.8.md; numbers may need to move at merge |
+| GOES GRB | 290 | 292 | 291 | 290 | feat38-sat-sd3 | 3.8; DVB-S2, ABI / SUVI / GLM; numbers may need to move at merge |
+| GOES GVAR | 291 | 293 | 292 | 291 | feat38-sat-sd3 | 3.8; GOES-N, retired, recordings only; numbers may need to move at merge |
+| GOES CDA | 292 | 294 | 293 | 292 | feat38-sat-sd3 | 3.8; GOES-R 40k / 4k, GOES-N PM; numbers may need to move at merge |
+| GOES MDL | 293 | 295 | 294 | 293 | feat38-sat-sd3 | 3.8; GOES-N, frames only; numbers may need to move at merge |
+| GK-2A UHRIT | 294 | 296 | 295 | 294 | feat38-sat-sd3 | 3.8; DVB-S2 at X-band; numbers may need to move at merge |
+| GK-2A CDAS | 295 | 297 | 296 | 295 | feat38-sat-sd3 | 3.8; frames only; numbers may need to move at merge |
+| S-band CCSDS | 296 | 298 | 297 | 296 | feat38-sat-sd3 | 3.8; satellite table, 46 links; numbers may need to move at merge |
+| Geoscan | 297 | 299 | 298 | 297 | feat38-sat-sd3 | 3.8; six satellites, 66-byte frames; numbers may need to move at merge |
+| Lucky-7 | 298 | 300 | 299 | 298 | feat38-sat-sd3 | 3.8; frames; numbers may need to move at merge |
+| Spino | 299 | 301 | 300 | 299 | feat38-sat-sd3 | 3.8; frames; numbers may need to move at merge |
+| Erminaz | 510 | 512 | 511 | 510 | feat38-sat-sd3 | 3.8; CCSDS frames; numbers may need to move at merge |
+| QRSS grabber | 460 | 462 | 461 | 461 | feat38-ham-science | 3.8; simulated signals only; numbers may need to move at merge |
+| DFCW grabber | 461 | 463 | 462 | 462 | feat38-ham-science | 3.8; simulated signals only; numbers may need to move at merge |
+| FSK441 | 462 | 464 | 463 | 463 | feat38-ham-science | 3.8; simulated signals only; numbers may need to move at merge |
+| ISCAT | 463 | 465 | 464 | 464 | feat38-ham-science | 3.8; simulated signals only; numbers may need to move at merge |
+| PI4 | 464 | 466 | 465 | 465 | feat38-ham-science | 3.8; simulated signals only; numbers may need to move at merge |
+| Throb / ThrobX | 465 | 467 | 466 | 466 | feat38-ham-science | 3.8; simulated signals only; numbers may need to move at merge |
+| SuperSID (VLF) | 500 | 502 | 501 | 501 | feat38-ham-science | 3.8; simulated signals only; numbers may need to move at merge |
+| Riometer | 501 | 503 | 502 | 502 | feat38-ham-science | 3.8; simulated signals only; numbers may need to move at merge |
+| Pulsar folding | 502 | 504 | 503 | 503 | feat38-ham-science | 3.8; simulated signals only; numbers may need to move at merge |
+| UMTS cells | 480 | 482 | 481 | 440 | feat38-broadcast | 3.8; 3G cell search by primary scrambling code (no BCH); synthetic signals only; numbers may need to move at merge |
+| JPSS HRD (NPP, NOAA-20) | 530 | 532 | 531 | 530 | feat38-sat-xband | 3.8; numbers may need to move at merge |
+| JPSS HRD (NOAA-21) | 531 | 533 | 532 | 531 | feat38-sat-xband | 3.8; numbers may need to move at merge |
+| EOS DB (Aqua, Aura) | 532 | 534 | 533 | 532 | feat38-sat-xband | 3.8; numbers may need to move at merge |
+| EOS DB (Terra) | 533 | 535 | 534 | 533 | feat38-sat-xband | 3.8; numbers may need to move at merge |
+| MetOp X-band dump | 534 | 536 | 535 | 534 | feat38-sat-xband | 3.8; numbers may need to move at merge |
+| MetOp-SG DDB | 535 | 537 | 536 | 535 | feat38-sat-xband | 3.8; numbers may need to move at merge |
+| Landsat 8/9 X-band | 536 | 538 | 537 | 536 | feat38-sat-xband | 3.8; numbers may need to move at merge |
+| Landsat 8/9 S-band | 537 | 539 | 538 | 537 | feat38-sat-xband | 3.8; numbers may need to move at merge |
+| Proba S-band dump | 538 | 540 | 539 | 538 | feat38-sat-xband | 3.8; numbers may need to move at merge |
+| Proba-V X-band dump | 539 | 541 | 540 | 539 | feat38-sat-xband | 3.8; numbers may need to move at merge |
+| GCOM-W1 | 540 | 542 | 541 | 540 | feat38-sat-xband | 3.8; numbers may need to move at merge |
+| GCOM-C1 | 541 | 543 | 542 | 541 | feat38-sat-xband | 3.8; numbers may need to move at merge |
+| STEREO high rate | 542 | 544 | 543 | 542 | feat38-sat-xband | 3.8; numbers may need to move at merge |
+| Oceansat-2 DB | 543 | 545 | 544 | 543 | feat38-sat-xband | 3.8; numbers may need to move at merge |
+| Oceansat-3 L-band | 544 | 546 | 545 | 544 | feat38-sat-xband | 3.8; numbers may need to move at merge |
+| Saral L-band | 545 | 547 | 546 | 545 | feat38-sat-xband | 3.8; numbers may need to move at merge |
+| Oceansat-3 X-band dump | 546 | 548 | 547 | 546 | feat38-sat-xband | 3.8; numbers may need to move at merge |
+| Saral X-band dump | 547 | 549 | 548 | 547 | feat38-sat-xband | 3.8; numbers may need to move at merge |
+| Kanopus-V | 548 | 550 | 549 | 548 | feat38-sat-xband | 3.8; numbers may need to move at merge |
+| DMSP RTD | 549 | 551 | 550 | 549 | feat38-sat-xband | 3.8; numbers may need to move at merge |
 | Plugins | 999 | 1001 | - | - | | |
 | Mode Builder | 19999 | - | - | - | mode-builder-030 | |
 | custom modes (Mode Builder) | 20000+ | family + 2 | - | - | mode-builder-030 | kCustomFamilyBase, saved by number in modes/registered.txt |
@@ -68,6 +139,6 @@ Several branches picked numbers on their own; the later ones were moved (integ-3
 Protocol entries (a row with a subId, such as FT8 in HF digital or POCSAG in pagers) share their family on purpose; the test checks
 that each (family, subId) pair is unique instead.
 
-`kNumFamilies` = 241, `kPollSeqSlots` = 201 (families 213 to 234 and poll slots 189 to 194 are kept for the other 3.6 lanes).
+`kNumFamilies` = 601, `kPollSeqSlots` = 602 (families 213 to 234 and poll slots 189 to 194 are kept for the other 3.6 lanes).
 
 A new mode takes the next free family above the highest one in this table and the next free poll slot, and adds its row here.

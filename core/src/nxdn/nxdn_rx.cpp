@@ -396,6 +396,11 @@ struct NxdnReceiver::Impl {
                         uint8_t vb[72];
                         for (int i = 0; i < 72; i++) vb[i] = hb[72 * vf + i] > 0 ? 1 : 0;
                         voice.emplace_back(vb, vb + 72);
+                        // the reliability of each bit against the half's mean (for the soft vocoder frame FEC)
+                        float mean = 0.f;
+                        for (int i = 0; i < 72; i++) mean += std::fabs(hb[72 * vf + i]);
+                        mean = std::max(mean / 72.f, 1e-6f);
+                        for (int i = 0; i < 72; i++) voice.back().push_back((uint8_t)std::min(255.f, 160.f * std::fabs(hb[72 * vf + i]) / mean));
                     }
                 }
             }
@@ -403,7 +408,7 @@ struct NxdnReceiver::Impl {
         // voice only from frames that are surely ours: a good SACCH, or a found sync and LICH within a call
         // (a call is started from voice only with a found sync and a good SACCH: the 6-bit CRC alone passes noise once in 64)
         const bool sure = sacchOk && lichOk && !c.fly;
-        if (sure || (lichOk && tel.now.active && lastChain == idx && (sacchOk || !c.fly))) for (const auto& vb : voice) voiceFrame(vb.data(), c, sure);
+        if (sure || (lichOk && tel.now.active && lastChain == idx && (sacchOk || !c.fly))) for (const auto& vb : voice) voiceFrame(vb.data(), vb.data() + 72, c, sure);
         tel.blocksOk = tel.sacchOk + tel.facchOk + tel.cacOk;
         tel.blocksBad = tel.sacchBad + tel.facchBad + tel.cacBad;
         if (any) {
@@ -431,20 +436,12 @@ struct NxdnReceiver::Impl {
         if (late) tel.lateEntries++;
         ambe = tel.ambe ? std::make_unique<NxdnAmbe>() : nullptr;
         // Match a user key to this call (never a search). Nothing is decrypted when the user loaded no matching key.
-        dec.reset();
-        if (cipher != 0) {
-            voicekeys::CallKeyInfo info;
-            info.protocol = voicekeys::Protocol::Nxdn;
-            info.keyId = key; info.talkgroup = type == 1 ? dst : -1; info.unitId = src;
-            auto look = voicekeys::lookupForCall(info, true, 72);
-            tel.now.decrypt = voicekeys::Decryptor::statusLine(look.status, look.keyName);
-            if (look.decryptor) dec = std::move(look.decryptor);
-            event("NXDN " + tel.now.decrypt);
-        }
+        applyKey();
     }
     void endCall(bool rel) {
         if (!tel.now.active) return;
         flushAudio();
+        pendCipher = pendKey = 0;
         tel.now.active = false;
         tel.now.endSeen = rel;
         tel.now.durSec = sigSec() - tel.now.startSec;
@@ -470,13 +467,40 @@ struct NxdnReceiver::Impl {
         for (bool& o : sfOk) o = false;
     }
 
-    void onMsg(const nxdn::Msg& m, const Chain& c, int ran, bool fromSacch) {
+    // A cipher flag is believed only when it is seen twice in a row (any FEC-passing VCALL): one misparsed or bit-flipped message must not turn a clear call
+    // into "encrypted, enter key" (the voice then goes quiet). Clear (0) is taken at once. Nothing is kept from one call to the next (startCall resets).
+    int pendCipher = 0, pendKey = 0;
+    bool trustCipher(const nxdn::Msg& m) {
+        if (m.cipher == 0) { pendCipher = 0; return true; }
+        const bool seen = pendCipher == m.cipher && pendKey == m.keyId;
+        pendCipher = m.cipher; pendKey = m.keyId;
+        return seen || (tel.now.active && tel.now.cipher == m.cipher && tel.now.keyId == m.keyId);
+    }
+    void applyKey() {
+        dec.reset();
+        if (tel.now.cipher == 0) { tel.now.decrypt.clear(); return; }
+        voicekeys::CallKeyInfo info;
+        info.protocol = voicekeys::Protocol::Nxdn;
+        info.keyId = tel.now.keyId; info.talkgroup = tel.now.callType == 1 ? tel.now.dst : -1; info.unitId = tel.now.src;
+        auto look = voicekeys::lookupForCall(info, true, 72);
+        tel.now.decrypt = voicekeys::Decryptor::statusLine(look.status, look.keyName);
+        if (look.decryptor) dec = std::move(look.decryptor);
+        event("NXDN " + tel.now.decrypt);
+    }
+
+    void onMsg(const nxdn::Msg& m0, const Chain& c, int ran, bool fromSacch) {
         char b[200];
+        nxdn::Msg m = m0;
+        if (m.type == nxdn::kVcall) {
+            if (!trustCipher(m)) { m.cipher = 0; m.keyId = 0; if (tel.now.active) { m.cipher = tel.now.cipher; m.keyId = tel.now.keyId; } }
+        }
         switch (m.type) {
         case nxdn::kVcall: {
             const NxdnCall& n = tel.now;
             if (n.active && (n.src == m.src || n.src < 0) && (n.dst == m.dst || n.dst < 0)) {   // the call goes on (or its ids arrive)
+                const bool cipherChanged = tel.now.cipher != m.cipher || tel.now.keyId != m.keyId;
                 tel.now.src = m.src; tel.now.dst = m.dst; tel.now.callType = m.callType; tel.now.cipher = m.cipher; tel.now.keyId = m.keyId; tel.now.ran = ran;
+                if (cipherChanged) applyKey();
                 return;
             }
             startCall(m.src, m.dst, m.callType, m.cipher, m.keyId, ran, c.baud, fromSacch);
@@ -524,7 +548,7 @@ struct NxdnReceiver::Impl {
         }
     }
 
-    void voiceFrame(const uint8_t vb[72], const Chain& c, bool sure) {
+    void voiceFrame(const uint8_t vb[72], const uint8_t rel[72], const Chain& c, bool sure) {
         if (!tel.now.active && !sure) return;
         if (!tel.now.active) startCall(-1, -1, 1, 0, 0, tel.ran, c.baud, true);
         tel.now.voiceFrames++;
@@ -551,7 +575,7 @@ struct NxdnReceiver::Impl {
         }
         if (!ambe || !ambe->ok() || !clear) return;
         int16_t pcm[160];
-        ambe->decode(frame, pcm);
+        ambe->decodeSoft(frame, rel, pcm);
         for (int16_t s : pcm) aud8.push_back(s / 32768.f);
         tel.voiceDecoded++;
         tel.now.voice = true;

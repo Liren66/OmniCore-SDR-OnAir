@@ -40,11 +40,16 @@ public:
     void setChannelWidth(double hz);
     void setStationFinder(bool on);                      // look for a station off the centre and move to it (recordings); off for a live radio
     double channelWidth() const;
+    void setClickSuppression(bool on);                   // repair the discriminator's clicks of a weak station (on by default; acts only below 32 dB SNR)
+    void setNeighbourCancel(bool on);                    // a neighbouring station 10 dB or more above this one, inside the capture (at most 2.6 Msps), is regenerated and subtracted (on by default)
+    void setAnalysisOnly(bool on);                       // FmCensus: pilot, RDS and measurements only, no sound and no equaliser. Before configure().
     void setSilent(bool s);                              // decode but do not open the sound device (tests, command line)
     // RDS error correction: 0 off (only blocks with a right checkword), 1 bursts of one or two bits (one wrong symbol), 2 also two weak
     // symbols chosen by their reliability (default). A group with a corrected block is used only when it has come the same before.
     // Call before feeding (tests, the command line).
     void setRdsCorrection(int level);
+    // Listen to an SCA audio subcarrier instead of the programme (fm_subcarrier.h): 0 = 67 kHz, 1 = 92 kHz, -1 = off (any thread).
+    void setScaListen(int channel);
     // Every RDS group as it ends (blocks A-D; err 0 good, 1 corrected, 2 bad), from feed(): a group log, redsea-style hex (rdsHexGroup)
     void setRdsGroupTap(std::function<void(const uint16_t blocks[4], const uint8_t err[4])> cb);
     // Tests: the demodulated audio (left, right) at 48 kHz, called from feed()

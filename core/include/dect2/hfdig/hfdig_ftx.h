@@ -45,6 +45,9 @@ struct FtxDecode {
     int dbm = -1;            // WSPR: the power sent
     int pass = 0;            // 0 first pass, 1 .. after subtracting the stronger signals
     double dialHz = 0;       // the dial frequency of the slot it was heard on (whole-span decoding: several slots at once); 0: not known
+    int how = 0;             // FT8 / FT4 / FT2: 0 decoded from this slot alone, 1 by adding the soft bits of the same signal in earlier slots, 2 with the calls of
+                             // a conversation heard on the band taken as known (a-priori)
+    bool early = false;      // decoded from the first part of the slot (the end of the signal still to come); replaced by the full decode of the slot
 };
 
 struct HfdigFtxTelemetry {
@@ -59,9 +62,13 @@ struct HfdigFtxTelemetry {
     bool enabled[kFtxModes] = {true, true, true, true, true, true, true, true, true, true, true};
     int sub[kFtxModes] = {};                  // JT65 0 A 1 B 2 C; JT4 0 A .. 6 G; Q65 0 A .. 4 E
     double period[kFtxModes] = {};            // T/R period in use, s
+    bool autoOn[kFtxModes] = {}, autoFound[kFtxModes] = {};   // Auto for the sub-mode / period (setAutoOption): on, and a signal was decoded
+    int autoSub[kFtxModes] = {};              // what it decoded with
+    double autoPeriod[kFtxModes] = {};
     int timeMode = 0;                         // 0 system clock, 1 the given start time, 2 slot search: looking, 3 slot search: found
     double nowUtc = 0;                        // the time of the newest audio (the slot clock)
     float clockErr = 0;                       // median DT of the recent decodes, s
+    float clockTrim = 0;                      // the automatic correction in use: added to the computer clock, s (docs/EASE-3.8.md)
     float dtSpread = 0;                       // their spread (half the 16 .. 84 % range), s
     int clockN = 0;                           // decodes it is measured on
     bool clockWarn = false;                   // |clockErr| > 1 s
@@ -83,6 +90,12 @@ public:
     // JT65 sub-mode (0 A, 1 B, 2 C), Q65 sub-mode (0 A .. 4 E) and the T/R period of Q65 (15 / 30 / 60 / 120 / 300 s), FST4 and FST4W
     // (15 / 30 / 60 / 120 / 300 / 900 / 1800 s) and MSK144 (15 / 30 s); the others have one (any thread; sub < 0 or period <= 0 keep the old)
     void setModeOption(int mode, int sub, double periodSec);
+    // Auto (JT65, JT4, Q65, FST4, FST4W, MSK144): a decoder for every sub-mode and period the mode has listens at once and the CRC says which one was right.
+    // More CPU than one fixed setting (a Q65 band is 25 decoders), so only for the mode on screen.
+    void setAutoOption(int mode, bool on);
+    bool autoOption(int mode) const;
+    void setEarlyDecode(bool on);                    // FT8 / FT4: a first decode a few seconds before the slot ends (default on; a one-slot-at-a-time decoder only)
+    bool earlyDecode() const;
     void setMirrored(bool on);                       // also look for upside-down signals (default on)
     bool mirrored() const;
     void clearDecodes();

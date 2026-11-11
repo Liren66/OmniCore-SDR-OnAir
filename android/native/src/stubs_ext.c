@@ -16,6 +16,7 @@ KEEP long av_channel_layout_default(void) { return -1; }
 KEEP long av_channel_layout_uninit(void) { return -1; }
 KEEP long av_dict_free(void) { return -1; }
 KEEP void* av_dict_get(void) { return NULL; }
+KEEP void* av_dict_iterate(void) { return NULL; }
 KEEP long av_dict_set(void) { return -1; }
 KEEP long av_find_best_stream(void) { return -1; }
 KEEP void* av_find_input_format(void) { return NULL; }
@@ -70,6 +71,7 @@ KEEP void* avformat_alloc_context(void) { return NULL; }
 KEEP long avformat_alloc_output_context2(void) { return -1; }
 KEEP long avformat_close_input(void) { return -1; }
 KEEP long avformat_find_stream_info(void) { return -1; }
+KEEP long av_guess_frame_rate(void) { return 0; }
 KEEP long avformat_free_context(void) { return -1; }
 KEEP void* avformat_new_stream(void) { return NULL; }
 KEEP long avformat_open_input(void) { return -1; }
@@ -147,3 +149,4 @@ KEEP void* sws_getCoefficients(void) { return NULL; }
 KEEP void* sws_getContext(void) { return NULL; }
 KEEP long sws_scale(void) { return -1; }
 KEEP long sws_setColorspaceDetails(void) { return -1; }
+KEEP void* av_frame_get_side_data(void* frame, int type) { (void)frame; (void)type; return NULL; }

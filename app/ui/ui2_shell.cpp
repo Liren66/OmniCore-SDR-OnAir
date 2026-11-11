@@ -278,9 +278,11 @@ void sidebar(App& a) {
         tool("Passive radar", a.passiveRadarOpen, N_("Aircraft from the echoes of a broadcast transmitter, with two coherent channels"));
         tool("Images", a.galleryOpen, "The pictures the receivers have decoded");
         tool("Data feeds...", a.feedsOpen, "Send decoded data to other programs and services");
+        tool("Wireshark...", a.wiresharkOpen, N_("Packets of a mode in Wireshark: capture interface, pcapng files and GSMTAP"));
         tool("LAN swarm...", a.swarmOpen, "See and cooperate with other OnAir programs on this network (opt-in)");
         tool("Messages...", a.msgdbOpen, N_("Every decoded message in one searchable database, with filters and export"));
         tool("Protocol lab...", a.protolabOpen, N_("Work out an unknown digital signal: modulation, baud rate, sync word, CRC and fields, with an export"));
+        tool("nRF24 / ESP32 radio...", a.esp32Open, N_("An ESP32 board (with an nRF24L01+ module) on USB: receive nRF24 packets, Bluetooth LE and WiFi networks; transmit behind the Arm switch"));
         tool("Signal Lab...", a.signallabOpen, N_("Blind analysis of an unknown digital signal from the spectrum or a recording, stage by stage with confidences, a bit viewer and a Mode Builder export"));
         tool("Mode Builder...", a.modeBuilderOpen, N_("Build a decoder without code: describe the modulation, sync word, frame, FEC, CRC and fields, test it on a recording, add it to the mode list"));
         tool("TX studio...", a.txStudioOpen, N_("Make a transmit signal as a file: spectrum, waterfall, measurements and a decoder check. No radio, nothing is transmitted"));
@@ -300,6 +302,8 @@ void sidebar(App& a) {
         tool("Antenna designer...", a.antdOpen, N_("Design and model wire antennas: templates, impedance and SWR across a band, radiation pattern, optimiser, calculators"));
         tool("Antenna rotator...", a.rotatorOpen, "Connect a GS-232-compatible rotator (serial or TCP), set azimuth and elevation");
         tool("Sweep scanner", a.sweepOpen, N_("Fast wideband sweep with a noise-floor measurement, signal log and waterfall"));
+        tool("Search everything heard", a.heardOpen, N_("One box for a call sign, ICAO address, MMSI or frequency, across the history of every mode"));
+        tool("My station", a.stationOpen, N_("Your radios and antennas, entered once: modes pick the right ones and the mode list shows what can be received"));
         tool("Reception doctor", a.doctorOpen, N_("Why is nothing decoding? Checks overload, level, offset, bandwidth, interferers, drops and the mode from the live signal, with one-click fixes"));
         tool("RF fingerprint", a.rfFpOpen, N_("Recognise an individual transmitter by its RF fingerprint (carrier offset, key-up transient, pilot, spurs), also when it sends only a carrier. Logs every transmission."));
         tool("Station health", a.stationHealthOpen, N_("Noise floor, ADC level and reference stations per band, with plain advice on gain, filters and antenna placement"));
@@ -574,6 +578,7 @@ static void viewMenu(App& a) {
         if (ImGui::MenuItem(tr("Touch interface"), nullptr, &a.touchUi)) savePrefs(a);   // the same flag as the side panel: big targets, bottom dock (ui/touch.h)
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("For tablets and touch screens: big buttons, an on-screen keypad for the frequency, a full-screen mode picker."));
         dockMenu(a);   // View > Docking (ui2_dock.cpp)
+        if (ImGui::MenuItem(tr("Restore the default view"), "Ctrl+Shift+M")) restoreDefaultView(a);
         if (ImGui::MenuItem(tr("Reset layout"))) { if (!a.touchUi) layoutReset();   // forgets the saved window positions of every mode
             a.splitSide = a.splitRight = a.splitBottom = a.splitDock = a.splitBot2 = 0; savePrefs(a); }
         if (ImGui::MenuItem(tr("Reset spectrum"))) resetSpectrum(a);
@@ -623,7 +628,7 @@ static void viewMenu(App& a) {
                 ImGui::SetTooltip("%s", tr(have ? "Shows on your Discord profile that you are using OnAir, the mode and the frequency. Needs the Discord desktop app running." : "Discord application ID not set in this build"));
         }
         ImGui::Separator();
-        if (ImGui::MenuItem(tr("Classic interface"))) { a.newUi = false; savePrefs(a); }
+        if (ImGui::MenuItem(tr("Classic interface"))) { a.newUi = false; savePrefs(a); }   // keeps this menu bar; Ctrl+Shift+M or View > Restore the default view comes back
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu(tr("Tools"))) {
@@ -640,9 +645,11 @@ static void viewMenu(App& a) {
         ImGui::MenuItem(tr("Passive radar"), nullptr, &a.passiveRadarOpen);
         ImGui::MenuItem(tr("Images"), nullptr, &a.galleryOpen);
         ImGui::MenuItem(tr("Data feeds..."), nullptr, &a.feedsOpen);
+        ImGui::MenuItem(tr("Wireshark..."), nullptr, &a.wiresharkOpen);
         ImGui::MenuItem(tr("LAN swarm..."), nullptr, &a.swarmOpen);
         ImGui::MenuItem(tr("Messages..."), nullptr, &a.msgdbOpen);
         ImGui::MenuItem(tr("Protocol lab..."), nullptr, &a.protolabOpen);
+        ImGui::MenuItem(tr("nRF24 / ESP32 radio..."), nullptr, &a.esp32Open);
         ImGui::MenuItem(tr("Signal Lab..."), nullptr, &a.signallabOpen);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Blind analysis of an unknown digital signal: select it on the spectrum (Identify or Shift+drag) or load a recording"));
         ImGui::MenuItem(tr("Mode Builder..."), nullptr, &a.modeBuilderOpen);
@@ -666,6 +673,8 @@ static void viewMenu(App& a) {
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("A world map: find a position by coordinates or Maidenhead locator, distance and bearing from your location"));
         if (ImGui::MenuItem(tr("Sweep scanner"), nullptr, &a.sweepOpen)) {}
         if (ImGui::MenuItem(tr("Station health"), nullptr, &a.stationHealthOpen)) {}
+        if (ImGui::MenuItem(tr("Search everything heard"), nullptr, &a.heardOpen)) {}
+        if (ImGui::MenuItem(tr("My station"), nullptr, &a.stationOpen)) {}
         if (ImGui::MenuItem(tr("Reception doctor"), nullptr, &a.doctorOpen)) {}
         if (ImGui::MenuItem(tr("RF fingerprint"), nullptr, &a.rfFpOpen)) {}
         if (ImGui::MenuItem(tr("Everything in view"), nullptr, &a.wideAllOpen)) {}
@@ -688,7 +697,6 @@ static void viewMenu(App& a) {
 // the right end of the menu bar: credit, Credits, Support, the update button and Clear all. One row of chips: the same height, border and
 // background, one gap between them, centred in the bar. Placed from the width the row had last frame (it follows the update button's label).
 static float gBarRestW = 0;
-static const char* const kDiscordInviteUrl = "https://discord.gg/Kky9c6atm";   // the one place the app holds the invite
 // Discord icon chip for the menu bar; true when clicked
 static bool discordButton() {
     ImGui::PushID("discord_invite");
@@ -740,7 +748,7 @@ static void menuBarRight(App& a) {
     supportButton();
     ImGui::PopStyleColor();
     ImGui::SameLine(0, g); ImGui::SetCursorPosY(y);
-    if (discordButton()) dect2::openUrl(kDiscordInviteUrl);
+    if (discordButton()) dect2::openUrl(appcodec::discordInviteUrl());
     ImGui::SameLine(0, g); ImGui::SetCursorPosY(y);
     updateButton(a);
     ImGui::SameLine(0, g); ImGui::SetCursorPosY(y);
@@ -748,6 +756,11 @@ static void menuBarRight(App& a) {
     gBarRestW = ImGui::GetItemRectMax().x - x0;
     ImGui::PopStyleVar();
     ImGui::PopStyleColor(4);
+}
+
+void restoreDefaultView(App& a) {
+    a.newUi = true; a.touchUi = false; a.layoutUnified = false; a.uiVariant = 0; a.dockOn = false;
+    savePrefs(a);
 }
 
 float menuBar(App& a) {
@@ -819,7 +832,7 @@ float menuBar(App& a) {
             if (ImGui::MenuItem(tr("Voice codecs"))) a.voiceCodecsOpen = true;
             if (ImGui::MenuItem(tr("Voice monitor"))) voiceui::open();
             if (ImGui::MenuItem(tr("Website"))) dect2::openUrl("https://on-air.dev/");
-            if (ImGui::MenuItem(tr("Join the OnAir Discord"))) dect2::openUrl(kDiscordInviteUrl);
+            if (ImGui::MenuItem(tr("Join the OnAir Discord"))) dect2::openUrl(appcodec::discordInviteUrl());
             if (ImGui::MenuItem(tr("Credits and licences"))) { a.creditsOpen = true; a.creditsTab = 1; }
             ImGui::Separator();
             if (ImGui::MenuItem(tr("Report a problem"))) a.reportOpen = true;

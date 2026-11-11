@@ -84,7 +84,7 @@ bool Engine::placeSecondary(std::string& why) {
     DeviceInfo::Kind k;
     { std::lock_guard<std::mutex> lk(tuneMu_); k = lastDev_.kind; }
     const bool file = k == DeviceInfo::File;
-    const double toff = file || k == DeviceInfo::Audio || !mt ? 0.0 : mt->tuneOffsetHz;
+    const double toff = file || k == DeviceInfo::Audio || k == DeviceInfo::Hamlib || !mt ? 0.0 : mt->tuneOffsetHz;
     const double vc = hz + toff;
     secShift_ = vc - centre;
     placeReceiver(activeStdFor(sm), -toff, file ? 0.0 : vc, file ? 0.0 : hz, hz);
@@ -296,6 +296,8 @@ void applySubMode(Engine& e, const SubMode* s) {
         else if (s->sel >= 0) for (int m = 0; m < kFtxModes; m++) e.hfdig().ftx().setEnabled(m, m == s->sel || (s->sel == 7 && m == 9));   // FST4 also listens for FST4W
         break;
     case 22: e.mesh().setProtocols(s->decoders); break;
+    case 362: e.rclink().setProtocols(s->decoders); break;
+    case 602: case 603: e.xlink().setProtocols(s->decoders); break;
     case 32: e.vor().setFunction(s->sel); break;
     case 25: e.pager().setProtocols(s->decoders); break;
     case 17: e.marine().setService(s->sel); break;

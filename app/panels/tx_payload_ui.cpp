@@ -2,10 +2,12 @@
 // own choices, one block per kind of signal (TxPayloadKind). Empty fields fall back to the mode's demo signal; nothing here limits what is typed.
 #include "tx_state.h"
 #include "dect2/mesh/mesh_tx.h"
+#include "dect2/fm/rds_live.h"
 #include "platform/platform.h"
 #include "../ui/typography.h"
 #include "dect2/hfdig/hfdig_sstv.h"
 #include "dect2/hfdig/hfdig_kbd.h"
+#include "dect2/tv/videogen.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -88,12 +90,12 @@ void audioSourceRow(TxUi& s, bool running) {
     }
     if (s.audioSrc == 0) {
         const auto devs = listAudioInputs();
-        const char* cur = s.audioDevice[0] ? s.audioDevice : tr("Default input");
+        const char* cur = s.audioDevice.empty() ? tr("Default input") : s.audioDevice.c_str();
         ImGui::SetNextItemWidth(280 * gUi);
         if (ImGui::BeginCombo(tr("Input device"), cur)) {
             for (const auto& d : devs) {
-                const bool sel = std::string(s.audioDevice) == d.id;
-                if (ImGui::Selectable(d.name.c_str(), sel)) snprintf(s.audioDevice, sizeof s.audioDevice, "%s", d.id.c_str());
+                const bool sel = s.audioDevice == d.id;
+                if (ImGui::Selectable(d.name.c_str(), sel)) s.audioDevice = d.id;
             }
             ImGui::EndCombo();
         }
@@ -152,8 +154,23 @@ void fileRow(TxUi& s, const char* label, const char* btnId) {
     if (ImGui::Button(btnId)) browseFile(s, btnId);
 }
 
+// Tools > Digital video generator, as the video source: its running stream (Output: Transmitter) is read by the name generator:N
+void generatorPick(TxUi& s) {
+    ImGui::TextDisabled("%s", tr("Video generator:"));
+    for (int i = 1; i <= 4; i++) {
+        ImGui::SameLine();
+        const std::string spec = dect2::vgen::generatorSpec(i);
+        const bool on = spec == s.file;
+        char lb[40]; snprintf(lb, sizeof lb, "%d%s##tvgen%d", i, dect2::vgen::generatorQueued(i) > 0 ? " *" : "", i);
+        if (ImGui::SmallButton(lb)) snprintf(s.file, sizeof s.file, "%s", on ? "" : spec.c_str());
+    }
+    { ImGui::SameLine(); ImGui::TextDisabled("(?)"); if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Uses the stream of a generator of Tools > Digital video generator whose output is \"Transmitter\" (* = it is sending now). Start it there; click again to clear.")); }
+}
+
 void analogNfmBox(TxUi& s, bool running) {
-    ImGui::Checkbox(tr("Send analog NFM of the microphone or a file instead of the test scene"), &s.analogVoice);
+    if (s.modeId == "general")   // the general receiver sends the audio with the modulation its test signal is set to (#373)
+        ImGui::Checkbox(tr("Send the microphone or a file with the modulation above, instead of the test signal"), &s.analogVoice);
+    else ImGui::Checkbox(tr("Send analog NFM of the microphone or a file instead of the test scene"), &s.analogVoice);
     if (s.analogVoice) audioSourceRow(s, running);
 }
 
@@ -210,6 +227,7 @@ void tvFilePanel(TxUi& s, const TxModeSpec& mode, bool running) {
     (void)running;
     const std::string id = mode.id ? mode.id : "";
     fileRow(s, tr("MPEG-TS / video file"), tr("Browse…##ts"));
+    generatorPick(s);
     ImGui::TextDisabled("%s", tr("Your .ts / .m2ts is sent as-is (service names come from that file). Other video is remuxed when FFmpeg can. Empty: OnAir encodes a test card with the names below."));
     muxIdentity(s);
     if (!s.fileNote.empty()) ImGui::TextWrapped("%s", s.fileNote.c_str());
@@ -231,6 +249,44 @@ void tvFilePanel(TxUi& s, const TxModeSpec& mode, bool running) {
                 ImGui::EndCombo();
             }
         }
+    }
+    if (id == "isdbt") {   // ISDB-T: the transmission parameters (the one-segment layer A stays QPSK 2/3; layer B carries the programme) (#466)
+        static const char* const bwn[] = {"6 MHz", "7 MHz", "8 MHz"};
+        const int bi = s.synth.isdbtBwMhz == 8 ? 2 : s.synth.isdbtBwMhz == 7 ? 1 : 0;
+        ImGui::SetNextItemWidth(120 * gUi);
+        if (ImGui::BeginCombo(tr("Channel width##tx2"), bwn[bi])) {
+            for (int i = 0; i < 3; i++) if (ImGui::Selectable(bwn[i], i == bi)) s.synth.isdbtBwMhz = 6 + i;
+            ImGui::EndCombo();
+        }
+        static const char* const modes[] = {"mode 1 (2K)", "mode 2 (4K)", "mode 3 (8K)"};
+        const int mi = std::max(1, std::min(3, s.synth.isdbtMode)) - 1;
+        ImGui::SetNextItemWidth(140 * gUi);
+        if (ImGui::BeginCombo(tr("FFT mode"), modes[mi])) {
+            for (int i = 0; i < 3; i++) if (ImGui::Selectable(modes[i], i == mi)) s.synth.isdbtMode = i + 1;
+            ImGui::EndCombo();
+        }
+        static const char* const gis[] = {"1/32", "1/16", "1/8", "1/4"};
+        const int gi = std::max(0, std::min(3, s.synth.isdbtGuard));
+        ImGui::SetNextItemWidth(90 * gUi);
+        if (ImGui::BeginCombo(tr("Guard interval"), gis[gi])) {
+            for (int i = 0; i < 4; i++) if (ImGui::Selectable(gis[i], i == gi)) s.synth.isdbtGuard = i;
+            ImGui::EndCombo();
+        }
+        static const char* const mods[] = {"DQPSK", "QPSK", "16-QAM", "64-QAM"};
+        const int mo = std::max(0, std::min(3, s.synth.isdbtMod));
+        ImGui::SetNextItemWidth(110 * gUi);
+        if (ImGui::BeginCombo(tr("Constellation"), mods[mo])) {
+            for (int i = 0; i < 4; i++) if (ImGui::Selectable(mods[i], i == mo)) s.synth.isdbtMod = i;
+            ImGui::EndCombo();
+        }
+        static const char* const rates[] = {"1/2", "2/3", "3/4", "5/6", "7/8"};
+        const int ra = std::max(0, std::min(4, s.synth.isdbtRate));
+        ImGui::SetNextItemWidth(90 * gUi);
+        if (ImGui::BeginCombo(tr("Code rate (FEC)"), rates[ra])) {
+            for (int i = 0; i < 5; i++) if (ImGui::Selectable(rates[i], i == ra)) s.synth.isdbtRate = i;
+            ImGui::EndCombo();
+        }
+        ImGui::TextDisabled("%s", tr("Default: mode 3, 1/8, 64-QAM 3/4. The area code, PIDs and bitrates come from the transport stream you send; the test programme uses fixed ones."));
     }
     if (id == "dvbs") {
         if (s.synth.modeVal[0] <= 0) s.synth.modeVal[0] = 5e6;
@@ -283,6 +339,7 @@ void payloadPanel(TxUi& s, const TxModeSpec& mode, bool running) {
                 ImGui::InputText(tr("Video file"), s.file, sizeof s.file);
                 ImGui::SameLine();
                 if (ImGui::Button(tr("Browse…##atvvid"))) { const std::string p = openFileDialog(); if (!p.empty()) snprintf(s.file, sizeof s.file, "%s", p.c_str()); }
+                generatorPick(s);
             } else if (s.videoSrc == 2) {
                 const auto cams = listVideoInputs();
                 const char* cur = tr("Default camera");
@@ -488,9 +545,39 @@ void payloadPanel(TxUi& s, const TxModeSpec& mode, bool running) {
         ImGui::PopStyleColor();
         break;
     case TxPayloadKind::VoiceFm:
-        ImGui::InputText(tr("Station name (PS)"), s.name, sizeof s.name);
-        ImGui::InputText(tr("Radio text (RT)"), s.text, sizeof s.text);
-        ImGui::InputInt(tr("RDS PI"), &s.rdsPi, 1, 16, ImGuiInputTextFlags_CharsHexadecimal);
+        {   // while on the air every edit goes to the encoder at once (RdsLive); the next group carries it
+            auto& L = RdsLive::global();
+            if (ImGui::InputText(tr("Station name (PS)"), s.name, sizeof s.name) && running) { std::string e; L.apply("PS", s.name, e); }
+            if (ImGui::InputText(tr("Radio text (RT)"), s.text, sizeof s.text) && running) { std::string e; L.apply("RT", s.text, e); }
+            if (ImGui::InputInt(tr("RDS PI"), &s.rdsPi, 1, 16, ImGuiInputTextFlags_CharsHexadecimal) && running) { char b[16]; snprintf(b, sizeof b, "%X", s.rdsPi & 0xFFFF); std::string e; L.apply("PI", b, e); }
+            if (running) ImGui::TextDisabled("%s", tr("On the air: changes to the name, text and PI are sent with the next RDS group."));
+            if (ImGui::CollapsingHeader(trw("Live RDS control (programme type, flags, clock, network commands)"))) {
+                RdsState st = L.get();
+                bool ch = false;
+                if (ImGui::SliderInt(tr("Programme type (PTY)"), &st.pty, 0, 31)) { std::string e; L.apply("PTY", std::to_string(st.pty), e); }
+                if (ImGui::Checkbox(tr("Traffic programme (TP)"), &st.tp)) { std::string e; L.apply("TP", st.tp ? "1" : "0", e); }
+                ImGui::SameLine();
+                if (ImGui::Checkbox(tr("Traffic announcement (TA)"), &st.ta)) { std::string e; L.apply("TA", st.ta ? "1" : "0", e); }
+                if (ImGui::Checkbox(tr("Music (not speech)"), &st.music)) { std::string e; L.apply("MS", st.music ? "M" : "S", e); }
+                ImGui::SameLine();
+                if (ImGui::Checkbox(tr("Send the clock time"), &st.ct)) { std::string e; L.apply("CT", st.ct ? "1" : "0", e); }
+                (void)ch;
+                static int port = 9101;
+                static bool on = false;
+                static char tok[64] = {}, wfile[512] = {};
+                static std::string msg;
+                ImGui::SetNextItemWidth(100 * gUi);
+                ImGui::InputInt(tr("Command port (UDP and TCP)"), &port, 0, 0);
+                ImGui::InputText(tr("Token (optional on this computer)"), tok, sizeof tok);
+                if (ImGui::Checkbox(tr("Listen for RDS commands (PS=NAME, RT=text, PI=4A21 ...)"), &on)) {
+                    std::string e;
+                    if (!L.listen(on ? port : 0, false, tok, e)) { on = false; msg = e; } else msg.clear();
+                }
+                if (!msg.empty()) ImGui::TextColored(kRed, "%s", msg.c_str());
+                ImGui::TextDisabled("%s", tr("This computer only. For other computers use the headless server or the remote API (it has the token)."));
+                if (ImGui::InputText(tr("Radio text from a file (first line, for a now-playing script)"), wfile, sizeof wfile)) L.watchFile(wfile);
+            }
+        }
         audioSourceRow(s, running);
         break;
     case TxPayloadKind::VoiceAir:
@@ -507,6 +594,22 @@ void payloadPanel(TxUi& s, const TxModeSpec& mode, bool running) {
             ImGui::InputInt(tr("Talkgroup"), &s.talkgroup);
             ImGui::InputInt(tr("Colour code"), &s.colorCode);
             if (id == "dmr") ImGui::InputInt(tr("Timeslot"), &s.slot);
+        }
+        if (id == "dmr") {   // real DMR subscriber transmit (dmr_tx.h): pick what to send
+            const char* kinds[] = {tr("Group voice call"), tr("Private voice call"), tr("All call"), tr("SMS text message"), tr("LRRP / GPS position"),
+                                   tr("Kerchunk (open repeater)"), tr("Tier III registration"), tr("Tier III voice request")};
+            if (s.kind < 0 || s.kind > 7) s.kind = 0;
+            ImGui::SetNextItemWidth(260 * gUi);
+            if (ImGui::BeginCombo(tr("What to send"), kinds[s.kind])) {
+                for (int k = 0; k < 8; k++) if (ImGui::Selectable(kinds[k], s.kind == k)) s.kind = k;
+                ImGui::EndCombo();
+            }
+            if (s.kind == 3) ImGui::InputText(tr("Message text"), s.text, sizeof s.text);
+            if (s.kind == 4) {
+                ImGui::InputDouble(tr("Latitude"), &s.lat, 0, 0, "%.6f");
+                ImGui::InputDouble(tr("Longitude"), &s.lon, 0, 0, "%.6f");
+            }
+            ImGui::TextWrapped("%s", tr("Transmitting on DMR needs a licence (amateur, or the system operator's permission). Your DMR ID and callsign go on the air. Voice bits are a test pattern; OnAir cannot encode AMBE+2 speech (decode-only codec). Not tested on air against a real repeater."));
         }
         if (!txCanEncodeVoice(mode)) ImGui::Checkbox(tr("Send analog NFM of the audio instead of the digital test pattern"), &s.analogVoice);
         audioSourceRow(s, running);
@@ -615,6 +718,35 @@ void payloadPanel(TxUi& s, const TxModeSpec& mode, bool running) {
         ImGui::TextDisabled("%s", tr("Empty: the demo Mode S uplink scene."));
         analogNfmBox(s, running);
         break;
+    case TxPayloadKind::LoraAprs: {
+        if (ImGui::InputText(tr("Callsign"), s.callsign, sizeof s.callsign)) saveStr("tx.callsign", s.callsign);
+        ImGui::InputTextWithHint((std::string(tr("Destination")) + "##laprsdest").c_str(), "APRS", s.dest, sizeof s.dest);
+        ImGui::InputTextWithHint((std::string(tr("Path")) + "##laprspath").c_str(), "WIDE1-1", s.path, sizeof s.path);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("The digipeater path. Empty: WIDE1-1. Type - for no path."));
+        if (ImGui::InputText((std::string(tr("Comment")) + "##laprscomment").c_str(), s.text, sizeof s.text)) saveStr("tx.text", s.text);
+        ImGui::InputDouble(tr("Latitude"), &s.lat, 0, 0, "%.5f");
+        ImGui::InputDouble(tr("Longitude"), &s.lon, 0, 0, "%.5f");
+        TxRequest r;
+        r.callsign = s.callsign; r.dest = s.dest; r.path = s.path; r.text = s.text; r.lat = s.lat; r.lon = s.lon;
+        paramsApply(s, r);   // the LoRa settings of Advanced, as the transmission gets them
+        const std::string tnc2 = txLoraAprsTnc2(r);
+        const TxLoraAprsRadio lr = txLoraAprsRadio(r);
+        if (tnc2.empty()) ImGui::TextDisabled("%s", tr("No callsign: the demo LoRa APRS stations are sent (EU settings)."));
+        else ImGui::TextDisabled("%s: %s", tr("Sent"), tnc2.c_str());
+        ImGui::TextDisabled("SF%d, %.1f kHz, 4/%d, %s %d, %s 0x%02X, CRC %s", lr.sf, lr.bwHz / 1e3, lr.cr, tr("preamble"), lr.preamble, tr("sync word"), lr.syncWord,
+                            lr.crc ? tr("on") : tr("off"));
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("The LoRa settings are under Advanced."));
+        if (lr.mhz > 0 && std::fabs(s.freqMhz - lr.mhz) > 1e-6) {
+            std::string mhz = std::to_string(lr.mhz);   // "433.775000": four decimals, as the presets are written
+            mhz.resize(std::min(mhz.size(), mhz.find('.') + 5));
+            const std::string b = std::string(tr("Tune to")) + " " + mhz + " MHz";
+            ImGui::BeginDisabled(running);
+            if (ImGui::SmallButton(b.c_str())) { s.freqMhz = lr.mhz; s.linkRx = false; }
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", tr("The frequency of the chosen LoRa APRS preset; the transmitter is on another one."));
+        }
+        break;
+    }
     case TxPayloadKind::Mesh:
         meshTxPanel(s, running);
         analogNfmBox(s, running);

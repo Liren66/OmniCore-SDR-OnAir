@@ -117,7 +117,7 @@ def main():
         'FFmpeg 8.0: LGPL-2.1-or-later, statically linked without GPL/nonfree/version3 options. '
         'Source: https://ffmpeg.org/releases/ffmpeg-8.0.tar.xz. '
         'See LICENSES/ffmpeg-configuration.txt and build_ffmpeg_static.sh. Rebuild this open-source application to relink.\n\n'
-        'OmniCore Host 0.7.1: GPL-3.0; https://github.com/Liren66/OmniCore-SDR-Host. '
+        'OmniCore Host 0.7.2: GPL-3.0; https://github.com/Liren66/OmniCore-SDR-Host. '
         'Exact source: https://github.com/Liren66/OmniCore-SDR-Host/tree/' + run('git', 'rev-parse', 'HEAD', cwd=source).strip() + '. Commit and DLL hash are in BUILD-INFO.json.\n\n'
         'libusbK 3.1.0.0: bundled USB transport; notices are in LICENSES/libusbK, '
         'and corresponding sources are in the OmniCore Host source snapshot.\n\n'
@@ -130,7 +130,7 @@ def main():
         'product': 'OmniCore-SDR-OnAir', 'version': VERSION,
         'source_commit': run('git', 'rev-parse', 'HEAD').strip(),
         'source_dirty': bool(run('git', 'status', '--porcelain', '--untracked-files=no').strip()),
-        'upstream_commit': run('git', 'rev-parse', 'upstream/main').strip(),
+        'upstream_commit': os.environ.get('ONAIR_UPSTREAM_COMMIT') or run('git', 'rev-parse', 'upstream/main').strip(),
         'host_commit': run('git', 'rev-parse', 'HEAD', cwd=source).strip(),
         'host_build_dll_sha256': sha(host_dll),
         'host_packaged_dll_sha256': sha(out / 'omnicore.dll'),

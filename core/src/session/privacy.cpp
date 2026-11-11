@@ -145,6 +145,9 @@ void Privacy::applyDefaultClasses() {
         54,    // Wi-Fi networks
         70,    // Wi-Fi HaLow
         65,    // Zigbee / 802.15.4
+        600,   // Extra links (link identities)
+        360,   // RC and mesh links (positions of drones and aircraft, link identities)
+        244,   // Thread (device addresses of a home network)
         98,    // Z-Wave
         153,   // Sigfox
         77,    // ANT+ (ids and heart rate)
@@ -155,6 +158,10 @@ void Privacy::applyDefaultClasses() {
         56,    // Drone Remote ID (operator and pilot location)
         68,    // DJI drones
         66,    // FLARM
+        300,   // ADS-L
+        400, 401,   // FANET, OGN trackers
+        406, 407, 408,   // DSRC tolling, V2X
+        409,   // ERMES (pager addresses)
         23,    // POCSAG (capcodes)
         17, 18, 19, 62, 208,   // satellite terminals: Inmarsat-C, Inmarsat Aero, Iridium, Globalstar, Inmarsat (all carriers)
     };

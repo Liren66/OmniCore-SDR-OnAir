@@ -422,6 +422,9 @@ void spectrumView(App& a) {
     const double rc = radioCenterMhz(a);
     plt::SetupAxisLimits(plt::X1, rc - fs / 2, rc + fs / 2, plt::Cond_Once);
     plt::SetupAxisLimits(plt::Y1, a.yMin, a.yMax, plt::Cond_Once);
+    plt::SetupAxisSpan(plt::X1, std::min(0.001, fs), fs);   // the wheel limits of the main spectrum (#425, #442)
+    plt::SetupAxisConstraints(plt::Y1, -160, 20);
+    plt::SetupAxisSpan(plt::Y1, 10, 180);
     plt::SetupAxisFormat(plt::X1, "%.3f");
     for (size_t i = 0; i < S.chans.size(); i++) {
         const auto& c = S.chans[i];
@@ -533,6 +536,20 @@ void summary(const App& a, std::string& l1, std::string& l2) {
 }
 
 } // namespace
+
+// First start, with a real radio and an empty list: the nearest airport (ui/first_start.cpp)
+// E15: "Listen" on an ADS-B aircraft: Airband, on the nearest airport to it. Multi-radio setups keep ADS-B where it is only with a second receiver window: this one switches.
+bool airbandListenAt(App& a, double lat, double lon, int altFt, std::string& what) {
+    load(a);
+    if (a.family != 26) selectMode(a, 26);
+    return airportListenAt(a, lat, lon, altFt, applyChannels, what);
+}
+
+bool airbandFirstLoad(App& a, std::string& what) {
+    load(a);
+    if (!S.chans.empty()) return false;
+    return airportLoadNearest(a, applyChannels, what);
+}
 
 extern const ModeUi kAirbandUi;
 const ModeUi kAirbandUi = {

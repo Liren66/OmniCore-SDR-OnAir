@@ -4,12 +4,15 @@
 //  3. the saved settings and overlay layout come back the same; snapping; the fit plans (letterbox, crop)
 //  4. the overlay is drawn and laid on the picture
 //  5. a .ts file from a still picture (MPEG-2 + MP2, two audio tracks, set service ID and PIDs): PAT, PMT, SDT name, length and mux rate
-//  6. the same with H.264 when this FFmpeg has an H.264 encoder
+//  6. the same with H.264 when this FFmpeg has an H.264 encoder; every encoder found (hardware ones too) with the settings a user picks
 //  7. UDP and RTP streaming to a local port: whole TS datagrams, RTP header with payload type 33
 // Run from the source root (the overlay font is third_party/fonts/Inter-Medium.ttf).
 #include "dect2/tv/videogen.h"
+#include "dect2/tx/tx.h"
 #include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <functional>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
@@ -141,6 +144,16 @@ static void testEncoders() {
     CHECK(x.preset && x.zeroLatency && x.profile && x.crf && x.bFrames, "x264 has every option");
     CHECK(!m2.preset && !m2.crf && !m2.profile && m2.bFrames, "MPEG-2: B-frames only");
     CHECK(!hw.preset && !hw.crf && hw.profile, "hardware H.264: profile, no x264 preset or CRF");
+    CHECK(!capsOf("hevc_nvenc").bFrames && !capsOf("hevc_amf").bFrames, "hardware HEVC: no B-frames (older cards refuse them)");
+    CHECK(!capsOf("h264_mf").bFrames && capsOf("h264_mf").profile && !capsOf("hevc_mf").bFrames, "Media Foundation: profile, no B-frames (pts < dts)");
+    // the profile as each encoder takes it: FFmpeg's generic "profile" option knows no names, an encoder without its own takes the number
+    CHECK(profileName("libx264", 2) == "high" && profileName("h264_nvenc", 0) == "baseline" && profileName("h264_qsv", 1) == "main", "profile names");
+    CHECK(profileName("h264_amf", 0) == "constrained_baseline" && profileName("h264_amf", 2) == "high", "AMF calls Baseline constrained_baseline");
+    CHECK(profileName("h264_mf", 1).empty() && profileName("libopenh264", 1).empty(), "Media Foundation and OpenH264: the number, not a name");
+    for (const EncoderProblem& pr : videoEncoderProblems()) {
+        CHECK(!pr.reason.empty(), "a reason for %s", pr.name.c_str());
+        CHECK(!hasEncoder(pr.name.c_str()), "%s is listed and also does not work", pr.name.c_str());
+    }
     for (const EncoderInfo& a : audioEncoders()) CHECK(audioCodecOf(a.name) == a.audio, "audio codec of %s", a.name.c_str());
     std::printf("video encoders:");
     for (const EncoderInfo& e : v) std::printf(" %s", e.name.c_str());
@@ -385,6 +398,34 @@ static void testH264(const fs::path& dir, const fs::path& pic) {
     CHECK(ti.sync && h264 && aac, "PMT: H.264 (0x1B) and AAC (0x0F) with %s", enc.c_str());
 }
 
+// Every encoder the list offers starts with what a user picks (720p, I/P/B, CBR, Main or Baseline): a hardware encoder that opened in
+// the trial but refuses the real settings shows up here, on the computer that has it
+static void testEveryEncoder(const fs::path& dir, const fs::path& pic) {
+    for (const EncoderProblem& pr : videoEncoderProblems()) std::printf("not working here: %s: %s\n", pr.name.c_str(), pr.reason.c_str());
+    for (const EncoderInfo& e : videoEncoders()) {
+        for (int profile : {1, 0}) {
+            if (profile == 0 && !capsOf(e.name).profile) continue;
+            GenConfig c = pictureConfig(pic);
+            c.output = Output::File;
+            c.tsPath = (dir / ("every_" + e.name + ".ts")).string();
+            c.seconds = 1;
+            c.enc.width = 1280; c.enc.height = 720; c.enc.fps = 25;
+            c.enc.frames = FrameTypes::IPB;
+            c.enc.rc = RateControl::Cbr;
+            c.enc.profile = profile;
+            c.enc.videoEncoder = e.name;
+            VideoGenerator g;
+            std::string err;
+            CHECK(g.start(c, err), "start %s: %s", e.name.c_str(), err.c_str());
+            CHECK(g.wait(60), "%s is finished in time", e.name.c_str());
+            const GenStats st = g.stats();
+            CHECK(st.error.empty() && st.finished && st.frames == 25, "%s (profile %d): %s", e.name.c_str(), profile, st.error.c_str());
+            CHECK(st.videoEncoder == e.name, "%s is used, not %s", e.name.c_str(), st.videoEncoder.c_str());
+            std::printf("%s (%s, profile %d): %llu bytes%s%s\n", e.name.c_str(), e.hardware ? "hardware" : "software", profile,
+                        (unsigned long long)st.bytes, st.notice.empty() ? "" : ", ", st.notice.c_str());
+        }
+    }
+}
 
 // packets per PID and the last time stamp of each stream (seconds), read back with libavformat
 struct Streams { int videoFrames = 0, audioPackets = 0; double videoEnd = 0, audioEnd = 0; };
@@ -968,6 +1009,123 @@ static void testStream(const fs::path& pic, bool rtp) {
 }
 #endif
 
+// Start preview in the window: the moving picture in real time, but no file, no stream and no encoded bytes, until it is stopped
+static void testPreviewOnly(const fs::path& dir) {
+    GenConfig c;
+    c.source = Source::Generator;
+    c.pattern = 1;
+    c.output = Output::File;
+    c.tsPath = (dir / "preview_never_written.ts").string();
+    c.seconds = 1;   // a file length does not end a preview
+    c.enc.width = 320; c.enc.height = 240; c.enc.fps = 25;
+    c.enc.videoEncoder = "mpeg2video";
+    c.previewOnly = true;
+    VideoGenerator g;
+    std::string err;
+    CHECK(g.start(c, err), "start a preview: %s", err.c_str());
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0, pictures = 0;
+    uint64_t serial = 0;
+    for (auto end = std::chrono::steady_clock::now() + std::chrono::seconds(3); std::chrono::steady_clock::now() < end;) {
+        if (g.preview(rgba, w, h, serial)) pictures++;
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    const GenStats st = g.stats();
+    CHECK(g.running(), "a preview runs on past the file length");
+    CHECK(pictures >= 3 && w == 320 && h == 240, "preview pictures keep coming (%d, %dx%d)", pictures, w, h);
+    CHECK(st.frames >= 25 && st.frames < 150, "a preview runs in real time (%llu frames in 3 s)", (unsigned long long)st.frames);
+    g.stop();
+    CHECK(!fs::exists(c.tsPath), "a preview writes no file");
+    CHECK(g.stats().error.empty(), "a preview ends without an error: %s", g.stats().error.c_str());
+    // Start encoding right after the preview, on the same generator (the window does this)
+    c.previewOnly = false;
+    CHECK(g.start(c, err), "a file after the preview: %s", err.c_str());
+    serial = 0;
+    w = h = -1;
+    CHECK(!g.preview(rgba, w, h, serial) || (w > 0 && h > 0), "no picture of the last run with a 0 x 0 size (%dx%d)", w, h);
+    CHECK(g.wait(30), "the file after the preview ends");
+    CHECK(g.stats().finished && fs::exists(c.tsPath), "the file after the preview is written: %s", g.stats().error.c_str());
+    std::printf("preview only: %d pictures, %llu frames in 3 s, no file\n", pictures, (unsigned long long)st.frames);
+}
+
+// Free-text FFmpeg arguments, several generators at once, and the transmitter's way to the stream (issue #458)
+static void testArgs() {
+    std::string err;
+    auto a = splitArgs("-preset slow  -x264-params \"keyint=50:bframes=2\" 'a b' c\\ d", err);
+    CHECK(err.empty() && a.size() == 6 && a[3] == "keyint=50:bframes=2" && a[4] == "a b" && a[5] == "c d", "split: %zu items (%s)", a.size(), err.c_str());
+    CHECK(splitArgs("-a \"open", err).empty() && !err.empty(), "an open quote is refused");
+    auto sh = splitArgs("-x $(rm -rf ~) ; `id` | cat > f", err);   // nothing is a shell metacharacter: these are plain words
+    CHECK(err.empty() && sh.size() == 10 && sh[1] == "$(rm" && sh[4] == ";", "no shell: words stay words (%zu)", sh.size());
+    std::vector<ArgOpt> o;
+    CHECK(parseEncoderArgs("-preset slow -b:v 800k --tune zerolatency", o, err) && o.size() == 3 && o[1].key == "b" && o[2].key == "tune", "good options: %s", err.c_str());
+    CHECK(parseEncoderArgs("", o, err) && o.empty(), "empty is fine");
+    for (const char* bad : {"slow", "-preset", "-i x.mp4", "-f flv", "-c:v libx265", "-y out.ts", "-vf scale=1:1", "-filter_complex x", "-map 0", "-hwaccel cuda", "-b:a 64k", "-foo=bar 1", "-x pipe:1",
+                            "-x file:/etc/passwd", "-x/y 1", "-t 5", "-s 640x480", "-metadata a=b", "-preset \"unterminated"}) {
+        CHECK(!parseEncoderArgs(bad, o, err) && !err.empty(), "\"%s\" is refused", bad);
+    }
+    int id = 0;
+    CHECK(parseGeneratorSpec("generator:3", id) && id == 3 && generatorSpec(5) == "generator:5", "generator spec");
+    for (const char* bad : {"generator:", "generator:0", "generator:9", "generator:x", "generator:1x", "Generator:1", "gen:1", "generator:100"}) CHECK(!parseGeneratorSpec(bad, id), "\"%s\" is not a generator", bad);
+}
+
+static void testInstancesAndTransmitter(const fs::path& dir, const fs::path& pic) {
+    // two generators at once, each to its own queue; the transmitter's source reads them
+    GenConfig a = pictureConfig(pic), b = pictureConfig(pic);
+    a.output = b.output = Output::Transmitter;
+    a.instanceId = 1; b.instanceId = 2;
+    a.enc.videoEncoder = b.enc.videoEncoder = "mpeg2video";
+    a.enc.serviceId = 0x111; b.enc.serviceId = 0x222;
+    a.enc.serviceName = "Gen A"; b.enc.serviceName = "Gen B";
+    a.ffmpegArgs = "-qmin 4 -nosuchoption 7";
+    std::atomic<int> frames{0}; std::atomic<int> fw{0}, fh{0};
+    setGeneratorFrameSink(2, [&](int w, int h, const uint8_t* rgb) { if (rgb && w > 0 && h > 0) { frames++; fw = w; fh = h; } });
+    VideoGenerator ga, gb;
+    std::string err;
+    CHECK(ga.start(a, err), "start 1: %s", err.c_str());
+    CHECK(gb.start(b, err), "start 2: %s", err.c_str());
+    std::function<void(uint8_t*)> s1, s2;
+    std::string note;
+#ifndef VG_NO_TX
+    CHECK(dect2::txOpenMpegTs(generatorSpec(1), s1, note) && s1, "the transmitter opens generator:1 (%s)", note.c_str());
+    std::function<void(uint8_t*)> none; std::string note2;
+    CHECK(!dect2::txOpenMpegTs("generator:42", none, note2) && !none, "an unknown generator is not a source");
+#else
+    CHECK(generatorTsSource(1, s1) && s1, "source 1");
+#endif
+    CHECK(generatorTsSource(2, s2), "source 2");
+    std::vector<uint8_t> d1, d2;
+    const auto t0 = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() - t0 < std::chrono::seconds(4)) {   // the transmitter takes packets as they come
+        uint8_t pk[188];
+        while (generatorQueued(1) > 0) { s1(pk); d1.insert(d1.end(), pk, pk + 188); }
+        while (generatorQueued(2) > 0) { s2(pk); d2.insert(d2.end(), pk, pk + 188); }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    ga.stop(); gb.stop();
+    setGeneratorFrameSink(2, {});
+    auto nameOfBytes = [&](const std::vector<uint8_t>& d) { const fs::path f = dir / "q.ts"; { std::ofstream o(f, std::ios::binary); o.write((const char*)d.data(), (std::streamsize)d.size()); } return serviceNameOf(f); };
+    const TsInfo t1 = parseTs(d1), t2 = parseTs(d2);
+    CHECK(t1.sync && t1.packets > 100 && t2.sync && t2.packets > 100, "both streams are whole packets (%zu, %zu)", t1.packets, t2.packets);
+    CHECK(t1.program == 0x111 && t2.program == 0x222, "each queue holds its own stream: programs 0x%x / 0x%x", t1.program, t2.program);
+    CHECK(nameOfBytes(d1) == "Gen A" && nameOfBytes(d2) == "Gen B", "service names stay apart");
+    CHECK(frames > 10 && fw >= 352 && fh >= 280, "analog path: %d pictures of %dx%d", frames.load(), fw.load(), fh.load());
+    const GenStats sa = ga.stats();
+    CHECK(sa.error.empty() && sa.notice.find("nosuchoption") != std::string::npos && sa.notice.find("qmin") == std::string::npos, "unknown encoder option reported, known one not: '%s' (%s)", sa.notice.c_str(), sa.error.c_str());
+    // an empty queue gives null packets, so the transmitter keeps its rate
+    uint8_t pk[188];
+    generatorClear(1);
+    s1(pk);
+    CHECK(pk[0] == 0x47 && (((pk[1] & 0x1F) << 8) | pk[2]) == 0x1FFF, "null packet when nothing is queued");
+    // refused configs
+    GenConfig bad = pictureConfig(pic);
+    bad.output = Output::Transmitter; bad.instanceId = 99;
+    VideoGenerator gx;
+    CHECK(!gx.start(bad, err) && !err.empty(), "generator number out of range is refused");
+    bad.instanceId = 1; bad.ffmpegArgs = "-i evil.mp4";
+    CHECK(!gx.start(bad, err) && err.find("FFmpeg arguments") != std::string::npos, "bad arguments are refused at start: %s", err.c_str());
+    CHECK(streamUrl(Output::Transmitter, "h", 1).empty() && vlcOpenUrl(Output::Transmitter, "h", 1).empty(), "no network address for the transmitter output");
+}
+
 int main() {
     const fs::path dir = fs::temp_directory_path() / ("onair_videogen_" + std::to_string((long long)std::chrono::steady_clock::now().time_since_epoch().count()));
     fs::create_directories(dir);
@@ -979,12 +1137,16 @@ int main() {
     testOverlay();
     testTsFile(dir, pic);
     testH264(dir, pic);
+    testEveryEncoder(dir, pic);
     testMpeg2LowRate(dir);
     testGenerator(dir, pic);
     testVideoFile(dir, pic);
     testOwnContent(dir, pic);
     testFailures(dir, pic);
     testStopAndOverlayChanges(dir, pic);
+    testPreviewOnly(dir);
+    testArgs();
+    testInstancesAndTransmitter(dir, pic);
 #ifndef _WIN32
     testStream(pic, false);
     testStream(pic, true);

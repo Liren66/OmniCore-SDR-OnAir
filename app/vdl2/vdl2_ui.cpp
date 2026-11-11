@@ -345,6 +345,19 @@ void mapCanvas(App& a, ImVec2 size) {
     float best = 18 * gUi; uint32_t hit = 0;
     int placed = 0, predicted = 0;
     if (on) {
+        for (const auto& g : t.stations) {   // estimated stations: an open square; every station with a coverage: its reach
+            if (!g.hasPos && !g.hasEstimate) continue;
+            const double la = g.hasPos ? g.lat : g.estLat, lo = g.hasPos ? g.lon : g.estLon;
+            const ImVec2 q = adsbmap::project(la, lo);
+            if (g.coverageNm > 1) {
+                const ImVec2 e = adsbmap::project(la + g.coverageNm / 60.0, lo);
+                dl->AddCircle(q, std::fabs(q.y - e.y), IM_COL32(120, 170, 230, 70), 96);
+            }
+            if (g.hasPos) continue;
+            dl->AddRect(ImVec2(q.x - 5 * gUi, q.y - 5 * gUi), ImVec2(q.x + 5 * gUi, q.y + 5 * gUi), IM_COL32(120, 170, 230, 230));
+            const std::string s = "~GS " + hex6(g.addr);
+            dl->AddText(ImVec2(q.x + 8 * gUi, q.y - 7 * gUi), IM_COL32(200, 220, 245, 200), s.c_str());
+        }
         for (const auto& g : t.stations) {   // ground stations: squares
             if (!g.hasPos) continue;
             const ImVec2 q = adsbmap::project(g.lat, g.lon);
@@ -461,6 +474,11 @@ void mapSide(App& a) {
     if (c->hasAlt) kv("altitude", "%d ft", c->altFt);
     if (!c->posKind.empty()) kv("fix source", "%s", c->posKind.c_str());
     if (c->groundStation) kv("ground st.", "%s", hex6(c->groundStation).c_str());
+    if (c->hops.size() >= 2) {
+        std::string chain;
+        for (const auto& h : c->hops) { if (!chain.empty()) chain += " > "; chain += hex6(h.addr); }
+        kv("handoffs", "%s", chain.c_str());
+    }
     kv("frames", "%u, last %s ago on %.3f MHz", c->messages, ago(t.nowSec, c->lastHeardSec).c_str(), c->freqHz / 1e6);
     auto it = adsbSeen().find(c->icao);
     if (it != adsbSeen().end()) kv("ADS-B", "%s%s", it->second.callsign.c_str(), it->second.hasPos ? " (position known)" : "");
@@ -546,7 +564,11 @@ void stationView(const App& a) {
     ImGui::TableSetupColumn("Last heard"); ImGui::TableSetupColumn("Airports"); ImGui::TableSetupColumn("Location");
     ImGui::TableHeadersRow();
     if (live(a))
-        for (const auto& g : t.stations) {
+    {
+        ImGuiListClipper clip;
+        clip.Begin((int)t.stations.size());
+        while (clip.Step()) for (int gi = clip.DisplayStart; gi < clip.DisplayEnd; gi++) {
+            const auto& g = t.stations[(size_t)gi];
             ImGui::TableNextRow();
             ImGui::TableNextColumn(); ImGui::TextUnformatted(hex6(g.addr).c_str());
             ImGui::TableNextColumn(); ImGui::TextUnformatted(g.type == 5 ? "DEL" : "ADM");
@@ -556,6 +578,7 @@ void stationView(const App& a) {
             ImGui::TableNextColumn(); ImGui::TextUnformatted(g.airports.empty() ? "-" : g.airports.c_str());
             ImGui::TableNextColumn(); if (g.hasPos) ImGui::Text("%.1f %.1f", g.lat, g.lon); else ImGui::TextUnformatted("-");
         }
+    }
     ImGui::EndTable();
 }
 
@@ -617,7 +640,10 @@ void list(App& a) {
     ImGui::TableSetupScrollFreeze(0, 1);
     ImGui::TableSetupColumn("ICAO"); ImGui::TableSetupColumn("Reg / flight"); ImGui::TableSetupColumn("Frames");
     ImGui::TableHeadersRow();
-    for (const auto& c : t.aircraft) {
+    ImGuiListClipper clip;   // 10000 aircraft are one scroll away: only the visible rows are drawn
+    clip.Begin((int)t.aircraft.size());
+    while (clip.Step()) for (int ci = clip.DisplayStart; ci < clip.DisplayEnd; ci++) {
+        const auto& c = t.aircraft[(size_t)ci];
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
         if (ImGui::Selectable((hex6(c.icao) + "##vl" + hex6(c.icao)).c_str(), S.selAir == c.icao, ImGuiSelectableFlags_SpanAllColumns)) { S.selAir = c.icao; snprintf(S.fAir, sizeof S.fAir, "%s", hex6(c.icao).c_str()); }

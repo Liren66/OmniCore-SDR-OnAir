@@ -9,9 +9,11 @@
 #include "settings_table.h"
 #include "setup_logic.h"
 #include "kit/mode_panel.h"
+#include "../codec/speech_codec_ui.h"
 #include "ui2_internal.h"
 #include "dect2/common/u8file.h"
 #include "dect2/engine/updater.h"
+#include "dect2/limits.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -36,6 +38,10 @@ struct Bind {
 #define SB(k, expr) m[k] = Bind{nullptr, nullptr, [](App& a) -> std::string { return (expr); }, [](App& a, const std::string& v) { (expr) = v; }}
 #define PD(k) m[k] = Bind{[](App&) -> double { return plat::prefs().getD(k, 0); }, [](App&, double v) { plat::prefs().setD(k, v); }, nullptr, nullptr}
 
+// the "remove after" times (Settings > Decoding) go to the trackers in core (dect2/limits.h)
+void applyStaleNow() { applyStaleFromPrefs(); }
+#define PS(k, def) m[k] = Bind{[](App&) -> double { return plat::prefs().getD(k, def); }, [](App&, double v) { plat::prefs().setD(k, v); applyStaleNow(); }, nullptr, nullptr}
+
 const std::map<std::string, Bind>& binds() {
     static const std::map<std::string, Bind> mm = [] {
         std::map<std::string, Bind> m;
@@ -43,13 +49,13 @@ const std::map<std::string, Bind>& binds() {
         NB("discordOn", a.discordOn); NB("discordFreq", a.discordFreq);
         NB("uiTheme", a.uiTheme); NB("uiVariant", a.uiVariant); NB("layoutUnified", a.layoutUnified); NB("uiTextScale", a.uiTextScale);
         NB("touchUi", a.touchUi); NB("touchScale", a.touchScale); NB("perfOverlay", a.perfOverlay);
-        NB("wfMap3", a.wf.map); NB("wfAutoFloor", a.wf.autoTrack); NB("wfGamma", a.wf.gamma); NB("wfBright", a.wf.brightness);
+        NB("wfMap3", a.wf.map); NB("wfAutoFloor", a.wf.autoTrack); NB("wfGamma", a.wf.gamma); NB("wfBright", a.wf.brightness); NB("wfSat", a.wf.sat);
         NB("wfContrast", a.wf.contrast); NB("wfClock", a.wf.clockLabels); NB("wfAvg", a.wf.rowAverage); NB("wfLowPass", a.wfLowPass);
         NB("specAutoDb", a.specAutoDb); NB("specPerHz", a.specPerHz); NB("specDbm", a.specDbm); NB("specFill", a.specFill);
         NB("specGrid", a.specGrid); NB("specPeaks", a.specPeaks); NB("specReadout", a.specReadout); NB("specLine", a.specLine);
         NB("specAvgSec", a.specAvgSec); NB("holdDecay", a.holdDecay);
-        NB("tuningMode", a.tuningMode); NB("centreTuning", a.centreTuning); NB("dragMovesTuned", a.dragMovesTuned);
-        NB("specSnapHz", a.specSnapHz); NB("bwAuto", a.bwAuto);
+        NB("tuningMode", a.tuningMode); NB("centreTuning", a.centreTuning); NB("dragMovesTuned", a.dragMovesTuned); NB("specDrag", a.specDrag);
+        NB("specSnapHz", a.specSnapHz); NB("bwAuto", a.bwAuto); NB("gpuGlobal", a.gpuGlobal);
         NB("popTop", a.popTop); NB("subsOn", a.subsOn);
         m["recFormat"] = Bind{[](App& a) -> double { return a.recFormat; }, [](App& a, double v) { a.recFormat = (int)v; plat::prefs().setI("recFormat", (long)v); }, nullptr, nullptr};
         NB("fmMono", a.fmMono); NB("fmStereo", a.fmStereo); NB("fmDeemph", a.fmDeemph); NB("fmRegion", a.fmRegion);
@@ -57,6 +63,7 @@ const std::map<std::string, Bind>& binds() {
         PD("adsbLat"); PD("adsbLon");
         NB("updCheck", a.updCheck); NB("updBeta", a.updPre); NB("updAuto", a.updAuto); NB("updSrc", a.updSrc);
         NB("updMirrorOn", a.updMirrorOn); SB("updMirror", a.updMirror);
+        PS("staleVdl2", -1); PS("staleAcars", -1); PS("staleHfdl", -1); PS("staleAdsb", -1); PS("staleAis", -1); PS("staleUat", -1); PS("staleInmsat", -1); PS("staleCustomMin", 120);
         SB("udpHost", std::string(a.udpHost)); NB("udpPort", a.out.port); NB("udpRtp", a.out.rtp);
         return m;
     }();
@@ -86,6 +93,7 @@ void writeVal(App& a, const Info& i, const Val& v) {
         if (!strcmp(i.key, "udpHost")) putUdpHost(a, v.s);
         else if (b->ss) b->ss(a, v.s);
     } else if (b->sn) b->sn(a, clampTo(i, v.d));
+    if (!strcmp(i.key, "gpuGlobal")) applyGpuPolicy(a);
     savePrefsSoon(a);
 }
 
@@ -158,14 +166,17 @@ void customRow(App& a, const Info& i) {
         if (ImGui::Button(tr("Open Automations..."))) a.automationOpen = true;
         ImGui::TextDisabled("%s", plat::prefs().getB("automationAllowRun", false) ? tr("Running programs is allowed.") : tr("Running programs is off."));
     }
+    else if (k == "gpuModes") gpuSettingsRow(a);
     else if (k == "modeVisLink") { if (ImGui::Button(tr("Open Modes shown..."))) a.modeVisOpen = true; }
     else if (k == "themeMode") ui2::themeChoice(a, false);
     else if (k == "accent") ui2::accentMenu();
+    else if (k == "restoreView") { if (ImGui::Button(tr("Restore the default view"))) ui2::restoreDefaultView(a); }
     else if (k == "uiTypography") ui2::typographyChoice(false);   // its own heading says it applies after a restart
     else if (k == "timeDisplay") ui2::timeDisplayChoice(false);
     else if (k == "recordingsFolder") {
         static char buf[1024]; static bool init = false;
         if (!init) { init = true; snprintf(buf, sizeof buf, "%s", chosenRecordingsDir().c_str()); }
+        ImGui::PushID("recdirBlock");
         const std::string cur = recordingsDir();
         ImGui::TextWrapped("%s", cur.c_str());
         const unsigned long long fb = recdir::freeBytes(cur);
@@ -180,6 +191,34 @@ void customRow(App& a, const Info& i) {
         ImGui::SameLine();
         if (ImGui::Button(tr("Open"))) revealFolder(recordingsDir());
         if (!chosenRecordingsDir().empty() && recdir::normalise(chosenRecordingsDir()) != cur) ImGui::TextColored(ImVec4(1.f, 0.75f, 0.3f, 1), "%s", tr("That folder cannot be written: the default is used."));
+        ImGui::PopID();
+    }
+    else if (k == "optLibs") appcodec::optionalLibrariesSection();
+    else if (k == "ffmpegLibs") {
+        static char buf[1024]; static bool init = false;
+        if (!init) { init = true; snprintf(buf, sizeof buf, "%s", plat::prefs().getS("ffmpegDir", "").c_str()); }
+        bool ext = plat::prefs().getB("ffmpegExternal", false);
+        int sel = ext ? 1 : 0;
+        ImGui::SetNextItemWidth(-1);
+        bool changed = ImGui::Combo("##ffsel", &sel, (std::string(tr("Bundled (default)")) + '\0' + tr("External folder") + '\0').c_str());
+        if (sel == 1) {
+            ImGui::SetNextItemWidth(-1);
+            ImGui::InputTextWithHint("##ffdir", tr("Folder with libavcodec and libavutil"), buf, sizeof buf);
+            if (ImGui::Button(tr("Choose..."))) { const std::string d = plat::openFolderDialog(); if (!d.empty()) { snprintf(buf, sizeof buf, "%s", d.c_str()); changed = true; } }
+            ImGui::SameLine();
+            if (ImGui::Button(tr("Use typed path"))) changed = true;
+        }
+        if (changed) {
+            plat::prefs().setB("ffmpegExternal", sel == 1);
+            plat::prefs().setS("ffmpegDir", buf);
+            applyFfmpegDirFromPrefs();
+        }
+        if (sel == 1 && buf[0]) ImGui::TextDisabled("%s", tr("Takes effect the next time an add-on looks for its library (restart if unsure)."));
+    }
+    else if (k == "sdrconnectLog") {
+        bool on = plat::prefs().getB("sdrconnectLog", false);
+        if (ImGui::Checkbox(tr("Log SDRconnect websocket traffic"), &on)) { plat::prefs().setB("sdrconnectLog", on); applyFfmpegDirFromPrefs(); }
+        ImGui::TextDisabled("%s", (plat::dataDir() + "/sdrconnect-ws.log").c_str());
     }
     else if (k == "dataFolder") {
         const std::string d = plat::dataDir();

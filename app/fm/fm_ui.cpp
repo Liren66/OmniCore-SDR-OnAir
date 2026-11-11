@@ -163,6 +163,7 @@ void fmStatus(App& a) {
 
 // ------------------------------------------------------------------ history, volume
 void fmHistory(App& a) {
+    fmSmartTick(a);
     static uint64_t lastSeq = 0;
     static bool wasRunning = false;
     static float lastVol = -1;
@@ -372,6 +373,9 @@ void fmRadioPanel(App& a) {
             if (!fm.rds.ert.empty()) row(Ic::Wave, tr("Text (eRT)"), "%s", fm.rds.ert.c_str());
         }
         row(Ic::Layers, "Programme", "%s", live && !fm.ptyText.empty() && fm.ptyText != "None" ? fm.ptyText.c_str() : "-");
+        if (live && fm.rdsSync && fm.ptyCode >= 0) {   // PTY code and the TP / TA / music-speech flags (#436)
+            row(Ic::Layers, tr("Type and flags"), "PTY %d%s%s%s  %s", fm.ptyCode, fm.ptyCode == 31 && !fm.rbds ? " (alarm)" : "", fm.trafficProgram ? "  TP" : "", fm.trafficAlert ? "  TA (announcement on air)" : "", fm.music ? tr("music") : tr("speech"));
+        }
         if (live && fm.rbds && !fm.callSign.empty()) row(Ic::Radio, tr("Call letters"), "%s", fm.callSign.c_str());
         {
             char snd[64];
@@ -389,6 +393,23 @@ void fmRadioPanel(App& a) {
             else snprintf(rds, sizeof rds, "%.0f %% blocks ok", fm.rdsBlockOkPct);
         }
         row(Ic::Wave, "RDS", "%s", rds);
+        if (live) {
+            std::string subTxt;
+            for (auto& c : fm.sub.rds2) if (c.synced) { char b[64]; snprintf(b, sizeof b, "%sRDS2 %.2f kHz (%.0f %%)", subTxt.empty() ? "" : ", ", c.carrierHz / 1e3, c.okPct); subTxt += b; }
+            static int scaSel = -1;
+            for (int i = 0; i < 2; i++) if (fm.sub.sca[i].present) { char b[64]; snprintf(b, sizeof b, "%sSCA %.0f kHz", subTxt.empty() ? "" : ", ", fm.sub.sca[i].carrierHz / 1e3); subTxt += b; }
+            if (!subTxt.empty()) row(Ic::Wave, tr("Subcarriers"), "%s", subTxt.c_str());
+            if (fm.sub.sca[0].present || fm.sub.sca[1].present || scaSel >= 0) {
+                row(Ic::Speaker, tr("Listen to"), "%s", "");
+                ImGui::SameLine();
+                static const char* scaNames[] = {N_("the programme"), "SCA 67 kHz", "SCA 92 kHz"};
+                ImGui::SetNextItemWidth(140 * gUi);
+                if (ImGui::BeginCombo("##fmsca", scaSel < 0 ? tr(scaNames[0]) : scaNames[scaSel + 1])) {
+                    for (int i = -1; i < 2; i++) if (ImGui::Selectable(i < 0 ? tr(scaNames[0]) : scaNames[i + 1], scaSel == i)) { scaSel = i; a.engine.fm().setScaListen(i); }
+                    ImGui::EndCombo();
+                }
+            }
+        }
         if (live && fm.equaliser) row(Ic::Wave, tr("Multipath"), "%s", tr("echo found, equaliser on"));
         row(Ic::Warning, "Traffic", "%s", !live ? "-" : fm.trafficAlert ? "ANNOUNCEMENT" : fm.trafficProgram ? "station (TP)" : "no");
         ImGui::TableNextRow(); ImGui::TableNextColumn(); iconInline(Ic::Wave, iconDim(), 0.9f); ImGui::SameLine(0, 5 * gUi); ImGui::TextDisabled("%s", tr("RDS standard")); ImGui::TableNextColumn();
@@ -459,7 +480,7 @@ void fmRadioPanel(App& a) {
         ImGui::EndTable();
     }
     ImGui::Spacing();
-    if (live && fm.rdsSync && (!fm.rds.afMhz.empty() || !fm.rds.ptyn.empty() || fm.rds.clockUtc || fm.rds.ecc >= 0 || !fm.rds.eon.empty() || !fm.rds.oda.empty())) {
+    if (live && fm.rdsSync && (!fm.rds.afMhz.empty() || fm.rds.language >= 0 || !fm.rds.ptyn.empty() || fm.rds.clockUtc || fm.rds.ecc >= 0 || !fm.rds.eon.empty() || !fm.rds.oda.empty())) {
         // the rest of RDS: what the station sends beyond the name and the text
         if (typo::collapsingHeader(trw("RDS details"), 0)) {
             ImGui::PushTextWrapPos(0);
@@ -478,10 +499,18 @@ void fmRadioPanel(App& a) {
                 std::string af;
                 for (double f : fm.rds.afMhz) { char b[16]; snprintf(b, sizeof b, "%s%.1f", af.empty() ? "" : ", ", f); af += b; }
                 ImGui::Text("%s: %s MHz", tr("Also on"), af.c_str());
+                fmAfPanel(a);
             }
             if (fm.rds.ecc >= 0) ImGui::Text("%s: %02X  PI %04X", tr("Country code (ECC)"), fm.rds.ecc, fm.piCode);
             if (fm.rds.pinDay) ImGui::Text("%s: day %d, %02d:%02d", tr("Programme item"), fm.rds.pinDay, fm.rds.pinHour, fm.rds.pinMinute);
-            for (const auto& e : fm.rds.eon) ImGui::Text("%s: %04X %s", tr("Other network"), e.pi, e.ps.empty() ? "..." : fmTrim(e.ps).c_str());
+            if (fm.rds.language >= 0) ImGui::Text("%s: %s (%02X)", tr("Language"), rdsLanguageName(fm.rds.language), fm.rds.language);
+            for (const auto& e : fm.rds.eon) {
+                std::string x = e.ps.empty() ? "..." : fmTrim(e.ps);
+                if (e.pty >= 0) x += std::string("  PTY ") + std::to_string(e.pty);
+                if (e.tp == 1) x += "  TP";
+                if (e.ta == 1) x += "  TA";
+                ImGui::Text("%s: %04X %s", tr("Other network"), e.pi, x.c_str());
+            }
             for (const auto& t : fm.rds.rtPlus) if (t.type != 1 && t.type != 4) ImGui::Text("%s: %s", t.name.c_str(), t.text.c_str());
             if (!fm.rds.oda.empty()) {
                 std::string o;
@@ -724,7 +753,7 @@ static void fmScanBeginRange(App::FmScan& s) {
 }
 
 // power of one 100 kHz channel (+-50 kHz) in a spectrum frame, dB; the radio's DC spike is skipped
-static double fmChannelDb(const SpectrumFrame& f, double fs, double offHz) {
+double fmChannelDb(const SpectrumFrame& f, double fs, double offHz) {
     const size_t n = f.dbfs.size();
     const double binHz = fs / (double)n;
     double sum = 0;
@@ -740,7 +769,11 @@ static double fmChannelDb(const SpectrumFrame& f, double fs, double offHz) {
     return cnt ? 10 * std::log10(sum / cnt + 1e-20) : -200;
 }
 
+// First start: what the Scan button does (docs/EASE-3.8.md)
+void fmAutoScan(App& a) { App::FmScan& s = a.fmScan; fmScanBeginRange(s); s.running = true; s.phase = 0; s.idx = -1; s.t0 = 0; s.results.clear(); s.cand.clear(); s.savedFreq = a.freqMhz; }
+
 void fmScanTab(App& a) {
+    fmCensusPanel(a);
     App::FmScan& s = a.fmScan;
     const bool run = a.engine.running();
     double lo = 87.0, hi = 108.0;

@@ -1,6 +1,7 @@
 // Radio problems where the user looks: the listing error, a failed start, a frequency the radio cannot tune and the USB hints, all under the
 // radio picker, plus a "Copy diagnostics" button that puts what a bug report needs on the clipboard.
 #include "dect2/common/u8file.h"
+#include "dect2/source/gain.h"
 #include "dect2/audio/audio_rec.h"
 #include "dect2/audio/audio_monitor.h"
 #include "dect2/audio/audioout.h"
@@ -17,6 +18,8 @@
 #include "dect2/engine/crash_report.h"
 #include "dect2/voicekeys/key_guard.h"
 #include "../ui/panel_layout.h"
+#include "../ui/next_step_logic.h"
+#include "../ui/ease_logic.h"
 #include <fstream>
 #include <iterator>
 #include <cstring>
@@ -583,6 +586,51 @@ void fixitUi(App& a, const fixit::Entry* e, const char* idKey) {
         ImGui::EndPopup();
     }
     ImGui::PopID();
+}
+
+// "What do I do next": one plain line about how the reception is going and, when a click helps, the one fix (app/ui/next_step_logic.h)
+void nextStepLine(App& a) {
+    static double startedAt = -1;
+    const double now = ImGui::GetTime();
+    const bool run = a.engine.running();
+    if (run && startedAt < 0) startedAt = now;
+    if (!run) startedAt = -1;
+    nextstep::In in;
+    in.running = run;
+    in.hasRadio = !a.devices.empty();
+    in.radioHasGain = a.devIdx >= 0 && a.devIdx < (int)a.devices.size() && a.devices[a.devIdx].isRadio();
+    in.autoGain = a.agcOn;
+    in.levelCompensated = adcLevelCompensated();
+    in.runSec = run ? now - startedAt : 0;
+    const SampleLoss sl = a.engine.sampleLoss();
+    in.radioLoss = sl.live && sl.rateLow;
+    in.cpuLoss = sl.live && sl.sinceCpuSec >= 0 && sl.sinceCpuSec < 5;
+    in.rmsDbfs = a.spec.stats.rmsDbfs;
+    in.clipFraction = a.spec.stats.clipFraction;
+    // the lock state is known for the modes whose telemetry the app reads here; the others get only the measured hints
+    if (run && a.fmMode && a.rx.standard == 6) { in.lockKnown = true; in.locked = a.rx.fm.state == 2; in.snrDb = a.rx.fm.carrier ? a.rx.fm.snrDb : NAN; }
+    else if (run && a.dabMode && a.rx.standard == 3) { in.lockKnown = true; in.locked = a.rx.dab.state == 2; in.snrDb = a.rx.dab.snrDb; }
+    else if (run && !a.fmMode && !a.dabMode && a.rx.standard >= 0 && a.rx.standard <= 1) { in.lockKnown = true; in.locked = a.rx.state == 2; in.snrDb = a.rx.dataValid ? a.rx.dataSnrDb : NAN; }
+    const nextstep::Out o = nextstep::advise(in);
+    if (!o.text[0]) return;
+    // E10: where a quiet screen is normal the mode says so, instead of "no signal" or a general note
+    std::string text = tr(o.text);
+    if (const char* note = ease::quietNote(curModeName(a)); note && run && in.runSec >= nextstep::kSearchSec && (o.state == nextstep::State::Unknown || o.state == nextstep::State::NoSignal)) text = ease::quietLine(tr(note), in.runSec);
+    // always one line, in the same place in every mode: grey while nothing needs doing, green when it works, amber when a step helps
+    const ImVec4 col = o.needsAttention() ? ImVec4(0.95f, 0.78f, 0.25f, 1) : o.state == nextstep::State::Good ? pal::okGreen() : ImVec4(0.62f, 0.66f, 0.72f, 1);
+    ImGui::PushStyleColor(ImGuiCol_Text, col);
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextUnformatted(text.c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::PopStyleColor();
+    if (o.fix != nextstep::Fix::None) {
+        ImGui::PushID("nextstep");
+        if (ImGui::SmallButton(tr(o.fixLabel))) {
+            if (o.fix == nextstep::Fix::AutoGain) autogainRun(a, 1);
+            else if (o.fix == nextstep::Fix::Start) startReceiver(a);
+        }
+        ImGui::PopID();
+    }
 }
 
 void radioMessagesUi(App& a, bool vertical) {

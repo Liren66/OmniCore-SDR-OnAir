@@ -88,8 +88,8 @@ void chooseMode(App& a, TxUi& s, const TxModeSpec& m) {
     if (rm && rm == &m) { s.synth = a.tune.synth; s.freqMhz = a.freqMhz; }
     else {
         s.synth = SynthConfig();
-        const ModeTuning* mt = modeTuning(m.stdMode);
-        s.freqMhz = mt && mt->defMhz > 0 ? mt->defMhz : a.freqMhz;
+        const double def = txModeDefaultMhz(m);
+        s.freqMhz = def > 0 ? def : a.freqMhz;
     }
 }
 
@@ -186,7 +186,7 @@ TxRequest makeReq(const TxUi& s, const TxModeSpec& mode, bool carrier) {
     r.tune.channel = s.txCh < 0 ? 0 : s.txCh;
     r.callsign = s.callsign;
     r.grid = s.grid;
-    r.text = s.text[0] ? s.text : s.rdsRt;
+    r.text = s.text[0] ? std::string(s.text) : s.rdsRt;
     if (std::string(mode.id) == "mesh") {
         r.mesh.longName = s.meshLong; r.mesh.shortName = s.meshShort; r.mesh.nodeId = s.meshNode; r.mesh.channelName = s.meshChan;
         r.mesh.psk = s.meshPsk; r.mesh.preset = s.meshPreset; r.mesh.hopLimit = s.meshHop;
@@ -273,6 +273,7 @@ TxRequest makeReq(const TxUi& s, const TxModeSpec& mode, bool carrier) {
         r.mux.push_back(std::move(p));
     }
     paramsApply(s, r);
+    controlApply(s, r);   // the radio's filter, gain stages and calibration (tx_control_ui.cpp)
     return r;
 }
 
@@ -343,6 +344,8 @@ void stopTx(App& a, TxUi& s, const char* why) {
     s.session.stop();
     release(s);
     s.radioName.clear(); s.carrierOnly = false; s.carrierHeld = false; s.sessionDry = false; s.sessionFile = false; s.pendingStart = false; s.pendingCarrier = false;
+    if (s.schedArmed) a.engine.log("transmit: the schedule is cancelled");
+    s.schedArmed = false; s.schedRunning = false;   // Stop also cancels a schedule
     if (was) a.engine.log(std::string("transmit: stopped ") + why);
 }
 
@@ -394,7 +397,7 @@ void txShutdown() {
 }
 
 // every frame (the first call of a frame does the work): a transmission that ended by itself or failed gives its radio back; the on-screen indicator
-void txTick(App&) {
+void txTick(App& a) {
     TxUi& s = ui();
     if (s.tickFrame == ImGui::GetFrameCount()) return;
     s.tickFrame = ImGui::GetFrameCount();
@@ -409,6 +412,7 @@ void txTick(App&) {
         s.sessionDry = false;
         s.sessionFile = false;
     }
+    scheduleTick(a, s);   // a planned start, or the next one after a scheduled transmission has ended
     if (!s.session.running()) return;
     char b[220];
     const TxSession::Stats st = s.session.stats();

@@ -61,6 +61,8 @@ echo "NDK:           $NDK"
   -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON -DOMNICORE_HOST_SRC="${OMNICORE_HOST_SRC:-}" \
   -DONAIR_ANDROID_OMNICORE="${ONAIR_ANDROID_OMNICORE:-ON}" \
   -DLIBUSB_SRC="${LIBUSB_SRC:-}" -DAIRSPY_SRC="${AIRSPY_SRC:-}" -DAIRSPYHF_SRC="${AIRSPYHF_SRC:-}"
+python3 "$HERE/tools/gen_modes.py" "$ONAIR_SRC" "$HERE"          # the mode list comes from the desktop table: new modes need no Android change
+python3 "$HERE/tools/gen_results_map.py" "$ONAIR_SRC"            # and so do their results
 TARGETS=(onair)
 [ "${ONAIR_ANDROID_OMNICORE:-ON}" = OFF ] || TARGETS+=(omnicore)
 [ -n "${LIBUSB_SRC:-}" ] && TARGETS+=(usb1.0)

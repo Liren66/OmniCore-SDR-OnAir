@@ -265,7 +265,21 @@ int Engine::pollMode(int a, RxTelemetry& t, uint64_t* seqs) {
     case 64: return pollStd(rxVdes_, 64, t, seqs[58], &RxTelemetry::vdes);
     case 65: return pollStd(rxHrpt_, 65, t, seqs[59], &RxTelemetry::hrpt);
     case 66: return pollStd(rxZb_, 66, t, seqs[60], &RxTelemetry::zigbee);
+    case 245: return pollStd(rxTh_, 245, t, seqs[204], &RxTelemetry::thread);   // Thread (slot 204)
     case 67: return pollStd(rxFlarm_, 67, t, seqs[61], &RxTelemetry::flarm);
+    case 401: return pollStd(rxAvRoad_, 401, t, seqs[300], &RxTelemetry::avroad);
+    case 402: return pollStd(rxAvRoad_, 402, t, seqs[301], &RxTelemetry::avroad);
+    case 403: return pollStd(rxAvRoad_, 403, t, seqs[302], &RxTelemetry::avroad);
+    case 404: return pollStd(rxAvRoad_, 404, t, seqs[303], &RxTelemetry::avroad);
+    case 405: return pollStd(rxAvRoad_, 405, t, seqs[304], &RxTelemetry::avroad);
+    case 406: return pollStd(rxAvRoad_, 406, t, seqs[305], &RxTelemetry::avroad);
+    case 407: return pollStd(rxAvRoad_, 407, t, seqs[306], &RxTelemetry::avroad);
+    case 408: return pollStd(rxAvRoad_, 408, t, seqs[307], &RxTelemetry::avroad);
+    case 409: return pollStd(rxAvRoad_, 409, t, seqs[308], &RxTelemetry::avroad);
+    case 410: return pollStd(rxAvRoad_, 410, t, seqs[309], &RxTelemetry::avroad);
+    case 411: return pollStd(rxAvRoad_, 411, t, seqs[310], &RxTelemetry::avroad);
+    case 412: return pollStd(rxAvRoad_, 412, t, seqs[311], &RxTelemetry::avroad);
+    case 301: return pollStd(rxAdsl_, 301, t, seqs[260], &RxTelemetry::adsl);   // ADS-L (slot 260)
     case 68: return poll68(rxHfb_, t, seqs);
     case 69: return pollStd(rxDji_, 69, t, seqs[63], &RxTelemetry::dji);
     case 70: return pollStd(rxNb_, 70, t, seqs[64], &RxTelemetry::nbiot);
@@ -309,11 +323,71 @@ int Engine::pollMode(int a, RxTelemetry& t, uint64_t* seqs) {
     case 233: return pollStd(rxFy_, 233, t, seqs[191], &RxTelemetry::fygeo);   // FengYun FY-4 LRIT, FY-4A or FY-4B (slot 191)
     case 234: return pollStd(rxFy_, 234, t, seqs[192], &RxTelemetry::fygeo);   // FengYun FY-4A HRIT-II/III (slot 192)
     case 235: return pollStd(rxFy_, 235, t, seqs[193], &RxTelemetry::fygeo);   // FengYun FY-2 S-VISSR (slot 193)
+    case 242: return pollStd(rxSens_, 242, t, seqs[201], &RxTelemetry::sensors);   // Sub-GHz sensors (slot 201)
+    case 246: return pollStd(rxBgan_, 246, t, seqs[205], &RxTelemetry::bgan);   // Inmarsat BGAN (slot 205)
+    case 244: return pollStd(rxSfer_, 244, t, seqs[203], &RxTelemetry::sferics);   // Sferics (slot 203)
+    case 602: return pollStd(rxXlink_, 602, t, seqs[601], &RxTelemetry::xlink);   // Extra links, narrow-band members
+    case 601: return pollStd(rxXlink_, 601, t, seqs[600], &RxTelemetry::xlink);   // Extra links (slot 600)
+    case 361: return pollStd(rxRc_, 361, t, seqs[360], &RxTelemetry::rclink);   // RC and mesh links (slot 360)
     case 211: return pollStd(rxNrf_, 211, t, seqs[186], &RxTelemetry::nrf24);   // nRF24L01 (slot 186)
+    case 481: return pollStd(rxUmts_, 481, t, seqs[440], &RxTelemetry::umts);   // UMTS cells (slot 440)
     case 241: return pollStd(rxSelcal_, 241, t, seqs[200], &RxTelemetry::selcal);   // SELCAL (slot 200)
     case 212: return pollStd(rxAtis_, 212, t, seqs[187], &RxTelemetry::atis);   // ATIS inland waterways (slot 187)
+    case 291: return pollStd(rxSd3_[0], 291, t, seqs[290], &RxTelemetry::sd3);
+    case 292: return pollStd(rxSd3_[1], 292, t, seqs[291], &RxTelemetry::sd3);
+    case 293: return pollStd(rxSd3_[2], 293, t, seqs[292], &RxTelemetry::sd3);
+    case 294: return pollStd(rxSd3_[3], 294, t, seqs[293], &RxTelemetry::sd3);
+    case 295: return pollStd(rxSd3_[4], 295, t, seqs[294], &RxTelemetry::sd3);
+    case 296: return pollStd(rxSd3_[5], 296, t, seqs[295], &RxTelemetry::sd3);
+    case 297: return pollStd(rxSd3_[6], 297, t, seqs[296], &RxTelemetry::sd3);
+    case 298: return pollStd(rxSd3_[7], 298, t, seqs[297], &RxTelemetry::sd3);
+    case 299: return pollStd(rxSd3_[8], 299, t, seqs[298], &RxTelemetry::sd3);
+    case 300: return pollStd(rxSd3_[9], 300, t, seqs[299], &RxTelemetry::sd3);
+    case 511: return pollStd(rxSd3_[10], 511, t, seqs[510], &RxTelemetry::sd3);
+    case 461: return pollStd(rxHs_[0], 461, t, seqs[461], &RxTelemetry::hamsci);   // QRSS (slot 461)
+    case 462: return pollStd(rxHs_[1], 462, t, seqs[462], &RxTelemetry::hamsci);   // DFCW (slot 462)
+    case 463: return pollStd(rxHs_[2], 463, t, seqs[463], &RxTelemetry::hamsci);   // FSK441 (slot 463)
+    case 464: return pollStd(rxHs_[3], 464, t, seqs[464], &RxTelemetry::hamsci);   // ISCAT (slot 464)
+    case 465: return pollStd(rxHs_[4], 465, t, seqs[465], &RxTelemetry::hamsci);   // PI4 (slot 465)
+    case 466: return pollStd(rxHs_[5], 466, t, seqs[466], &RxTelemetry::hamsci);   // Throb (slot 466)
+    case 501: return pollStd(rxHs_[6], 501, t, seqs[501], &RxTelemetry::hamsci);   // SuperSID (slot 501)
+    case 502: return pollStd(rxHs_[7], 502, t, seqs[502], &RxTelemetry::hamsci);   // riometer (slot 502)
+    case 503: return pollStd(rxHs_[8], 503, t, seqs[503], &RxTelemetry::hamsci);   // pulsar (slot 503)
+    case 531: return pollStd(rxXb_[0], 531, t, seqs[530], &RxTelemetry::xband);
+    case 532: return pollStd(rxXb_[1], 532, t, seqs[531], &RxTelemetry::xband);
+    case 533: return pollStd(rxXb_[2], 533, t, seqs[532], &RxTelemetry::xband);
+    case 534: return pollStd(rxXb_[3], 534, t, seqs[533], &RxTelemetry::xband);
+    case 535: return pollStd(rxXb_[4], 535, t, seqs[534], &RxTelemetry::xband);
+    case 536: return pollStd(rxXb_[5], 536, t, seqs[535], &RxTelemetry::xband);
+    case 537: return pollStd(rxXb_[6], 537, t, seqs[536], &RxTelemetry::xband);
+    case 538: return pollStd(rxXb_[7], 538, t, seqs[537], &RxTelemetry::xband);
+    case 539: return pollStd(rxXb_[8], 539, t, seqs[538], &RxTelemetry::xband);
+    case 540: return pollStd(rxXb_[9], 540, t, seqs[539], &RxTelemetry::xband);
+    case 541: return pollStd(rxXb_[10], 541, t, seqs[540], &RxTelemetry::xband);
+    case 542: return pollStd(rxXb_[11], 542, t, seqs[541], &RxTelemetry::xband);
+    case 543: return pollStd(rxXb_[12], 543, t, seqs[542], &RxTelemetry::xband);
+    case 544: return pollStd(rxXb_[13], 544, t, seqs[543], &RxTelemetry::xband);
+    case 545: return pollStd(rxXb_[14], 545, t, seqs[544], &RxTelemetry::xband);
+    case 546: return pollStd(rxXb_[15], 546, t, seqs[545], &RxTelemetry::xband);
+    case 547: return pollStd(rxXb_[16], 547, t, seqs[546], &RxTelemetry::xband);
+    case 548: return pollStd(rxXb_[17], 548, t, seqs[547], &RxTelemetry::xband);
+    case 549: return pollStd(rxXb_[18], 549, t, seqs[548], &RxTelemetry::xband);
+    case 550: return pollStd(rxXb_[19], 550, t, seqs[549], &RxTelemetry::xband);
+    case 261: return pollStd(rxWx_[0], 261, t, seqs[220], &RxTelemetry::wxsat);   // 0
+    case 262: return pollStd(rxWx_[1], 262, t, seqs[221], &RxTelemetry::wxsat);   // 1
+    case 263: return pollStd(rxWx_[2], 263, t, seqs[222], &RxTelemetry::wxsat);   // 2
+    case 264: return pollStd(rxWx_[3], 264, t, seqs[223], &RxTelemetry::wxsat);   // 3
+    case 265: return pollStd(rxWx_[4], 265, t, seqs[224], &RxTelemetry::wxsat);   // 4
+    case 266: return pollStd(rxWx_[5], 266, t, seqs[225], &RxTelemetry::wxsat);   // 5
+    case 267: return pollStd(rxWx_[6], 267, t, seqs[226], &RxTelemetry::wxsat);   // 6
+    case 268: return pollStd(rxWx_[7], 268, t, seqs[227], &RxTelemetry::wxsat);   // 7
+    case 269: return pollStd(rxWx_[8], 269, t, seqs[228], &RxTelemetry::wxsat);   // 8
+    case 270: return pollStd(rxWx_[9], 270, t, seqs[229], &RxTelemetry::wxsat);   // 9
+    case 271: return pollStd(rxWx_[10], 271, t, seqs[230], &RxTelemetry::wxsat);   // 10
+    case 272: return pollStd(rxWx_[11], 272, t, seqs[231], &RxTelemetry::wxsat);   // 11
     case 236: return pollStd(rxFy3a_, 236, t, seqs[195], &RxTelemetry::fy3a);   // FY-3 AHRPT (slot 195)
     case 237: return pollStd(rxFy3m_, 237, t, seqs[196], &RxTelemetry::fy3m);   // FY-3 MPT (slot 196)
+    case 431: case 432: case 433: case 434: case 435: case 436: case 437: case 438: case 439: case 440: return pollStd(rxHfu_[a - 431], a, t, hfuSeq_[a - 431], &RxTelemetry::hfutil);   // HF utility modes
     case 238: return pollStd(rxPh2_, 238, t, seqs[197], &RxTelemetry::pactorhf);   // PACTOR-II (slot 197)
     case 239: return pollStd(rxPh3_, 239, t, seqs[198], &RxTelemetry::pactorhf);   // PACTOR-III (slot 198)
     case 240: return pollStd(rxPh4_, 240, t, seqs[199], &RxTelemetry::pactorhf);   // PACTOR-IV (slot 199)
@@ -341,11 +415,29 @@ int Engine::pollMode(int a, RxTelemetry& t, uint64_t* seqs) {
     case 143: return pollStd(rxModeAc_, 143, t, seqs[120], &RxTelemetry::modeac);   // Mode A/C (slot 120)
     case 144: return pollStd(rxBt_, 144, t, seqs[121], &RxTelemetry::bletrk);   // BLE tracker detector (slot 121)
     case 155: return pollStd(rxIsdbs_, 155, t, seqs[154], &RxTelemetry::isdbs);   // ISDB-S (slot 154)
+    case 551: return pollStd(rxSatd_, 551, t, seqs[551], &RxTelemetry::satdetect);
+    case 552: return pollStd(rxSatd_, 552, t, seqs[552], &RxTelemetry::satdetect);
+    case 553: return pollStd(rxSatd_, 553, t, seqs[553], &RxTelemetry::satdetect);
+    case 554: return pollStd(rxSatd_, 554, t, seqs[554], &RxTelemetry::satdetect);
+    case 555: return pollStd(rxSatd_, 555, t, seqs[555], &RxTelemetry::satdetect);
+    case 556: return pollStd(rxSatd_, 556, t, seqs[556], &RxTelemetry::satdetect);
+    case 557: return pollStd(rxSatd_, 557, t, seqs[557], &RxTelemetry::satdetect);
+    case 558: return pollStd(rxSatd_, 558, t, seqs[558], &RxTelemetry::satdetect);
+    case 559: return pollStd(rxSatd_, 559, t, seqs[559], &RxTelemetry::satdetect);
+    case 560: return pollStd(rxSatd_, 560, t, seqs[560], &RxTelemetry::satdetect);
+    case 561: return pollStd(rxSatd_, 561, t, seqs[561], &RxTelemetry::satdetect);
+    case 563: return pollStd(rxSatd_, 563, t, seqs[563], &RxTelemetry::satdetect);
+    case 562: return pollStd(rxNavic_, 562, t, seqs[562], &RxTelemetry::navic);
     case 145: return pollStd(rxSb_, 145, t, seqs[140], &RxTelemetry::satbeacon);   // TV sat beacon decoder (slot 140)
     case 130: return pollStd(rxLtr_, 130, t, seqs[126], &RxTelemetry::ltr);     // LTR control channel (slot 126)
     case 131: return pollStd(rxEdacs_, 131, t, seqs[127], &RxTelemetry::edacs); // EDACS control channel (slot 127)
+    case 321: return pollStd(rxSmartnet_, 321, t, seqs[321], &RxTelemetry::smartnet); // Motorola Type II (slot 321)
+    case 322: return pollStd(rxTetraDmo_, 322, t, seqs[322], &RxTelemetry::tetradmo); // TETRA Direct Mode (slot 322)
+    case 323: return pollStd(rxOpenSky_, 323, t, seqs[232], &RxTelemetry::opensky);   // OpenSky identifier (slot 232)
     case 156: return pollStd(rxMarineVhf_, 156, t, seqs[142], &RxTelemetry::marinevhf);   // Marine VHF voice (slot 142)
+    case 341: case 342: case 343: case 344: case 345: case 346: case 347: return pollStd(rxChv_, a, t, seqs[218], &RxTelemetry::chanvoice);   // channelised voice (slot 218, one receiver for all seven)
     case 181: return pollStd(rxP25p2_, 181, t, seqs[181], &RxTelemetry::p25p2); // P25 Phase 2 (slot 181)
+    case 381: return pollStd(rxBtc_, 381, t, seqs[380], &RxTelemetry::btc);     // Bluetooth Classic discovery (slot 380)
     default: return -1;
     }
 }

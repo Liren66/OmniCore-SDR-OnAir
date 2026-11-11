@@ -146,7 +146,7 @@ std::vector<PrefItem> selectPrefs(const std::vector<PrefItem>& in, Mode mode, co
 // not known at all is treated like a confirm key. Update this table when a setting is added (the test checks that every key of the
 // table is classified and that unknown keys are never silently applied).
 static const char* const kRestoreSafe[] = {
-    "ac.adv", "acarsChans", "acarsThr", "acarsZoom", "adsbLat", "adsbLon", "adsbMap", "adsbSources", "adsbSpeedUnit", "adsbSrcAny", "adsbUnits",
+    "ac.adv", "adslZoom", "acarsChans", "acarsThr", "acarsZoom", "adsbLat", "adsbLon", "adsbMap", "adsbSources", "adsbSpeedUnit", "adsbSrcAny", "adsbUnits",
     "adsbWinds", "adsbZoom", "aeroSat", "aeroSnrSound", "aeroZoom", "airChans", "airHang", "airHold", "airNr", "airNrStr", "airOnlyActive",
     "airScan", "airSquelch", "aisZoom", "aleListen", "antWheelMm", "ardopListen", "astroCustom", "astroDeg", "astroFft", "astroInt", "astroLine",
     "astroXVel", "astroY", "atvDeint", "audioRecFmt", "audioRecGate", "audioRecKeep", "audioRecSplit", "bleHop", "bleHopSec", "bletrkMin",
@@ -157,7 +157,8 @@ static const char* const kRestoreSafe[] = {
     "djiDecode", "dpmrScan", "dstarZoom", "dtmbThreads", "dvbcAnnexC", "dvbcQam", "dvbcSr", "dvbsLnbPol", "dvbsSr", "dvbsStd", "dvbsTxPol", "dwFmt",
     "eczasAudio", "eczasTone", "elektroAutoSave", "elektroCraft", "elektroFilter", "elektroLink", "family", "faxListen", "flarmZoom", "fmSaved",
     "fmScanFullRds", "fmScanHiMhz", "fmScanLoMhz", "fmStations", "fpvDeint", "fpvSub", "freqFav", "freqTab", "ftxLineColour", "ftxLineDone",
-    "ftxLineFade", "ftxLineLabels", "ftxLineMin", "ftxLineSel", "ftxLines", "ftxZoom", "fy3aPre", "fy3aRs", "fy3aView", "fy3mPre", "fy3mRs", "fy3mView", "galleryCapMb", "genAfHp", "genAfLp", "genAfNotch", "genAgc", "genAmAuto", "genAmDet", "genAmEnh", "genAmNr",
+    "sd3Linkgoesgrb", "sd3AutoLinkgoesgrb", "sd3Savegoesgrb", "sd3Linkgoesgvar", "sd3AutoLinkgoesgvar", "sd3Savegoesgvar", "sd3Linkgoescda", "sd3AutoLinkgoescda", "sd3Savegoescda", "sd3Linkgoesmdl", "sd3AutoLinkgoesmdl", "sd3Savegoesmdl", "sd3Linkgk2auhrit", "sd3AutoLinkgk2auhrit", "sd3Savegk2auhrit", "sd3Linkgk2acdas", "sd3AutoLinkgk2acdas", "sd3Savegk2acdas", "sd3Linksband", "sd3AutoLinksband", "sd3Savesband", "sd3Linkgeoscan", "sd3AutoLinkgeoscan", "sd3Savegeoscan", "sd3Linklucky7", "sd3AutoLinklucky7", "sd3Savelucky7", "sd3Linkspino", "sd3AutoLinkspino", "sd3Savespino", "sd3Linkerminaz", "sd3AutoLinkerminaz", "sd3Saveerminaz",
+    "wxViewnoaaapt", "wxAutoSavenoaaapt", "wxViewnoaahrpt", "wxAutoSavenoaahrpt", "wxViewnoaagac", "wxAutoSavenoaagac", "wxViewnoaadsb", "wxAutoSavenoaadsb", "wxViewmeteorhrpt", "wxAutoSavemeteorhrpt", "wxViewelektrordas", "wxAutoSaveelektrordas", "wxViewarktikardas", "wxAutoSavearktikardas", "wxViewarktikaggak", "wxAutoSavearktikaggak", "wxViewawsl", "wxAutoSaveawsl", "ftxLineFade", "ftxLineLabels", "ftxLineMin", "ftxLineSel", "ftxLines", "ftxZoom", "fy3aPre", "fy3aRs", "fy3aView", "fy3mPre", "fy3mRs", "fy3mView", "galleryCapMb", "genAfHp", "genAfLp", "genAfNotch", "genAgc", "genAmAuto", "genAmDet", "genAmEnh", "genAmNr",
     "genDeNfm", "genDeWfm", "genDemod", "genFlac", "genGain", "genMp3", "genNb", "genNbDb", "genOffset", "genPitch", "genPreRoll", "genSqAuto", "genSqDb", "genSqOn",
     "genTxHang", "genTxIq", "gnssElMask", "gnssZoom", "goesAutoSave", "goesFilter", "goesSaveCadu", "ham.audioOut", "ham.call", "ham.cwWpm",
     "ham.grid", "ham.licence", "ham.name", "ham.qth", "ham.rig", "ham.txHz", "hdrAm9k", "hdrLastAm", "hdrLastFm", "hfbClock", "hfbDwell", "hfbHop",

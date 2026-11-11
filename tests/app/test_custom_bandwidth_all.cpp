@@ -142,6 +142,7 @@ static TuneSettings ownTune(const ModeTuning& mt) {
 static bool nearEq(double a, double b) { return std::fabs(a - b) <= 1e-9 * std::max(1.0, std::fabs(b)); }
 
 int main(int argc, char** argv) {
+    setvbuf(stdout, nullptr, _IOLBF, 0);   // line by line: a run stopped at its time limit still shows every FAIL and where it was
     const bool csv = argc > 1 && !std::strcmp(argv[1], "--csv");
     const bool rowsOut = argc > 1 && !std::strcmp(argv[1], "--rows");   // one line per mode-table row: family, engine standard, tuning id
     const bool quick = argc > 1 && !std::strcmp(argv[1], "--quick");   // the plan checks only, no engine starts
@@ -270,11 +271,13 @@ int main(int argc, char** argv) {
         }
         // 5. it reaches the engine: the receiver runs at the rate the plan gave, and is processing signal
         if (quick) continue;
+        if (const char* only = std::getenv("ONAIR_TEST_MODES")) { const std::string l = std::string(",") + only + ","; if (l.find(std::string(",") + mt->id + ",") == std::string::npos) continue; }   // debugging: the engine starts of these modes only
         TuneSettings wide = ownTune(*mt), typed = ownTune(*mt);
         rxApplyWidth(wide, 6.0, mt->minSampleRate);
         { DeviceInfo hackrf; hackrf.kind = DeviceInfo::HackRF; rxApplyRate(typed, 3.5e6, rateLimitsOf(hackrf), mt->minSampleRate); }
         struct Case { const char* what; TuneSettings t; };
         const Case cases[] = {{"default", ownTune(*mt)}, {"6 MHz wide", wide}, {"typed 3.5 Msps", typed}};
+        std::printf("engine: %s (standard %d)\n", mt->id, mt->stdMode);   // where a run stopped at its time limit was
         for (const auto& c : cases) {
             Engine e;
             e.setStandard(mt->stdMode);
@@ -283,7 +286,13 @@ int main(int argc, char** argv) {
             CHECK(ok, "%s, %s: the engine did not start (%s)", mt->id, c.what, e.startError().c_str());
             if (!ok) continue;
             engines++;
+            const auto tStart = std::chrono::steady_clock::now();
             const bool ran = enginetest::waitFor(20.0, [&] { return enginetest::signalSecs(e) > 0.0; });
+            {   // a slow start is printed, so a run near its time limit says which mode costs the time
+                const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - tStart).count();
+                if (secs > 3.0) std::printf("slow start: %s, %s: %.1f s to the first signal\n", mt->id, c.what, secs);
+                std::fflush(stdout);
+            }
             // (the test signal of DVB-T2 / DVB-T / ATSC is made at its native rate whatever the radio is asked: those four only need to run)
             const bool fixedSynth = mt->stdMode <= 3;
             CHECK(fixedSynth || std::fabs(e.sampleRate() - c.t.sampleRate) < 1.0 || std::fabs(e.sampleRate() - c.t.sampleRate) < c.t.sampleRate * 1e-3,

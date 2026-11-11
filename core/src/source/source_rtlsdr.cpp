@@ -1,6 +1,8 @@
 // Native driver for the RTL-SDR: the radio's own library is loaded at run time when it is installed. See native_common.h.
 #include "native_common.h"
 #include "dect2/engine/mode_tuning.h"
+#include "dect2/common/platform.h"
+#include <deque>
 #include <map>
 #include "rtl_fd_shim.h"
 
@@ -251,6 +253,7 @@ protected:
         rtl().set_tuner_gain_mode(dev_, 1);   // manual gain: OnAir runs its own AGC
         return configure(s, err, false);
     }
+    double lastTuneHz_ = -1;
     bool configure(const TuneSettings& s, std::string& err, bool live) override {
         if (!dev_) return false;
         if (!live) {
@@ -265,6 +268,10 @@ protected:
             // stable rates are 225-300 kHz and 0.9-3.2 MHz; above about 2.56 MHz most dongles drop samples
             double want = s.rateChosen && s.sampleRate > 0 ? s.sampleRate : std::min(s.sampleRate > 0 ? s.sampleRate : 2.048e6, model_ == kDxPatrol ? kDxpMaxRate : 2.56e6);   // (3.4: a chosen rate is not capped)
             if (want < 900001 && (want > 300000 || want <= 225000)) want = 900001;   // librtlsdr refuses 225 kHz and below as well
+            // The RTL-SDR Blog library's set_sample_rate retunes to the frequency it last had: on a freshly opened R820T that is 0 Hz, below its
+            // automatic direct-sampling threshold (24 MHz), so the tuner went to standby before the real tune and a PLL failure then left the
+            // dongle in direct sampling at 0 Hz (#450). Tuned first, the retune it makes is the real frequency.
+            if (s.centerHz >= kDirectBelowHz && s.centerHz <= 4.29e9) rtl().set_center_freq(dev_, (uint32_t)std::llround(s.centerHz));
             if (const int r = rtl().set_sample_rate(dev_, (uint32_t)std::lround(want)); r < 0) {
                 err = "RTL-SDR: the sample rate of " + mhz(want) + " Msps was refused (error " + std::to_string(r) + ")";
                 return false;
@@ -325,11 +332,13 @@ protected:
         }
         // the library takes the frequency as a 32-bit Hz value: 4.29 GHz is all the wire format holds
         if (tuneHz > 4.29e9) addNote(err, "the RTL-SDR library takes at most 4.29 GHz (32-bit Hz): " + mhz(f) + " MHz was cut to that");
-        if (rtl().set_center_freq(dev_, (uint32_t)std::llround(std::min(tuneHz, 4.29e9))) < 0) {
+        // a retune that only changes the gain leaves the tuner alone (the same frequency set again glitches the stream)
+        if ((!live || tuneHz != lastTuneHz_) && rtl().set_center_freq(dev_, (uint32_t)std::llround(std::min(tuneHz, 4.29e9))) < 0) {
             err = "RTL-SDR: the driver refused " + mhz(f) + " MHz" + (hi_ > 0 ? " (this radio is specified for " + mhz(specLo) + " to " + mhz(hi_) + " MHz)" : std::string());
             openFailure_ = OpenFailure::Final;
             return false;
         }
+        lastTuneHz_ = tuneHz;
         {   // the chip's digital AGC (#233)
             const bool agc = radioFlag(s, "rtlagc");
             if (agc != agc_ && rtl().set_agc_mode(dev_, agc ? 1 : 0) == 0) agc_ = agc;
@@ -364,13 +373,7 @@ protected:
         // completes later than on Linux or Windows). The radio streams without pause once reset_buffer() is done, so each read returns
         // within the 100 ms of samples it asks for, and stop() waits for at most that.
         if (rtl().read_sync) {
-            const size_t bytes = (size_t)std::clamp(std::lround(rate_ * 2 * 0.1 / 16384) * 16384, 16384L, 262144L);
-            std::vector<unsigned char> buf(bytes);
-            while (run_) {
-                int got = 0;
-                if (rtl().read_sync(dev_, buf.data(), (int)bytes, &got) < 0) return;   // unplugged, or the stream died: reopened by the caller
-                if (got > 0 && run_) convert(buf.data(), (uint32_t)got);
-            }
+            readSyncLoop();
             return;
         }
 #endif
@@ -380,6 +383,54 @@ protected:
     void interrupt() override { if (dev_) rtl().cancel_async(dev_); }   // (a blocking read_sync ends with its block)
 
 private:
+#ifdef __APPLE__
+    // read_sync has one USB transfer in flight: while none is, the dongle's small FIFO overflows and samples are lost. When each read
+    // waited for the conversion, the app lost 0.4-0.65% of the samples at 2.56 Msps (more with the window in the background), and a
+    // narrowband decoder loses its symbol timing at every gap. So this thread only reads, back to back, and a second thread converts the
+    // blocks in order: 0.03-0.05%. Stop still waits for at most one block.
+    void readSyncLoop() {
+        const size_t bytes = (size_t)std::clamp(std::lround(rate_ * 2 * 0.1 / 16384) * 16384, 16384L, 262144L);
+        std::mutex mu;
+        std::condition_variable cv;
+        std::deque<std::vector<unsigned char>> full;   // read, waiting for the conversion
+        std::vector<std::vector<unsigned char>> spare;  // converted, for the next reads
+        bool done = false;
+        std::thread conv = dect2::namedThread("onair-sdr-conv", [&] {
+            for (;;) {
+                std::vector<unsigned char> b;
+                {
+                    std::unique_lock<std::mutex> lk(mu);
+                    cv.wait(lk, [&] { return done || !full.empty(); });
+                    if (full.empty()) return;
+                    b = std::move(full.front());
+                    full.pop_front();
+                }
+                if (run_) convert(b.data(), (uint32_t)b.size());
+                std::lock_guard<std::mutex> lk(mu);
+                spare.push_back(std::move(b));
+            }
+        });
+        setThreadPriority(ThreadPriority::Realtime);
+        while (run_) {
+            std::vector<unsigned char> b;
+            {
+                std::lock_guard<std::mutex> lk(mu);
+                if (!spare.empty()) { b = std::move(spare.back()); spare.pop_back(); }
+            }
+            b.resize(bytes);
+            int got = 0;
+            if (rtl().read_sync(dev_, b.data(), (int)bytes, &got) < 0) break;   // unplugged, or the stream died: reopened by the caller
+            if (got <= 0) continue;
+            b.resize((size_t)got);
+            std::lock_guard<std::mutex> lk(mu);
+            if (full.size() < 16) full.push_back(std::move(b));   // more than about 1 s behind: the ring would drop it anyway
+            cv.notify_one();
+        }
+        { std::lock_guard<std::mutex> lk(mu); done = true; }
+        cv.notify_one();
+        conv.join();
+    }
+#endif
     // where the radio with serial_ is now: the listed position while it is still there, else the first with that serial (many dongles share
     // one, such as 00000001); -1 = unknown (no serial, or a radio whose strings cannot be read), -2 = every radio was read and it is not there
     int indexOfSerial() const {

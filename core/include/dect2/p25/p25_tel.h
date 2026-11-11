@@ -82,6 +82,7 @@ struct P25Telemetry {
     int nac = -1;
     bool control = false;        // a control channel (TSBKs) is heard
     uint64_t frames = 0, nidBad = 0, hdu = 0, ldu1 = 0, ldu2 = 0, tdu = 0, tdulc = 0, pdu = 0;
+    uint64_t nidKnownNac = 0;    // frame headers only readable because the site's NAC is known
     uint64_t tsbkOk = 0, tsbkBad = 0, lcOk = 0, lcBad = 0, esOk = 0, esBad = 0, hduOk = 0, hduBad = 0;
     uint64_t voiceFrames = 0, voiceDecoded = 0, lateEntries = 0;
     float berPct = 0;            // NID bit errors before the BCH
@@ -94,6 +95,10 @@ struct P25Telemetry {
     P25Call now;
     std::vector<P25Call> log;    // newest first, at most kP25LogMax
     std::vector<std::string> events;   // newest first: decoded control messages as text
+    struct Patch { int supergroup = -1; std::vector<int> members; int64_t wallTime = 0; };
+    struct Affiliation { int unit = -1, tg = -1; int64_t wallTime = 0; bool registered = false; };
+    std::vector<Patch> patches;        // active patches heard (Motorola / Harris regroups), newest first
+    std::vector<Affiliation> affiliations;   // units seen on this site and the talkgroup they affiliated to, most recent first, at most 2000
     std::vector<P25TsbkRec> tsbks;     // the last decoded TSBKs, oldest first, at most kP25TsbkMax
 };
 

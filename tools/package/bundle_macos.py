@@ -53,7 +53,10 @@ def is_system(dep):
 
 done = {}   # real path -> bundled name
 queue = list(exes)
-bundled = []
+och = os.path.join(fw, "libomnicore.dylib")
+bundled = [och]
+queue.append(och)
+done[os.path.realpath(och)] = os.path.basename(och)
 
 # The radio libraries that OnAir loads at run time when they are present (the native drivers): they go into the app too, so that nothing has
 # to be installed next to it. Every version name a driver may ask for is kept (the symlinks of the Homebrew copy become symlinks here).

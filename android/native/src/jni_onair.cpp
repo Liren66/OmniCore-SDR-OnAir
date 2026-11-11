@@ -16,6 +16,7 @@
 #include "dect2/source/gain.h"
 #include "dect2/source/iq_file.h"
 #include "dect2/engine/mode_tuning.h"
+#include "dect2/engine/mode_registry.h"
 #include "dect2/net/netradio.h"
 #include "dect2/net/remote_api.h"
 #include "dect2/general/general_rx.h"
@@ -202,11 +203,9 @@ FN(jboolean, nativeInit)(JNIEnv* e, jobject, jstring resultsDir) {
 FN(jstring, nativeModeTable)(JNIEnv* e, jobject) {
     std::string s = "[";
     bool first = true;
-    for (int st = 0; st < 120; st++) {
-        const ModeTuning* mt = modeTuning(st);
-        if (!mt) continue;
+    for (const ModeTuning& mt : modeTunings()) {   // the whole table: standards above 120 exist too
         if (!first) s += ','; first = false;
-        s += tuningJson(st, nullptr);
+        s += tuningJson(mt.stdMode, nullptr);
     }
     s += "],";
     std::string subs = "[";
@@ -360,10 +359,21 @@ FN(void, nativeClearResults)(JNIEnv*, jobject) { gB->eng.clearResults(gB->std); 
 FN(void, nativeSetVerbose)(JNIEnv*, jobject, jboolean on) { dect2::setVerboseLogging(on); }
 
 // sound: volume 0..1 and mute, for the receivers that play it
+namespace {
+template <class R> void pushSound(R& r, float v, bool mute) {
+    if constexpr (requires { r.setVolume(v); }) r.setVolume(v);
+    if constexpr (requires { r.setMuted(mute); }) r.setMuted(mute);
+}
+} // namespace
 FN(void, nativeSetVolume)(JNIEnv*, jobject, jfloat v, jboolean mute) {
     Bridge& b = *gB;
-    b.eng.fm().setVolume(v); b.eng.fm().setMuted(mute);
-    b.eng.general().setVolume(v); b.eng.general().setMuted(mute);
+    Engine& g = b.eng;
+    // every receiver of the engine that plays sound (the desktop's mode screens push the slider to theirs): a mode without its screen on the phone still follows the slider
+#define S(x) pushSound(g.x(), v, mute);
+    S(fm) S(general) S(player) S(dabAudio) S(airband) S(ale) S(ardop) S(atis) S(atv) S(cdr) S(cquam) S(cw) S(dmr) S(dpmr) S(drm) S(dstar) S(edacs) S(fpv) S(fsq) S(fusion)
+    S(hdr) S(hfbeacon) S(hfdig) S(ifkp) S(kaal) S(mac) S(marine) S(marineVhf) S(ndb) S(nxdn) S(packet) S(pactor) S(psk) S(same) S(selcal) S(timesig) S(tones) S(vor)
+#undef S
+    g.setWideVolume(v);
 }
 // general receiver: demod 0 NFM 1 WFM 2 AM 3 USB 4 LSB 5 CW, filter width (0 = default), squelch (auto or level dBFS)
 FN(void, nativeGeneral)(JNIEnv*, jobject, jint demod, jdouble widthHz, jboolean sqOn, jboolean sqAuto, jfloat sqDb) {
@@ -373,5 +383,28 @@ FN(void, nativeGeneral)(JNIEnv*, jobject, jint demod, jdouble widthHz, jboolean 
     g.setSquelch(sqOn, sqAuto, sqDb);
 }
 FN(void, nativeFmDeemphasis)(JNIEnv*, jobject, jdouble us) { gB->eng.fm().setDeemphasis(us); }
+
+// IQ recording of the radio's raw samples (the core's IqRecorder: CS8 + SigMF meta). Returns "ok\t<path>" or "err\t<reason>".
+// Nothing is recorded unless the app asks; no network use. hasGeo only when the user allowed the location.
+FN(jstring, nativeRecStart)(JNIEnv* e, jobject, jstring dir, jstring hw, jboolean hasGeo, jdouble lat, jdouble lon, jlong maxBytes) {
+    Bridge& b = *gB;
+    std::lock_guard<std::mutex> lk(b.mu);
+    b.eng.setRecordSigmf(true);
+    b.eng.setRecordExtra(jstr(e, hw), hasGeo, lat, lon);
+    b.eng.setRecordMaxBytes(maxBytes > 0 ? (uint64_t)maxBytes : 0);
+    std::string d = jstr(e, dir);
+    if (!d.empty() && d.back() != '/') d += '/';
+    const std::string path = d + b.eng.recordingName(FileFormat::CS8);
+    std::string err;
+    if (!b.eng.startRecording(path, FileFormat::CS8, err)) return mk(e, "err\t" + err);
+    return mk(e, "ok\t" + path);
+}
+// "active\tseconds\tbytes\tdropped\tcapReached\terror\tpath"
+FN(jstring, nativeRecStats)(JNIEnv* e, jobject) {
+    const RecordingStats r = gB->eng.recordingStats();
+    return mk(e, std::string(r.active ? "1" : "0") + "\t" + std::to_string(r.seconds) + "\t" + std::to_string(r.bytes) + "\t" +
+                     std::to_string(r.droppedSamples) + "\t" + (gB->eng.recordingCapReached() ? "1" : "0") + "\t" + r.error + "\t" + r.path);
+}
+FN(void, nativeRecStop)(JNIEnv*, jobject) { gB->eng.stopRecording(); }
 
 FN(jstring, nativeVersion)(JNIEnv* e, jobject) { return mk(e, ONAIR_VERSION); }

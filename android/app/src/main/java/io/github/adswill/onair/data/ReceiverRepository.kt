@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.io.File
 
 /** Where the receiver is in its life. Only the repository changes it. */
 enum class Phase { IDLE, STARTING, RUNNING, STOPPING }
@@ -75,6 +76,8 @@ data class ReceiverState(
     companion object {
         /** The engine's standard code of a desktop family number (app_state.cpp engineStd). */
         fun stdOf(f: Int) = when { f >= 6 -> f + 2; f == 1 -> 3; f == 2 -> 4; f == 3 -> 5; f == 4 -> 6; f == 5 -> 7; else -> 0 }
+        /** The number the receiver reports in Telemetry.standard, one below the engine's code (panels and the mode's exporter go by this one). */
+        fun telemetryStdOf(f: Int) = if (f <= 0) 0 else f + 1
     }
 }
 
@@ -116,13 +119,71 @@ class ReceiverRepository(private val ctx: Context, private val store: SettingsSt
 
     private var fileFd: ParcelFileDescriptor? = null
 
+    // ---- IQ recording (only when the user presses Record IQ; nothing is uploaded) ------------------------------------------------
+    private val _rec = MutableStateFlow(IqRecording.idle)
+    /** The IQ recorder: running state, size and time so far, the last finished file, a warning near the cap. */
+    val rec: StateFlow<IqRecording> = _rec.asStateFlow()
+    private val recPrefs = ctx.getSharedPreferences("iq_recording", Context.MODE_PRIVATE)
+    private var recJob: kotlinx.coroutines.Job? = null
+
+    fun recordingCapMb(): Int = recPrefs.getInt("capMb", IqRecording.DEFAULT_CAP_MB)
+    fun setRecordingCapMb(mb: Int) { recPrefs.edit().putInt("capMb", mb).apply(); _rec.update { it.copy(capBytes = mb * 1048576L) } }
+
+    /** Starts recording the radio's raw IQ (CS8 + SigMF metadata) into the app's own folder (scoped storage, no permission). */
+    fun startRecording() {
+        if (_rec.value.active || _state.value.phase != Phase.RUNNING) return
+        val dir = IqFiles.dir(ctx)
+        val cap = recordingCapMb() * 1048576L
+        val st = _state.value
+        val hw = ctx.getString(R.string.app_name) + " Android, " + _settings.value.source.name.lowercase().replace('_', ' ')
+        scope.launch {
+            val r = try { engine.call("recStart") { it.recStart(dir.absolutePath, hw, false, 0.0, 0.0, cap) } } catch (e: Throwable) { Result.failure(e) }
+            r.onSuccess { path ->
+                AppLog.i("iq", "recording to $path (cap ${cap / 1048576} MB)")
+                _rec.value = IqRecording(true, 0.0, 0L, cap, false, "", File(path), _rec.value.last)
+                recJob?.cancel()
+                recJob = scope.launch { watchRecording() }
+            }.onFailure { e ->
+                AppLog.w("iq", "recording not started: ${e.message}")
+                _state.update { it.copy(error = ctx.getString(R.string.iq_not_started, e.message ?: "")) }
+            }
+        }
+    }
+
+    private suspend fun watchRecording() {
+        while (_rec.value.active) {
+            kotlinx.coroutines.delay(500)
+            val s = try { engine.call("recStats") { it.recStats() } } catch (_: Throwable) { break }
+            val capped = s.capReached
+            _rec.update { it.copy(seconds = s.seconds, bytes = s.bytes, nearCap = s.bytes >= it.capBytes * 9 / 10, error = s.error) }
+            if (!s.active || s.error.isNotEmpty()) { finishRecording(if (capped) ctx.getString(R.string.iq_cap_reached) else s.error); break }
+        }
+    }
+
+    private suspend fun finishRecording(note: String) {
+        try { engine.call("recStop") { it.recStop() } } catch (_: Throwable) {}
+        val cur = _rec.value
+        val f = cur.file
+        val done = if (f != null && f.exists()) f else null
+        AppLog.i("iq", "recording finished: ${done?.name} ${cur.bytes} bytes")
+        _rec.value = IqRecording.idle.copy(capBytes = cur.capBytes, last = done, error = note)
+    }
+
+    fun stopRecording() { if (_rec.value.active) scope.launch { finishRecording("") } }
+    fun clearRecordingNote() { _rec.update { it.copy(error = "") } }
+
+    /** The most recent recording (data file), also after a restart of the app. */
+    fun lastRecording(): File? = _rec.value.last ?: IqFiles.newest(ctx)
+
     /** USB radios, network radios, the sound-card input (data/RadioRepository.kt, docs/USB.md). */
-    val radios = RadioRepository(
+    val radios: RadioRepository = RadioRepository(
         ctx, scope,
         object : EngineExec { override suspend fun <T> call(name: String, block: () -> T): T = engine.call(name) { block() } },
         settings, ::updateSettings,
         onRadioLost = { msg -> stopBecause(msg) },
         onRadiosChanged = { if (_settings.value.source == SourceKind.USB) refreshCaps() },
+        // a radio plugged in while the app still shows the test signal: use it, nothing else to set up
+        onRadioReady = { r -> if (!_state.value.active && _settings.value.source == SourceKind.TEST_SIGNAL) { radios.selectUsb(r); chooseSource(SourceKind.USB); AppLog.i("usb", "using ${r.label}") } },
     )
 
     init {
@@ -156,7 +217,7 @@ class ReceiverRepository(private val ctx: Context, private val store: SettingsSt
         }
         if (CrashLog.hasUnseen(ctx)) _state.update { it.copy(error = ctx.getString(R.string.previous_crash, CrashLog.file(ctx).absolutePath)) }
         val saved = s.modeIndex
-        val idx = if (saved in Modes.all.indices) saved else Modes.all.indexOfFirst { it.family == 5 }.coerceAtLeast(0)
+        val idx = if (saved in Modes.all.indices && !Modes.all[saved].removed) saved else Modes.all.indexOfFirst { it.family == 5 }.coerceAtLeast(0)
         applyMode(idx)
         radios.start()
         refreshCaps(s)
@@ -172,6 +233,9 @@ class ReceiverRepository(private val ctx: Context, private val store: SettingsSt
 
     // ---- receive session ------------------------------------------------------------------------------------------------------
     fun toggle() { if (_state.value.active) stop() else start() }
+
+    /** Starts when nothing is running; queued behind a mode change made just before. */
+    fun startIfIdle() { if (_state.value.phase == Phase.IDLE) start() }
 
     fun start() {
         val st = _state.value
@@ -230,6 +294,7 @@ class ReceiverRepository(private val ctx: Context, private val store: SettingsSt
     }
 
     private suspend fun doStop() {
+        if (_rec.value.active) finishRecording("")   // the file is closed and its metadata completed before the radio goes
         engine.polling = false
         try { engine.call("stop") { it.stop() } } catch (_: Throwable) {}
         radios.activeUsbKey = ""

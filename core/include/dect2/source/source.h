@@ -26,6 +26,7 @@ struct SynthConfig {
     bool dvbt = false;     // generate DVB-T (with a small test transport stream) instead of DVB-T2
     int dvbtMode = 1, dvbtGuard = 2, dvbtMod = 2, dvbtRate = 1; // 8K, GI 1/8, 64-QAM, 2/3
     int isdbtBwMhz = 6;    // ISDB-T test signal: channel width 6, 7 or 8 MHz
+    int isdbtMode = 3, isdbtGuard = 2, isdbtMod = 3, isdbtRate = 2;   // ISDB-T: mode 1 - 3, guard 1/32 1/16 1/8 1/4 (0 - 3), layer B modulation (0 DQPSK, 1 QPSK, 2 16-QAM, 3 64-QAM) and code rate (0 1/2, 1 2/3, 2 3/4, 3 5/6, 4 7/8); the defaults are mode 3, 1/8, 64-QAM 3/4
     double pace = 1.0;     // 1 = real time; below 1 the signal runs in slow motion (tests on slow machines: the receiver gets 1/pace times the time)
     bool gainModel = false; // scale the level with the LNA/VGA/amp gains (for testing AGC): 62 dB total = the nominal level
     int mode = 0;           // 0: the DVB / ATSC / DAB settings above; 8 and up: the test signal of that engine standard (see mode_synth.h)
@@ -143,6 +144,7 @@ struct DeviceInfo {
     std::string soapyArgs;     // device arguments, e.g. "driver=airspy,serial=..."
     std::string nativeArgs;    // what the radio's own library wants to open it (index, serial, URI, ...)
     double maxRateHz = 0;      // fastest complex sample rate the radio offers (0 = unknown)
+    double pickMinRateHz = 0;  // the lowest rate the sample-rate list offers when lower than minRateHz: the driver delivers it by running faster (0 = minRateHz)
     double minRateHz = 0;
     // The rate its link carries without losing samples when that is below maxRateHz (a PlutoSDR on its USB 2 cable: about 4 Msps of 16-bit
     // samples), 0 = whatever the radio offers. linkRateFor() (rate_choice.h) keeps a mode within it when the mode fits, else goes above it.
@@ -170,6 +172,9 @@ struct DeviceInfo {
     bool isRadio() const { return kind == HackRF || kind == Soapy || kind == Native || kind == Hamlib || kind == Group; }
     bool isGeneric() const { return kind == Soapy || kind == Native || kind == Group; }   // one overall gain, a sample-rate range reported by the radio
     bool isAudio() const { return kind == Audio; }
+    // a sound card, or a rig (Hamlib) whose own receiver gives the audio: the samples are at the dial, there is no DC spike to tune away from,
+    // so a mode's tuneOffsetHz must not move the rig (#358: FT8 on an IC-7300 came out 20 kHz high)
+    bool tunesAtDial() const { return kind == Audio || kind == Hamlib; }
     bool network = false;                  // reached over a network link, not USB (set where the name does not say "(network)": a Pluto found by mDNS)
     bool isNetwork() const { return network || name.find(" (network") != std::string::npos; }   // rtl_tcp, SpyServer, KiwiSDR, a Pluto by IP, ...
 };

@@ -56,10 +56,15 @@ std::vector<EventInfo> build() {
         {"class", 's', "A, B, base, aid ...", "A"}, {"lat", 'n', "latitude", "55.1"}, {"lon", 'n', "longitude", "21.2"},
         {"sog_kt", 'n', "speed over ground", "12"}, {"cog_deg", 'n', "course over ground", "270"}, {"distance_nm", 'n', "distance from the receiver position (0 when not set)", "3.2"},
         {"fence", 's', "name of the geofence", "Harbour"}, {"transition", 's', "enter or exit", "enter"}}});
+    v.push_back({"ais.anomaly", "AIS anomaly (spoofed or cloned identity, moved aid, dark ship ...)", "AIS", "AIS", 162.0e6, {
+        {"mmsi", 'n', "MMSI number", "219012345"}, {"name", 's', "ship name", "NORDIC STAR"}, {"kind", 's', "jump, clash, aton_moved, aton_off_position, mmsi_class, speed_type, name_change, dark, reappeared", "clash"},
+        {"severity", 'n', "0 information, 1 warning, 2 alarm", "2"}, {"lat", 'n', "latitude", "55.1"}, {"lon", 'n', "longitude", "21.2"}, {"text", 's', "one-line reading", "MMSI 219012345 reports from two places 60 nm apart"}}});
     v.push_back({"aprs.packet", "AX.25 / APRS packet", "APRS", "APRS", 144.8e6, {
         {"from", 's', "source call sign", "LY1ABC-9"}, {"to", 's', "destination", "APRS"}, {"path", 's', "digipeater path", "WIDE1-1"},
         {"info", 's', "information field", "!5441.40N/02517.00E>test"}, {"type", 's', "packet type", "position"}, {"summary", 's', "one-line reading", "position"},
         {"lat", 'n', "latitude when the packet has a position", "54.69"}, {"lon", 'n', "longitude when the packet has a position", "25.28"}}});
+    v.push_back({"sferics.storm", "Thunderstorm trend changed (approaching, overhead, receding)", "Lightning", "Sferics", 0, {
+        {"phase", 's', "storm approaching, overhead or receding", "storm approaching"}, {"db_change", 'n', "strength change over 5 minutes, dB", "3.2"}, {"per_min", 'n', "strikes per minute", "8"}}});
     v.push_back({"sonde.update", "Radiosonde frame (at most one per 5 s per sonde)", "Radiosondes", "Sonde", 403.0e6, {
         {"serial", 's', "serial number", "V1234567"}, {"type", 's', "RS41, DFM, M10 ...", "RS41"}, {"lat", 'n', "latitude", "54.5"}, {"lon", 'n', "longitude", "25.0"},
         {"alt_m", 'n', "altitude in metres", "12000"}, {"vspeed_ms", 'n', "climb rate m/s (negative: falling)", "5"}, {"hspeed_ms", 'n', "ground speed m/s", "20"},
@@ -81,6 +86,10 @@ std::vector<EventInfo> build() {
         {"summary", 's', "one-line reading", "Distress: fire"}, {"kind", 's', "Distress alert, Distress alert acknowledgement, Test call ...", "Distress alert"}, {"nature", 's', "nature of distress", "Fire, explosion"},
         {"distress_mmsi", 's', "station in distress (acknowledgements and relays)", "219000123"}, {"from_country", 's', "country of the calling station's MID", "Denmark"}, {"text", 's', "the whole reading", ""},
         {"lat", 'n', "latitude of the position in the call", "55.1"}, {"lon", 'n', "longitude of the position in the call", "11.2"}}});
+    v.push_back({"dsc.incident", "Sea distress incident (DSC + AIS + AIS-SART + NAVTEX joined)", "Marine, AIS", "DSC", 156.525e6, {
+        {"incident", 'n', "incident number", "1"}, {"what", 's', "opened, position, device, ack or navtex", "opened"}, {"text", 's', "one-line reading", "DSC distress 219000123 Sinking: 55.100N 11.200E"},
+        {"kind", 's', "DSC distress, AIS-SART, Man overboard or EPIRB-AIS", "DSC distress"}, {"mmsi", 's', "station in distress", "219000123"},
+        {"lat", 'n', "latitude of the scene", "55.1"}, {"lon", 'n', "longitude of the scene", "11.2"}, {"distance_nm", 'n', "distance from the receiver position (when set)", "14"}}});
     v.push_back({"signal.new", "New signal found by the sweep scanner", "Sweep scanner", "Sweep", 433.92e6, {
         {"bw_hz", 'n', "width", "12500"}, {"peak_db", 'n', "peak level dBFS", "-60"}, {"snr_db", 'n', "signal to noise ratio", "18"}}});
     v.push_back({"signal.ssb_conversation_new", "New SSB conversation found", "Conversations window", "Conversations", 14.2e6, {

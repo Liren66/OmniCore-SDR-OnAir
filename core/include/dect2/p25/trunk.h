@@ -10,10 +10,13 @@
 // Encrypted calls (P25 service options bit 0x40 or ALGID != 0x80, DMR privacy flag) are logged as encrypted and never followed, decoded or recorded.
 // Voice audio only exists when the user-installed vocoder add-on is present (docs/CODECS.md); IDs, talkgroups and the call log work without it.
 #pragma once
+#include "dect2/trunkpool/cc_health.h"
 #include "dect2/p25/p25_proto.h"
+#include "dect2/dmr/dmr_vendor.h"
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -81,6 +84,7 @@ private:
     IdenInfo idens_[16];
     std::vector<double> secondary_;
     std::vector<std::pair<std::pair<int, std::pair<int, int>>, std::pair<double, double>>> positions_;
+    std::map<int, std::set<int>> patches_;    // supergroup to its member talkgroups (Motorola / Harris regroups heard)
     uint64_t nTsbk_ = 0, nGrant_ = 0;
     void leaveSite(double nowSec);
 };
@@ -201,6 +205,8 @@ public:
     // receiver runs as the second mode anywhere in the capture.
     void setCapture(double centerHz, double spanHz, bool slices = true) { centerHz_ = centerHz; spanHz_ = spanHz; slices_ = slices; }
     void setControlChannel(double hz, const std::vector<double>& candidates);
+    // Move the control radio to another control channel of the system (the health score says it is clearly better): only from ControlHold
+    bool parkAt(double hz, double now);
     // A control channel message arrived (any good TSBK)
     // nac: the NID's, -1 unknown. While searching, a control channel of another NAC than the system's is another system (or a co-channel one): not taken as home.
     void onControlSeen(double now, int nac = -1);
@@ -273,11 +279,13 @@ public:
     double lcnFreq(int lcn) const;
     // csbk: opcode, feature ID, 8 data bytes. The grant layout used: logical channel (12 bits, bits 0-11) + slot (bit 12), then 24-bit target and 24-bit source.
     bool onCsbk(int opcode, int fid, const uint8_t data[8], double nowSec, Grant& out);
+    bool onCsbkVendor(int opcode, int fid, const uint8_t data[8], std::vector<Grant>& out);      // Capacity Plus and Connect Plus (dmr_vendor.h)
     uint64_t grants() const { return n_; }
 
 private:
     DmrOpcodes ops_;
     std::map<int, double> lcn_;
+    dmr::CapPlus capPlus_;
     uint64_t n_ = 0;
 };
 
@@ -316,6 +324,9 @@ public:
         if (CallRecord* r = log.byId(callId)) { r->encrypted = true; r->followed = false; if (r->note.empty()) r->note = "encrypted (voice channel): left"; }
         follower.leave(callId, now);   // its grant repeats must not open it again
     }
+    // Rolling hour of decode quality per control channel, and the automatic move to a clearly better one (hysteresis, only when idle)
+    tpool::ControlHealth health;
+    bool autoPark = true;
     ControllerStatus status(double nowSec) const;
     // One line for the UI: what the follower is doing now, or why it is not following ('Following TG 1234 on 851.2375 MHz, slot 2')
     std::string statusLine(double nowSec) const;
@@ -333,6 +344,7 @@ public:
 private:
     uint64_t good_ = 0, bad_ = 0;
     double lastGood_ = -1e9;
+    double ccNow() const { return follower.radioHz() > 0 ? follower.radioHz() : follower.currentControlHz(); }
     void pushMsg(const std::string& s);
     void dispatch(const std::vector<Grant>& gs, double now);
 };

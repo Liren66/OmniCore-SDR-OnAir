@@ -3,6 +3,7 @@
 #include "dect2/common/ring.h"
 #include "fm_rds.h"
 #include "rds_tmc.h"
+#include "fm_subcarrier.h"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -19,10 +20,13 @@ struct FmTelemetry {
     float levelDbfs = -120;     // power of the selected channel after filtering
     float multipathPct = 0;     // ripple of the channel's level over the frequencies the modulation sweeps (an echo), %
     bool equaliser = false;     // the multipath equaliser is in use (multipathPct above about 6 %)
+    float neighbourDb = 0, neighbourKhz = 0;   // the neighbouring station being cancelled: its level over this one and its offset (0: none)
+    uint64_t clicksFixed = 0;   // discriminator clicks repaired since the start (a weak station)
     bool stereo = false;        // the 19 kHz pilot is locked and the stereo decoder is on
     float stereoPct = 0;        // how much of the stereo difference is in the sound: 100 full stereo, lower = blended towards mono (a weak station)
     bool squelched = false;     // the squelch (setSquelch) holds the sound muted
     float pilotPct = 0;         // pilot injection in % of 75 kHz deviation (a healthy station: 8 - 10)
+    FmSubcarrierStatus sub;     // RDS2 and SCA subcarriers
     bool rdsSync = false;       // RDS block synchronisation
     float rdsBlockOkPct = 0;    // share of RDS blocks with a good checkword, recent
     uint64_t rdsGroups = 0;     // RDS groups decoded since start
@@ -31,6 +35,7 @@ struct FmTelemetry {
     std::string psName;         // programme service name, 8 characters
     std::string radioText;      // radio text, up to 64 characters
     bool radioTextComplete = false;   // every segment of the radio text received (not only a part of it)
+    int ptyCode = -1;           // programme type number 0..31 (-1 until a group came)
     std::string ptyText;        // programme type (the RBDS names when rbds)
     bool rbds = false;          // the RBDS (US) meanings are in use, by the setting or Auto from the tuned frequency
     std::string callSign;       // US call letters from the PI code (RBDS only, empty when the PI holds none)

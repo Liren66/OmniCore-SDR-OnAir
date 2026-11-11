@@ -14,11 +14,12 @@ export MACOSX_DEPLOYMENT_TARGET
 FFMPEG_PREFIX=${FFMPEG_PREFIX:-$PWD/$BUILD/ffmpeg}
 [ -f "$FFMPEG_PREFIX/lib/libavcodec.a" ] || tools/package/build_ffmpeg_static.sh "$FFMPEG_PREFIX"
 cmake -S . -B $BUILD -DDECT2_FFMPEG_PREFIX="$FFMPEG_PREFIX" -DCMAKE_BUILD_TYPE=Release -DDECT2_BUILD_TESTS=OFF -DDECT2_BUILD_APP=ON -DDECT2_HAVE_HAMLIB=ON -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOSX_DEPLOYMENT_TARGET" -DONAIR_VERSION="$VERSION" -DDECT2_WITH_TLS=ON -DOPENSSL_ROOT_DIR="$(brew --prefix openssl@3)"   # TLS: HTTPS for onair-server and the web.on-air.dev heartbeat; libssl/libcrypto are bundled by bundle_macos.py
-cmake --build $BUILD -j"$(sysctl -n hw.ncpu)" --target dect2 onair-server
-APP=$BUILD/OnAir.app
+cmake --build $BUILD -j"$(sysctl -n hw.ncpu)" --target dect2 onair-server onair-extcap
+APP=$BUILD/OmniCore-SDR-OnAir.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp $BUILD/dect2 "$APP/Contents/MacOS/OnAir"
+cp $BUILD/onair-extcap "$APP/Contents/MacOS/onair-extcap"   # Wireshark capture interface (docs/WIRESHARK-3.8.md)
 cp $BUILD/onair-server "$APP/Contents/MacOS/onair-server"   # the headless server for OnAir Web (docs/headless-server.md); bundle_macos.py gives it the same libraries
 mkdir -p "$APP/Contents/Resources/web"; cp -R web/onair-web "$APP/Contents/Resources/web/"   # the OnAir Web browser page (onair-server looks in ../Resources/web/onair-web)
 cp packaging/icons/OnAir.icns "$APP/Contents/Resources/OnAir.icns"
@@ -26,9 +27,9 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>CFBundleName</key><string>OnAir</string>
-  <key>CFBundleDisplayName</key><string>OnAir</string>
-  <key>CFBundleIdentifier</key><string>io.github.adswill.onair</string>
+  <key>CFBundleName</key><string>OmniCore-SDR-OnAir</string>
+  <key>CFBundleDisplayName</key><string>OmniCore-SDR-OnAir</string>
+  <key>CFBundleIdentifier</key><string>io.github.liren66.omnicore.onair</string>
   <key>CFBundleExecutable</key><string>OnAir</string>
   <key>CFBundleIconFile</key><string>OnAir</string>
   <key>NSHumanReadableCopyright</key><string>OnAir name and logo © 2026 Kristijonas Adomaitis. All rights reserved; the logo is not covered by the GPL licence of the source code.</string>
@@ -37,6 +38,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleVersion</key><string>$VERSION</string>
   <key>LSMinimumSystemVersion</key><string>$MACOSX_DEPLOYMENT_TARGET</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSMicrophoneUsageDescription</key><string>OnAir listens to a sound card input or a radio's USB audio (for example an IC-7300's USB Audio CODEC) when you pick it as the source, and to the microphone for transmit.</string>
+  <key>NSCameraUsageDescription</key><string>OnAir uses a camera only when you pick it as the picture source for analog or digital TV transmit.</string>
+  <key>NSLocationUsageDescription</key><string>OnAir uses the position of this computer as the antenna position on the ADS-B map.</string>
+  <key>NSLocationWhenInUseUsageDescription</key><string>OnAir uses the position of this computer as the antenna position on the ADS-B map.</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
 </dict></plist>
 PLIST
@@ -61,6 +66,10 @@ fi
 RTL_FW=$BUILD/rtlsdr-blog-framework
 bash tools/package/build_rtlsdr_blog_macos.sh "$RTL_FW"
 export ONAIR_RTLSDR_FRAMEWORK="$RTL_FW"
+cp -L "$BUILD/omnicore-host/libomnicore.dylib" "$APP/Contents/Frameworks/libomnicore.dylib"
+install_name_tool -id "@executable_path/../Frameworks/libomnicore.dylib" "$APP/Contents/Frameworks/libomnicore.dylib"
+cp "$BUILD/omnicore-host-source/LICENSE" "$APP/Contents/Resources/licenses/OmniCore-Host-LICENSE.txt"
+cp LICENSE THIRD_PARTY.md "$APP/Contents/Resources/licenses/"
 python3 tools/package/bundle_macos.py "$APP" || { echo "Failed to bundle radio libraries"; exit 1; }
 python3 tools/package/check_macos_target.py "$APP"
 # FFmpeg licence notice and source offer (LGPL-2.1+): how the library inside the program was built, and the script that rebuilds it
@@ -115,7 +124,7 @@ STAGE=$BUILD/dmg
 rm -rf $STAGE && mkdir -p $STAGE
 cp -R "$APP" $STAGE/
 ln -s /Applications $STAGE/Applications
-DMG="$BUILD/OnAir-$VERSION-macos-$ARCH.dmg"
+DMG="$BUILD/OmniCore-SDR-OnAir-$VERSION-macos-$ARCH.dmg"
 rm -f "$DMG"
-hdiutil create -volname "OnAir $VERSION" -srcfolder $STAGE -ov -format UDZO "$DMG" >/dev/null
+hdiutil create -volname "OmniCore-SDR-OnAir $VERSION" -srcfolder $STAGE -ov -format UDZO "$DMG" >/dev/null
 echo "$DMG  ($(du -h "$DMG" | cut -f1))"

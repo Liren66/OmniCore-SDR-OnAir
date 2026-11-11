@@ -1,7 +1,10 @@
 // Z-Wave monitor, see zwave_rx.h
 #include "dect2/zwave/zwave_rx.h"
+#include "dect2/wirecap/wire.h"
 #include "dect2/zwave/zwave_proto.h"
+#include "dect2/voicekeys/voice_keys.h"
 #include "dect2/zwave/zwave_tel.h"
+#include "dect2/map/mesh_topology_feed.h"
 #include "dect2/common/mathconst.h"
 #include "dect2/dsp/gen_util.h"
 #include <algorithm>
@@ -128,9 +131,13 @@ struct ZwaveReceiver::Impl {
     double cfoEma = 0;
     // tables (under mu)
     std::deque<ZwFrame> logq;
+    MeshTopology topo;                           // routes and links of every home ID heard (mesh_topology.h)
+    TopoSnapshot topoCache;
+    double topoAt = -1e9;
     std::map<uint32_t, ZwNetwork> nets;
     std::map<uint64_t, ZwNode> nodes;
     std::map<std::string, uint64_t> perCc;
+    zwave::S0Session s0;
     uint64_t ok = 0, bad = 0, bursts = 0, perRate[3] = {}, encS0 = 0, encS2 = 0, acks = 0;
     std::vector<ZwChannel> chans;
 
@@ -238,7 +245,16 @@ struct ZwaveReceiver::Impl {
         levelEma = levelDb;
         if (!snrInit) { snrEma = snr; snrInit = true; } else snrEma = 0.8f * snrEma + 0.2f * snr;
         for (size_t ci : g.chanIdx[dec.rate]) chans[ci].frames++;
-        const int enc = zwave::encryption(f.payload);
+        s0.observe(f);
+        std::string s0Text;
+        int enc = zwave::encryption(f.payload);
+        if (enc == 1) {
+            voicekeys::CallKeyInfo ki; ki.protocol = voicekeys::Protocol::ZWave;
+            for (const auto& k : voicekeys::KeyStore::instance().candidates(ki)) {
+                std::vector<uint8_t> pl;
+                if (k.key.size() == 16 && s0.decrypt(f, k.key.data(), pl)) { zwave::Frame in = f; in.payload = pl; s0Text = "[S0 decrypted] " + zwave::describe(in); break; }
+            }
+        }
         if (enc == 1) encS0++; else if (enc == 2) encS2++;
         if (f.headerType == zwave::kHdrAck) acks++;
         ZwFrame z;
@@ -249,10 +265,11 @@ struct ZwaveReceiver::Impl {
             for (size_t i = 0; i < f.group.size(); i++) z.dst += (i ? "," : "") + std::to_string(f.group[i]);
         } else z.dst = zwave::nodeText(f.dst);
         z.type = f.routed ? "routed" : zwave::headerName(f.headerType);
-        z.text = zwave::describe(f);
+        z.text = s0Text.empty() ? zwave::describe(f) : s0Text;
         z.seq = f.seq; z.ackReq = f.ackReq; z.encryption = enc; z.rssi = levelDb; z.snrDb = snr; z.len = f.len;
         std::vector<uint8_t> raw = zwave::build(f, dec.rate);
         z.hex = zwave::hex(raw.data(), raw.size());
+        if (wire::on(wire::Zwave)) wire::Hub::get().publish(wire::Zwave, wire::zwaveUser(raw.data(), raw.size(), dec.rate));   // S0 / S2 payloads stay encrypted
         logq.push_front(z);
         if (logq.size() > kZwLogMax) logq.pop_back();
         if (!f.payload.empty() && f.headerType != zwave::kHdrAck && !f.routed) {
@@ -270,6 +287,7 @@ struct ZwaveReceiver::Impl {
             if (n.id == 0 && n.sent == 0 && n.received == 0) { n.homeId = f.homeId; n.home = z.home; n.id = id; n.firstSec = z.sec; n.role = id == 1 ? "controller" : "node"; }
             return n;
         };
+        topoFeedZwave(topo, f, snr, z.sec);
         ZwNode& s = node(f.src);
         s.sent++; if (enc) s.encrypted++;
         s.rate = dec.rate; s.rssi = levelDb; s.lastSec = z.sec; s.lastWall = z.wallTime;
@@ -361,6 +379,7 @@ void ZwaveReceiver::setLogCallback(std::function<void(const std::string&)> cb) {
 void ZwaveReceiver::clearResults() {
     std::lock_guard<std::mutex> lk(p_->mu);
     p_->logq.clear(); p_->nets.clear(); p_->nodes.clear(); p_->perCc.clear();
+    p_->topo.clear(); p_->topoCache = TopoSnapshot(); p_->topoAt = -1e9;
     p_->ok = p_->bad = p_->bursts = p_->encS0 = p_->encS2 = p_->acks = 0;
     for (auto& v : p_->perRate) v = 0;
     for (auto& c : p_->chans) c.frames = c.bad = 0;
@@ -403,6 +422,8 @@ bool ZwaveReceiver::telemetry(ZwaveTelemetry& out, uint64_t lastSeq) {
     for (const auto& kv : p->nodes) out.nodes.push_back(kv.second);
     std::sort(out.nodes.begin(), out.nodes.end(), [](const ZwNode& a, const ZwNode& b) { return a.lastSec > b.lastSec; });
     out.log.assign(p->logq.begin(), p->logq.end());
+    if (p->now() - p->topoAt >= 1.0 || p->topoAt > p->now()) { p->topoCache = p->topo.snapshot(); p->topoAt = p->now(); }
+    out.topo = p->topoCache;
     return true;
 }
 

@@ -26,6 +26,8 @@
 #include "main_internal.h"
 #include "state/workspace.h"
 #include "gfx/render_caps.h"
+#include "voice/tgdir_ui.h"
+void recordingLibraryDevOpen();   // panels/recording_library_ui.cpp
 
 // the startup guard (a start that keeps crashing), the first-start tour and setup, the radio list and the results of the last run
 void startApp(App& app, int argc, char** argv) {
@@ -121,7 +123,9 @@ void startApp(App& app, int argc, char** argv) {
 void parseDevFlags(App& app, int argc, char** argv, DevOpts& o) {
     for (int i = 1; i < argc; i++) {
         if (std::string(argv[i]) == "--autostart") o.autostart = true;
-        if (std::string(argv[i]) == "--no-first-run") {
+        // --drag-selftest too: its injected gestures run past frame 90, where a fresh profile opens the first-start question (the public map,
+        // a modal that takes every click), so it implies --no-first-run
+        if (std::string(argv[i]) == "--no-first-run" || std::string(argv[i]) == "--drag-selftest") {
 #ifdef _WIN32
             _putenv_s("DECT2_SKIP_FIRSTRUN", "1");
 #else
@@ -162,6 +166,7 @@ void parseDevFlags(App& app, int argc, char** argv, DevOpts& o) {
         if (std::string(argv[i]) == "--packs") app.packsOpen = true;   // dev: open View > Data packs
         if (std::string(argv[i]) == "--map") app.mapOpen = true;   // dev: open View > Map
         if (std::string(argv[i]) == "--memory-selftest") o.memSelfTest = true;
+        if (std::string(argv[i]) == "--drag-selftest") o.dragSelfTest = true;
         if (std::string(argv[i]) == "--memdev" && i + 1 < argc) memoryDev(atoi(argv[++i]));   // dev: 1 the Store current dialog, 2 the quick list as a window
         if (std::string(argv[i]) == "--memory") app.memoryOpen = true;   // dev: open View > Memory
         if (std::string(argv[i]) == "--memtab") app.memoryTab = true;    // dev: the Memory tab of the main screen
@@ -171,6 +176,9 @@ void parseDevFlags(App& app, int argc, char** argv, DevOpts& o) {
         if (std::string(argv[i]) == "--tour") { app.wizOpen = true; app.wizStep = i + 1 < argc && argv[i + 1][0] != '-' ? atoi(argv[++i]) : -1; }   // dev: open the tour (at this step)
         if (std::string(argv[i]) == "--controls") inputmap::windowOpen() = true;   // dev: the View > Controls window open (screenshots)
         if (std::string(argv[i]) == "--credits") app.creditsOpen = true;   // dev: the Credits window open (screenshots)
+        if (std::string(argv[i]) == "--ghost") app.specGhost = true;   // dev: the spectrum ghost overlay on (screenshots)
+        if (std::string(argv[i]) == "--reclib") recordingLibraryDevOpen();   // dev: the Recording library window open (screenshots)
+        if (std::string(argv[i]) == "--tgdir") tgdirui::devOpen();   // dev: the Talkgroup names blocks open (screenshots)
         if (std::string(argv[i]) == "--mute") { app.muted = true; app.volume = 0; }
         if (std::string(argv[i]) == "--specdemo") app.specDemo = true;   // dev: a synthetic spectrum (FM, OFDM, SSB) without a radio, for screenshots of the looks
         if (std::string(argv[i]) == "--tunerstyle" && i + 1 < argc) app.tunerStyle = std::max(0, std::min(1, atoi(argv[++i])));   // dev: the tuner look (0 Classic, 1 Simple), not saved

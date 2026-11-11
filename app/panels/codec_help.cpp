@@ -283,6 +283,7 @@ void codecHelpButton(CodecHelp c, const char* label) {
         ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30);
         ImGui::TextUnformatted(t.title);
         ImGui::Separator();
+        if (ImGui::SmallButton("All optional libraries: which, where, official sources")) dect2::openUrl("https://github.com/adswill/OnAir/blob/main/docs/OPTIONAL-LIBRARIES.md");
         // a codec that crashed or hung this run (codec_guard.h): said first; Look again tries it once more
         if (const std::string gm = dect2::codec::guardAllMessages(); !gm.empty()) { ImGui::TextColored(pal::warnAmber(), "%s", gm.c_str()); ImGui::Separator(); }
         appcodec::codecArchLines(true);   // OnAir's processor, Rosetta notice, which architecture to build for
@@ -318,6 +319,7 @@ void codecHelpButton(CodecHelp c, const char* label) {
             if (ImGui::Button("Look again")) dect2::avsPlusLibrary(true);
             ImGui::SameLine();
             if (ImGui::Button("Full instructions")) dect2::openUrl(kDocUrl);
+            appcodec::discordCodecButton();
             ImGui::PopTextWrapPos();
             ImGui::EndPopup();
             ImGui::PopID();
@@ -410,6 +412,7 @@ void codecHelpButton(CodecHelp c, const char* label) {
         }
         if (ImGui::Button("Full instructions")) dect2::openUrl(kDocUrl);
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", kDocUrl);
+        if (!t.loadable) appcodec::discordCodecButton();   // the loadable topics got it with the folder buttons above
         ImGui::PopTextWrapPos();
         ImGui::EndPopup();
     }

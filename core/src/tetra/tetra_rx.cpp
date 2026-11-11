@@ -1,7 +1,9 @@
 // TETRA network information receiver (tetra_rx.h): blocks of input, 25 kHz carriers found in the spectrum, slot synchronised on the
 // training sequences, the broadcast channels decoded.
 #include "dect2/common/thread_name.h"
+#include "dect2/wirecap/wire.h"
 #include "dect2/tetra/tetra_rx.h"
+#include "dect2/tetra/tetra_sds.h"
 #include "dect2/mesh/mesh_lora.h"
 #include "dect2/results/results_io.h"
 #include "dect2/cell/cell_dsp.h"
@@ -256,6 +258,7 @@ CarrierDecode decodeCarrier(const cf32* x, size_t n, int kMcc, int kMnc, int kCc
         if (!decodeChannel(llr.data() + kSbSb, kBsch, scramblerInit(0, 0, 0), t1)) { out.blocksBad++; continue; }
         Sync s;
         if (!parseSync(t1, s)) { out.blocksBad++; continue; }
+        if (wire::on(wire::Tetra)) { const wire::Bytes b = wire::packBitsMsbFirst(t1.data(), t1.size()); wire::Hub::get().publish(wire::Tetra, wire::makeGsmtap(wire::gsmtap::kTypeTetraI1, wire::gsmtap::kTetraBsch, b.data(), b.size())); }
         out.synced = true; out.sync = s; out.syncs++; out.blocksOk++;
         syncSlot = (long)i;
     }
@@ -294,12 +297,24 @@ CarrierDecode decodeCarrier(const cf32* x, size_t n, int kMcc, int kMnc, int kCc
             usage = aachDlUsage(aa, fn == 18);
             if (tn >= 1 && usage >= 0) out.tsUsage[tn - 1] = usage;
         }
+        static thread_local FragReassembler localFrag;
         auto block = [&](const float* l, const ChanSpec& c) {
             Bits t1;
             if (!decodeChannel(l, c, scr, t1)) { out.blocksBad++; return; }
             out.blocksOk++;
+            if (wire::on(wire::Tetra) && !t1.empty()) {   // type-1 bits of the signalling block, as received: encrypted content stays encrypted (voice is not sent)
+                const bool broadcast = t1.size() > 1 && t1[0] == 1 && t1[1] == 0;   // MAC PDU type 2
+                const uint8_t sub = t1.size() >= 200 ? wire::gsmtap::kTetraSchF : broadcast ? wire::gsmtap::kTetraBnch : wire::gsmtap::kTetraSchHd;
+                const wire::Bytes b = wire::packBitsMsbFirst(t1.data(), t1.size());
+                wire::Hub::get().publish(wire::Tetra, wire::makeGsmtap(wire::gsmtap::kTypeTetraI1, sub, b.data(), b.size(), 0, (uint8_t)(tn > 0 ? tn - 1 : 0), (uint32_t)fn));
+            }
             MacBlock mb;
             parseMacBlock(t1, mb);
+            if (mb.fragKind) {
+                Bits sdu; int a = -1, sl2 = -1, cr = -1;
+                FragReassembler& fr = calls ? calls->frag_[tn >= 1 && tn <= 4 ? tn : 0] : localFrag;
+                if (fr.feed(mb, sdu, a, sl2, cr)) parseTlSdu(sdu, a, sl2, cr, mb);
+            }
             out.macs.push_back(std::move(mb));
         };
         if (sl.f.type == Burst::Sync) block(llr.data() + kSbBkn2, kSchHd);
@@ -333,7 +348,9 @@ CarrierDecode decodeCarrier(const cf32* x, size_t n, int kMcc, int kMnc, int kCc
     std::vector<CallEncryption> gate(traffic.size());
     if (!traffic.empty()) {
         CallEncryption cell;
+        int encPdus = 0, clearPdus = 0;
         for (const auto& m : out.macs) {
+            encPdus += m.encrypted; clearPdus += m.resources - m.encrypted;
             if (m.encrypted > 0) cell.encMode = 1;
             if (m.sysinfo && m.si.bsService >= 0 && (m.si.bsService & kSvcAirEncryption)) cell.cellOffersEncryption = true;
         }
@@ -341,7 +358,8 @@ CarrierDecode decodeCarrier(const cf32* x, size_t n, int kMcc, int kMnc, int kCc
             // the per-call gate AND the cell-level gate: clear only when the call's set-up PDU said "no encryption" and no PDU of the capture is encrypted
             CallEncryption ce = calls ? calls->slotState(traffic[k].tn, nowSec) : CallEncryption{};
             ce.cellOffersEncryption = cell.cellOffersEncryption;
-            if (cell.encMode != 0) ce.encMode = 1;
+            // a call whose own set-up said clear is vetoed only when encrypted PDUs outnumber the clear ones (a cell mixing clear and encrypted terminals)
+            if (cell.encMode != 0 && !(ce.known && ce.encMode == 0 && encPdus <= clearPdus)) ce.encMode = 1;
             gate[k] = ce;
             const VoiceVerdict v = voiceVerdict(ce);
             out.voiceStatus = voiceVerdictText(v);
@@ -642,7 +660,7 @@ struct TetraReceiver::Impl {
         if (!gaveVoice) { playCarrierHz = 0.0; playTn = 0; }
         std::lock_guard<std::mutex> lk(mu);
         if (gen.load() != g) return;
-        if (clearReq.exchange(false)) { tel.cells.clear(); tel.events.clear(); tel.blocksOk = tel.blocksBad = 0; }
+        if (clearReq.exchange(false)) { tel.cells.clear(); tel.events.clear(); tel.sds.clear(); tel.blocksOk = tel.blocksBad = 0; }
         tel.blocks++;
         tel.carriers = seen;
         for (auto& fr : found) merge(fr.c, fr.d, fr.freq, center, sec);
@@ -707,6 +725,21 @@ struct TetraReceiver::Impl {
         }
         const bool encBefore = t->encryption();
         for (const auto& m : d.macs) {
+            for (const auto& c : m.cmce) {          // clear SDS and status: the message list, the positions on the map
+                tetra::SdsMsg sm;
+                const bool ok = c.bits.size() >= 5 && (tetra::parseSdsData(c.bits, sm) || tetra::parseStatus(c.bits, sm));
+                if (!ok || !sm.valid) continue;
+                TetraSdsRec r;
+                r.wallTime = (int64_t)time(nullptr); r.freqHz = freq; r.fromIssi = sm.callingIssi; r.toAddr = c.addr; r.kind = sm.kind; r.text = sm.text;
+                r.hasPos = sm.hasPos; r.lat = sm.lat; r.lon = sm.lon;
+                auto same = std::find_if(tel.sds.begin(), tel.sds.end(), [&](const TetraSdsRec& x) { return x.fromIssi == r.fromIssi && x.text == r.text && x.toAddr == r.toAddr; });
+                if (same != tel.sds.end()) { r.count = same->count + 1; tel.sds.erase(same); }
+                tel.sds.insert(tel.sds.begin(), std::move(r));
+                if (tel.sds.size() > 300) tel.sds.pop_back();
+                char b2[220];
+                snprintf(b2, sizeof b2, "SDS %s from %d to %d: %s", sm.kind.c_str(), sm.callingIssi, c.addr, sm.text.c_str());
+                event(b2, sec);
+            }
             t->encryptedPdus += (uint64_t)m.encrypted;
             for (int k = 0; k < 8; k++) t->clearPdus += (uint64_t)m.byPd[k];
             if (m.sysinfo) {

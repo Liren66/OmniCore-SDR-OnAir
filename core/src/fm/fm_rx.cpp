@@ -10,6 +10,8 @@
 #include "dect2/fm/fm_rbds.h"
 #include "dect2/fm/fm_rds.h"
 #include "dect2/fm/fm_tone.h"
+#include "dect2/fm/fm_subcarrier.h"
+#include "dect2/fm/fm_neighbour.h"
 #include "dect2/dsp/resampler.h"
 #include <algorithm>
 #include <atomic>
@@ -250,6 +252,40 @@ struct FmReceiver::Impl {
     float dcChA = 0;
     std::vector<cf32> a, b;                      // scratch between the channel stages
     std::vector<float> freq, mpx, freqR, mpxR;   // R: the raw channel for RDS while the sound takes the equaliser (split)
+    // FM click (threshold) suppression. Below about 12 dB carrier to noise the phasor passes near the origin and the discriminator gives a
+    // 2 pi phase slip: a spike of a few samples far beyond the deviation. A sample is a click when its instantaneous frequency is beyond what
+    // the channel filter can pass for a modulated carrier AND the envelope has dipped; the spike and two samples each side are replaced by a
+    // straight line between the good samples. Only below 32 dB SNR, so a clean station is not touched at all.
+    std::atomic<bool> clickOn{true};
+    FmNeighbourCancel canceller;                 // a strong first-adjacent station is regenerated and subtracted before the channel filter
+    std::atomic<bool> cancelOn{true};
+    std::vector<cf32> cancelBuf;
+    bool analysis = false;                       // FmCensus: pilot, RDS and measurements only (no equaliser, no sound)
+    std::vector<uint8_t> dip;
+    float clickL = 0, clickLR = 0;                // the last good sample of the block before
+    uint64_t clicks = 0;
+    static uint64_t declick(std::vector<float>& f, const std::vector<uint8_t>& dipped, float& last, double blockSec) {
+        const int n = (int)f.size();
+        std::vector<uint8_t> bad((size_t)n, 0);
+        uint64_t found = 0;
+        for (int i = 0; i < n; i++) if (dipped[(size_t)i] && std::fabs(f[(size_t)i]) > 1.35f) {
+            found++;
+            for (int j = std::max(0, i - 2); j <= std::min(n - 1, i + 2); j++) bad[(size_t)j] = 1;
+        }
+        // a run of clicks this dense (more than about 110 per second) is not a few clicks in a working channel but a channel in collapse: a straight
+        // line over so many samples would hurt more than the clicks
+        if (found > 3 + (uint64_t)(110 * blockSec)) { if (n) last = f[(size_t)n - 1]; return 0; }
+        if (found) for (int i = 0; i < n;) {
+            if (!bad[(size_t)i]) { i++; continue; }
+            int e = i;
+            while (e < n && bad[(size_t)e]) e++;
+            const float a = i > 0 ? f[(size_t)i - 1] : last, b = e < n ? f[(size_t)e] : a;
+            for (int j = i; j < e; j++) f[(size_t)j] = a + (b - a) * (float)(j - i + 1) / (float)(e - i + 1);
+            i = e;
+        }
+        if (n) last = f[(size_t)n - 1];
+        return found;
+    }
     DecimFir<float> mpxDecimR;
     bool audioCma = true, split = false;
 
@@ -300,6 +336,8 @@ struct FmReceiver::Impl {
 
     // RDS
     DecimFir<cf32> rdsLp;
+    FmSubcarriers subs;                          // RDS2 and SCA subcarriers above 60 kHz (not in the census: analysis only)
+    std::vector<float> scaQ;
     RationalResampler rdsRs;
     bool rdsRsOk = false;
     std::vector<cf32> rIn, r1, r19;
@@ -372,6 +410,7 @@ struct FmReceiver::Impl {
         const int dr = std::max(1, (int)std::lround(fm / 25000.0));
         rdsLp.design(designLowpass(3200, 10000, fm), dr);
         rdsRsOk = rdsRs.configure(fm / dr, 19000);
+        subs.configure(fm);
         ready = true;
         reset();
         if (!silent && !audio) { audio = std::make_unique<AudioOut>(); audio->start(kAudioRate); audio->setStartThreshold(kAudioRate / 5); applyAudio(); }
@@ -395,7 +434,7 @@ struct FmReceiver::Impl {
 
     void reset() {
         for (auto& c : chan) c.reset();
-        mpxDecim.reset(); mpxDecimR.reset(); audioCma = true; split = false; lpM.reset(); lpD.reset(); rdsLp.reset(); tone.reset();
+        mpxDecim.reset(); mpxDecimR.reset(); audioCma = true; split = false; lpM.reset(); lpD.reset(); rdsLp.reset(); subs.reset(); scaQ.clear(); tone.reset();
         if (audioRsOk) audioRs.reset();
         if (rdsRsOk) rdsRs.reset();
         prev = prevRaw = cf32(1, 0); dcCh = cf32(0, 0); cmaReset(); mpReset(); cmaUse = true; mpRipple = 0; std::memset(mpHist, 0, sizeof mpHist); mpAvg = 0; mpHp = 0;
@@ -455,7 +494,9 @@ struct FmReceiver::Impl {
         const float floorP = all[all.size() / 2];
         const float centre = score(0);
         double hz = 0;
-        if (best > 10 * floorP && centre < 10 * floorP) {
+        // (3x the median floor is enough: the score is a median over ~300 bins of a 16-frame average, so noise alone stays within 10 % of the floor;
+        // a threshold of 10x lost an off-centre station below about 11 dB SNR)
+        if (best > 1.6 * floorP && best > 1.6 * centre && centre < 10 * floorP) {
             // the centre of the station: the power centroid over +-100 kHz around the best window
             double sp = 0, sf = 0;
             const int w = (int)(100e3 / binHz);
@@ -478,6 +519,12 @@ struct FmReceiver::Impl {
         if (const double w = chanWant.load(std::memory_order_relaxed); w != chanPass) designChan(w);   // a new width: the filter starts empty
         if (!autoFind.load(std::memory_order_relaxed) && (finding || tuneHz != 0)) { finding = false; if (tuneHz != 0) { setTune(0); reset(); } }
         if (finding) findFeed(x, n);
+        if (cancelOn.load(std::memory_order_relaxed) && inRate <= FmNeighbourCancel::kMaxRate && !analysis) {
+            canceller.configureIf(inRate);
+            cancelBuf.resize(n);
+            canceller.process(x, n, cancelBuf.data());
+            x = cancelBuf.data();
+        }
         if (tuneHz != 0) {
             mixBuf.resize(n);
             for (size_t i = 0; i < n; i++) {
@@ -503,17 +550,21 @@ struct FmReceiver::Impl {
         // the sound below about 22 dB SNR (a carrier to noise near 9 dB) takes the equaliser's output: there its narrower filter keeps clicks and hiss down (threshold
         // extension, up to 6 dB better near the FM threshold); RDS keeps the raw channel unless there is multipath (the equaliser's
         // filter cuts the RDS sidebands). Two discriminator outputs, two multiplex decimators, only while they differ.
-        audioCma = cmaUse || (audioCma ? lastSnr < 24.f : lastSnr < 22.f);
+        if (analysis) cmaUse = false;
+        audioCma = !analysis && (cmaUse || (audioCma ? lastSnr < 24.f : lastSnr < 22.f));
         const bool wasSplit = split;
         split = audioCma != cmaUse;
         if (split && !wasSplit) mpxDecimR.reset();
         if (split) freqR.resize(cn);
+        const bool declickNow = clickOn.load(std::memory_order_relaxed) && lastSnr < 32.f;
+        if (declickNow) dip.resize(cn);
         for (size_t i = 0; i < cn; i++) {
             // a NaN or infinite sample (a broken file) would stay for good in the pilot loop, the DC average and the measurements: count it as silence
             cf32 c = std::isfinite(cur[i].real()) && std::isfinite(cur[i].imag()) ? cur[i] : cf32(0, 0);
             dcCh += (c - dcCh) * dcChA;
             if (dcOn) c -= dcCh;
-            c = cma(c);
+            if (!analysis) c = cma(c);
+            else { cmaP = cmaP > 0 ? cmaP + (std::norm(c) - cmaP) * 0.002f : std::norm(c); cmaRawD = c; }
             const cf32 raw = cmaRawD;
             const cf32 pr = std::conj(prevRaw) * raw;
             const float fr = (float)(std::atan2(pr.imag(), pr.real()) * fo / (2 * kPi));   // the raw instantaneous frequency, Hz
@@ -529,10 +580,12 @@ struct FmReceiver::Impl {
                 freq[i] = audioCma ? fc : fr / (float)kDevHz;
                 if (split) freqR[i] = cmaUse ? fc : fr / (float)kDevHz;
             } else freq[i] = (float)(fr / kDevHz);
+            if (declickNow) dip[i] = std::norm(raw) < 0.3f * cmaP;
             prev = c; prevRaw = raw;
             pwSum += std::norm(c);
             envSum += std::abs(c);
         }
+        if (declickNow) { clicks += declick(freq, dip, clickL, cn / fo); if (split) declick(freqR, dip, clickLR, cn / fo); }
         pwN += cn;
         mpSecs += cn / fo;
         if (mpSecs >= 0.25) mpJudge();
@@ -591,6 +644,8 @@ struct FmReceiver::Impl {
         if (!pilotLock && lockT >= 0.08) pilotLock = true;
         if (pilotLock && (unlockT >= 0.2 || 2 * pI < 0.012)) pilotLock = false;
 
+        if (analysis) { runRds(n); return; }
+        subs.feed(sIn.data(), n);
         mOut.clear(); dOut.clear();
         lpM.process(sIn.data(), n, mOut);
         lpD.process(dIn.data(), n, dOut);
@@ -613,6 +668,12 @@ struct FmReceiver::Impl {
             audioRs.process(lr.data(), na, lr48);
             outL.resize(lr48.size()); outR.resize(lr48.size()); inter.resize(lr48.size() * 2);
             for (size_t i = 0; i < lr48.size(); i++) { outL[i] = lr48[i].real(); outR[i] = lr48[i].imag(); }
+            if (subs.scaListen() >= 0) {   // an SCA channel instead of the programme, the moment some has been demodulated
+                subs.takeScaAudio(scaQ);
+                const size_t k = std::min(scaQ.size(), lr48.size());
+                for (size_t i = 0; i < k; i++) outL[i] = outR[i] = 0.5f * scaQ[i];
+                scaQ.erase(scaQ.begin(), scaQ.begin() + (ptrdiff_t)k);
+            }
             {   // the tone control: off by default, so the audio is not touched unless the user sets it
                 const int tb = toneBass.load(), tt = toneTreble.load();
                 const bool tw = toneWarm.load();
@@ -656,7 +717,11 @@ struct FmReceiver::Impl {
             }
             if (tap && !lr48.empty()) tap(outL.data(), outR.data(), lr48.size());
         }
-        // RDS (with a locked pilot its carrier is tied to the pilot; without one it is followed by a Costas loop)
+        runRds(n);
+    }
+
+    // RDS (with a locked pilot its carrier is tied to the pilot; without one it is followed by a Costas loop)
+    void runRds(size_t n) {
         if (rdsRsOk) {
             r1.clear();
             rdsLp.process(rIn.data(), n, r1);
@@ -738,14 +803,16 @@ struct FmReceiver::Impl {
         t.cfoHz += tuneHz;
         t.devKhz = (float)(peakMpx * 75.0);
         t.levelDbfs = pwN ? (float)(10 * std::log10(std::max(pwSum / pwN, 1e-12))) : -120.f;
-        t.stereo = (pilotLock || stereoMode.load() == 2) && stereoBlend > 0.5f * std::max(snrBlend, 0.1f) && !forceMono.load(std::memory_order_relaxed);
+        t.stereo = analysis ? pilotLock : (pilotLock || stereoMode.load() == 2) && stereoBlend > 0.5f * std::max(snrBlend, 0.1f) && !forceMono.load(std::memory_order_relaxed);
         t.stereoPct = t.stereo ? 100 * stereoBlend : 0.f;
         t.pilotPct = pilotLock ? (float)(200 * pI) : 0.f;
+        t.sub = subs.status();
         t.rdsSync = rds.synced;
         t.rdsBlockOkPct = rds.okPct;
         t.rdsGroups = rds.groups;
         t.psName = rds.ps; t.radioText = rds.rt; t.radioTextComplete = rds.rtComplete; const bool rbds = rdsUseRbds(rdsRegion.load(), tunedMhz.load());
         t.rbds = rbds;
+        t.ptyCode = rds.groups ? rds.pty : -1;
         t.ptyText = rds.groups ? rdsPtyName(rds.pty, rbds) : "";
         t.callSign = rbds && rds.groups ? rbdsCallSign(rds.pi) : "";   // US call letters are in the PI code
         t.tmc = rds.tmc.system();
@@ -753,6 +820,9 @@ struct FmReceiver::Impl {
         t.trafficAlert = rds.ta; t.trafficProgram = rds.tp; t.music = rds.ms; t.piCode = rds.groups ? rds.pi : 0;
         t.rds = rds.info;
         t.multipathPct = 100 * mpRipple; t.equaliser = cmaUse;
+        t.clicksFixed = clicks;
+        t.neighbourDb = canceller.activeOffsetHz() != 0 ? canceller.neighbourDb() : 0;
+        t.neighbourKhz = (float)(canceller.activeOffsetHz() / 1e3);
         // an FM carrier has a constant envelope (spread about 0.2 at 12 dB), noise alone a Rayleigh envelope (0.52)
         double cv = 1;
         if (pwN && envSum > 0) cv = std::sqrt(std::max(0.0, pwSum / pwN / ((envSum / pwN) * (envSum / pwN)) - 1));
@@ -809,6 +879,9 @@ void FmReceiver::setStereoMode(int mode) { const int m = mode >= 0 && mode <= 2 
 void FmReceiver::setAudioBandwidth(int hz) { p_->audioBwHz = hz <= 0 || hz >= 15000 ? 0 : std::max(2000, hz); }
 void FmReceiver::setSquelch(float snrDb) { p_->squelchDb = std::max(0.f, std::min(60.f, snrDb)); }
 void FmReceiver::setStationFinder(bool on) { p_->autoFind = on; }
+void FmReceiver::setClickSuppression(bool on) { p_->clickOn = on; }
+void FmReceiver::setAnalysisOnly(bool on) { p_->analysis = on; }
+void FmReceiver::setNeighbourCancel(bool on) { p_->cancelOn = on; }
 
 void FmReceiver::setChannelWidth(double hz) {
     p_->chanWant = hz > 0 ? std::max(kMinChannelWidthHz, hz) * 0.5 : kChanPass;   // (3.4: any width above a floor of 10 kHz; designChan keeps it inside the sample rate)
@@ -817,6 +890,7 @@ double FmReceiver::channelWidth() const { return 2 * p_->chanWant.load(); }
 void FmReceiver::setSilent(bool s) { p_->silent = s; }
 void FmReceiver::setRdsCorrection(int level) { p_->rds.setCorrection(level >= 1, level >= 2); }
 void FmReceiver::setRdsGroupTap(std::function<void(const uint16_t blocks[4], const uint8_t err[4])> cb) { p_->rds.setGroupTap(std::move(cb)); }
+void FmReceiver::setScaListen(int ch) { p_->subs.setScaListen(ch); }
 void FmReceiver::setAudioTap(std::function<void(const float*, const float*, size_t)> cb) { p_->tap = std::move(cb); }
 
 } // namespace dect2

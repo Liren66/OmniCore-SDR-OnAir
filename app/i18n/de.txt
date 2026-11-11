@@ -77,7 +77,6 @@ QO-100 path	QO-100-Pfad
 Radio ID	Radio-ID
 Radio text (RT)	Radiotext (RT)
 RDS PI	RDS PI
-Receiver-style options (demo signal)	Optionen im Empfängerstil (Demosignal)
 Report	Bericht
 Reverse (mark is the upper tone)	Umgekehrt (Mark ist der obere Ton)
 RFPI	RFPI
@@ -455,7 +454,6 @@ The width of the signal is measured in the spectrum and the receiver switches be
 The receiver's channel filter. Narrower keeps a strong neighbour out (150 kHz copes with one 10 dB stronger 150 kHz away); below about 180 kHz loud passages distort a little and RDS suffers first.	Das Kanalfilter des Empfängers. Schmaler hält einen starken Nachbarn fern (150 kHz verkraftet einen 10 dB stärkeren im Abstand von 150 kHz); unter etwa 180 kHz verzerren laute Stellen etwas und RDS leidet zuerst.
 The width is measured in the spectrum, and 6, 8 and 7 MHz are tried in turn while nothing locks.	Die Breite wird im Spektrum gemessen, und 6, 8 und 7 MHz werden nacheinander probiert, solange nichts einrastet.
 6 MHz in Japan and the Americas, 8 MHz in the Maldives (ISDB-T International). The signal is the same, scaled in time by the width.	6 MHz in Japan und Amerika, 8 MHz auf den Malediven (ISDB-T International). Das Signal ist dasselbe, zeitlich mit der Breite skaliert.
-Set by the country: there is nothing to measure it from. A receiver set to the wrong width finds nothing.	Vom Land vorgegeben: Es gibt nichts, woran man sie messen könnte. Ein Empfänger mit falscher Breite findet nichts.
 Follows the symbol rate: symbol rate x (1 + roll-off).	Folgt der Symbolrate: Symbolrate x (1 + Roll-off).
 Choose automatic or a manual symbol rate in the tuner to change it.	Zum Ändern im Tuner automatische oder manuelle Symbolrate wählen.
 This mode	Diese Betriebsart
@@ -474,7 +472,6 @@ Radio settings (%d changed)	Radio-Einstellungen (%d geändert)
 The driver's own settings show up here\nonce this radio has been started.	Die eigenen Einstellungen des Treibers erscheinen hier,\nsobald dieses Radio einmal gestartet wurde.
 0 = libiio's default	0 = Vorgabe von libiio
 #  passes
-Weather (137 MHz)	Wetter (137 MHz)
 Amateur	Amateurfunk
 Amateur satellites	Amateurfunksatelliten
 downloading...	lade herunter...
@@ -491,8 +488,6 @@ No TLE for:	Keine TLE für:
 no valid TLE in the pasted text (two lines per satellite, checksums must match)	keine gültige TLE im eingefügten Text (zwei Zeilen je Satellit, Prüfsummen müssen stimmen)
 pasted TLEs added:	eingefügte TLEs hinzugefügt:
 No TLEs yet: download them or paste some.	Noch keine TLEs: herunterladen oder einfügen.
-No TLEs: open TLE data above.	Keine TLEs: oben TLE-Daten öffnen.
-No passes in the next 24 hours.	Keine Überflüge in den nächsten 24 Stunden.
 TLE data	TLE-Daten
 %d TLEs, %d satellites listed	%d TLEs, %d Satelliten aufgeführt
 the oldest is %.0f days old: download again	die älteste ist %.0f Tage alt: neu herunterladen
@@ -501,23 +496,15 @@ Receiver position	Empfängerstandort
 The same position as the ADS-B antenna position	Derselbe Standort wie die ADS-B-Antennenposition
 not set: the times are for a placeholder position	nicht gesetzt: die Zeiten gelten für einen Platzhalter-Standort
 Satellite	Satellit
-AOS	AOS
-LOS	LOS
 Max el	Max. Höhe
 Duration	Dauer
 Frequency	Frequenz
 AOS in %d:%02d:%02d	AOS in %d:%02d:%02d
 %s - %s, max %.0f deg	%s - %s, max. %.0f Grad
-no pass	kein Überflug
 az %.0f  el %.0f  %.0f km\nDoppler %+.0f Hz	Az %.0f  El %.0f  %.0f km\nDoppler %+.0f Hz
 Track	Verfolgen
-Track (choose a pass)	Verfolgen (Überflug wählen)
-During each pass of this satellite, retune about once a second for the Doppler shift	Bei jedem Überflug dieses Satelliten etwa einmal pro Sekunde für die Dopplerverschiebung nachstimmen
 Auto start at AOS, stop at LOS	Bei AOS automatisch starten, bei LOS stoppen
-Switches to the satellite's mode and starts the receiver at AOS (when it is stopped), and stops it at LOS	Wechselt zur Betriebsart des Satelliten, startet den Empfänger bei AOS (wenn er gestoppt ist) und stoppt ihn bei LOS
 Auto record IQ	IQ automatisch aufnehmen
-Records the radio's IQ during the pass, as Record IQ does (format from the Record IQ setting), into %s/recordings	Nimmt das IQ des Radios während des Überflugs auf, wie IQ aufnehmen (Format aus dieser Einstellung), nach %s/recordings
-OnAir has no decoder for this: auto start opens the Spectrum explorer, and Auto record keeps the IQ	OnAir hat dafür keinen Decoder: Der Autostart öffnet den Spectrum explorer, und die automatische Aufnahme behält das IQ
 tracking%s	Verfolgung%s
 , recording	, Aufnahme
 #  data feeds
@@ -937,7 +924,6 @@ WSJT, 14.078 MHz	WSJT, 14.078 MHz
 WSJT, 14.080 MHz	WSJT, 14.080 MHz
 WSJT, 14.084 MHz	WSJT, 14.084 MHz
 WSJT, 14.100 MHz	WSJT, 14.100 MHz
-%.0f deg	%.0f Grad
 %s, %llu spots sent in %llu packets, %llu duplicates skipped	%s, %llu Spots in %llu Paketen gesendet, %llu Duplikate übersprungen
 offset %+.3f %+.3f	Versatz %+.3f %+.3f
 sigma %.3f per axis (%.0f%% of the half-distance to a neighbour)	Sigma %.3f pro Achse (%.0f%% des halben Abstands zu einem Nachbarn)
@@ -961,13 +947,7 @@ Automatic update	Automatisch aktualisieren
 Downloads the TLEs again once a day, only while this window is open or a pass is tracked. Without a network the saved lists are used.	Lädt die TLEs einmal am Tag neu, nur solange dieses Fenster offen ist oder ein Überflug verfolgt wird. Ohne Netz werden die gespeicherten Listen verwendet.
 last downloaded %s	zuletzt geladen: %s
 Pass of %s in %d:%02d (max %.0f deg): the receiver starts by itself	Überflug von %s in %d:%02d (max. %.0f Grad): der Empfänger startet selbst
-Pass of %s in %d:%02d (max %.0f deg)	Überflug von %s in %d:%02d (max. %.0f Grad)
 remind %.0f min before	%.0f Min. vorher erinnern
-A line at the top of the window and a log entry before the tracked pass rises (0: off)	Eine Zeile oben im Fenster und ein Protokolleintrag, bevor der verfolgte Überflug beginnt (0: aus)
-Record this pass	Diesen Überflug aufzeichnen
-Cancel recording this pass	Aufzeichnung dieses Überflugs abbrechen
-Arms this pass only: at AOS the receiver starts in the satellite's mode and frequency (when it is stopped), Doppler is followed and the IQ is recorded; at LOS it stops and tracking switches off again	Gilt nur für diesen Überflug: bei AOS startet der Empfänger (falls gestoppt) in Betriebsart und Frequenz des Satelliten, der Doppler wird nachgeführt und das IQ aufgezeichnet; bei LOS stoppt er und die Verfolgung schaltet sich wieder aus
-armed: %s at %s	bereit: %s um %s
 Save PNG...	PNG speichern...
 Save CSV...	CSV speichern...
 saved	gespeichert
@@ -2425,13 +2405,10 @@ Room title	Raumtitel
 Also show decoded ACARS text in the room (public)	Auch dekodierten ACARS-Text im Raum zeigen (öffentlich)
 Needs Server > Send data to map server and Also share interesting ACARS messages.	Benötigt Server > Daten an Kartenserver senden und Auch interessante ACARS-Nachrichten teilen.
 Go live	Live gehen
-Schedule passes by itself	Durchgänge selbst planen
-Takes the passes of the ticked groups one at a time, highest priority first, and starts, tunes and records each one without you. Overlapping passes are trimmed or skipped; a receiver you started yourself is left alone.	Nimmt die Durchgänge der angehakten Gruppen nacheinander auf, höchste Priorität zuerst, und startet, stimmt ab und nimmt jeden ohne dein Zutun auf. Überlappende Durchgänge werden gekürzt oder übersprungen; ein von dir gestarteter Empfänger bleibt unberührt.
 Priority (higher wins)	Priorität (höher gewinnt)
 Keep the SDR free every day	SDR täglich freihalten
 from %d:00	ab %d:00
 to %d:00	bis %d:00
-Nothing planned.	Nichts geplant.
 planned	geplant
 trimmed	gekürzt
 skipped: SDR reserved	übersprungen: SDR reserviert
@@ -2830,7 +2807,6 @@ Presets	Voreinstellungen
 Preview	Vorschau
 Programme type	Programmtyp
 Push to talk (hold the button)	Sprechtaste (Taste gedrückt halten)
-Puts every setting below back to its default.	Setzt jede Einstellung unten auf ihren Standardwert zurück.
 RDS	RDS
 RDS level	RDS-Pegel
 RF level	HF-Pegel
@@ -3600,11 +3576,9 @@ Pinned: never paused by the CPU limit	Fixiert: wird vom CPU-Limit nie pausiert
 Follow this signal's sound; it is never paused by the CPU limit	Dem Ton dieses Signals folgen; es wird vom CPU-Limit nie pausiert
 Remove: a signal you added is taken away, a found one is switched off	Entfernen: ein hinzugefügtes Signal wird gelöscht, ein gefundenes abgeschaltet
 # Share on web: relay, listeners, server settings
-Share my radio	Mein Radio teilen
 Connecting to the relay ...	Verbindung zum Relay wird aufgebaut ...
 Anyone with the link	Jeder mit dem Link
 Invite links only	Nur Einladungslinks
-Limits that protect your computer	Grenzen zum Schutz Ihres Computers
 Antenna (shown to listeners, optional)	Antenne (für Hörer sichtbar, optional)
 Listener limits	Hörer-Grenzen
 While sharing	Beim Teilen
@@ -3630,7 +3604,6 @@ Most spectrum rows per second (0 = the default)	Meiste Spektrumzeilen pro Sekund
 Key file for that certificate	Schlüsseldatei für dieses Zertifikat
 A certificate needs both files.	Ein Zertifikat braucht beide Dateien.
 Relay service address (only if you run your own relay)	Relay-Adresse (nur bei eigenem Relay)
-OnAir relay (recommended: no setup, no open ports)	OnAir-Relay (empfohlen: ohne Einrichtung, ohne offene Ports)
 Free Cloudflare tunnel (needs a small helper program, downloaded once)	Kostenloser Cloudflare-Tunnel (braucht ein kleines Hilfsprogramm, einmal geladen)
 Only my network (a phone on the same Wi-Fi)	Nur mein Netzwerk (ein Handy im selben WLAN)
 Password (8 characters or more)	Passwort (8 Zeichen oder mehr)
@@ -3645,7 +3618,6 @@ invite links only	nur per Einladungslink
 open to anyone with the link	offen für jeden mit dem Link
 with a password	mit Passwort
 no radio found	kein Radio gefunden
-No radio found. Plug in a radio and press Refresh on the Radio and range tab, or pick the test signal.	Kein Radio gefunden. Schließen Sie ein Radio an und drücken Sie auf dem Reiter Radio und Bereich auf Aktualisieren, oder wählen Sie das Testsignal.
 Join the OnAir Discord	Dem OnAir-Discord beitreten
 
 # Multi-radio trunking (trunk pool)
@@ -3813,3 +3785,17 @@ Show country and zone in decoded messages	Land und Zone in dekodierten Nachricht
 Load file...	Datei laden...
 Download from country-files.com	Von country-files.com herunterladen
 Reset to built-in	Auf integrierte Tabelle zurücksetzen
+Remove after: VDL2	Entfernen nach: VDL2
+Remove after: ACARS	Entfernen nach: ACARS
+Remove after: HFDL	Entfernen nach: HFDL
+Remove after: ADS-B	Entfernen nach: ADS-B
+Remove after: AIS	Entfernen nach: AIS
+Remove after: UAT	Entfernen nach: UAT
+Remove after: Inmarsat	Entfernen nach: Inmarsat
+How long after it was last heard an entry stays in the list and on the map. Default is the rule of the mode; Never keeps everything.	Wie lange ein Eintrag nach dem letzten Empfang in Liste und Karte bleibt. Standard ist die Regel des Modus; Nie behält alles.
+Custom remove-after time (minutes)	Eigene Entfernungszeit (Minuten)
+Used by every Remove after row set to Custom.	Gilt für jede Zeile Entfernen nach mit Eigene.
+Default	Standard
+Custom	Eigene
+Join the Discord to get access to built codecs	Tritt dem Discord bei, um Zugang zu fertig gebauten Codecs zu bekommen
+Opens the OnAir Discord in your browser. OnAir itself never downloads or includes a codec.	Öffnet den OnAir-Discord im Browser. OnAir selbst lädt nie einen Codec herunter und enthält keinen.

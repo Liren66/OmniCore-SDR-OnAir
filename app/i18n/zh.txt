@@ -77,7 +77,6 @@ QO-100 path	QO-100 路径
 Radio ID	无线电 ID
 Radio text (RT)	无线电文本 (RT)
 RDS PI	RDS PI
-Receiver-style options (demo signal)	接收机式选项（演示信号）
 Report	报告
 Reverse (mark is the upper tone)	反转（标记音为高音）
 RFPI	RFPI
@@ -455,7 +454,6 @@ The width of the signal is measured in the spectrum and the receiver switches be
 The receiver's channel filter. Narrower keeps a strong neighbour out (150 kHz copes with one 10 dB stronger 150 kHz away); below about 180 kHz loud passages distort a little and RDS suffers first.	接收机的信道滤波器。越窄越能挡住强邻台（150 kHz 可应付相距 150 kHz、强 10 dB 的电台）；低于约 180 kHz 时响亮段落会略有失真，RDS 最先受影响。
 The width is measured in the spectrum, and 6, 8 and 7 MHz are tried in turn while nothing locks.	在频谱中测量宽度，未锁定时依次尝试 6、8 和 7 MHz。
 6 MHz in Japan and the Americas, 8 MHz in the Maldives (ISDB-T International). The signal is the same, scaled in time by the width.	日本和美洲为 6 MHz，马尔代夫为 8 MHz（ISDB-T International）。信号相同，只是按宽度在时间上缩放。
-Set by the country: there is nothing to measure it from. A receiver set to the wrong width finds nothing.	由所在国家决定：无从测量。设置错误宽度的接收机将什么也找不到。
 Follows the symbol rate: symbol rate x (1 + roll-off).	随符号率变化：符号率 x（1 + 滚降系数）。
 Choose automatic or a manual symbol rate in the tuner to change it.	要更改，请在调谐中选择自动或手动符号率。
 This mode	此模式
@@ -474,7 +472,6 @@ Radio settings (%d changed)	无线电设置（已更改 %d 项）
 The driver's own settings show up here\nonce this radio has been started.	启动此设备后，\n驱动程序自身的设置会显示在这里。
 0 = libiio's default	0 = libiio 默认值
 #  passes
-Weather (137 MHz)	气象（137 MHz）
 Amateur	业余
 Amateur satellites	业余卫星
 downloading...	正在下载...
@@ -491,8 +488,6 @@ No TLE for:	没有以下卫星的 TLE：
 no valid TLE in the pasted text (two lines per satellite, checksums must match)	粘贴的文本中没有有效 TLE（每颗卫星两行，校验和必须正确）
 pasted TLEs added:	已添加粘贴的 TLE：
 No TLEs yet: download them or paste some.	还没有 TLE：请下载或粘贴。
-No TLEs: open TLE data above.	没有 TLE：请打开上方的 TLE 数据。
-No passes in the next 24 hours.	未来 24 小时内没有过境。
 TLE data	TLE 数据
 %d TLEs, %d satellites listed	%d 条 TLE，列出 %d 颗卫星
 the oldest is %.0f days old: download again	最旧的已有 %.0f 天：请重新下载
@@ -501,23 +496,15 @@ Receiver position	接收机位置
 The same position as the ADS-B antenna position	与 ADS-B 天线位置相同
 not set: the times are for a placeholder position	未设置：时间按占位位置计算
 Satellite	卫星
-AOS	入境
-LOS	出境
 Max el	最大仰角
 Duration	时长
 Frequency	频率
 AOS in %d:%02d:%02d	%d:%02d:%02d 后入境
 %s - %s, max %.0f deg	%s - %s，最大 %.0f 度
-no pass	无过境
 az %.0f  el %.0f  %.0f km\nDoppler %+.0f Hz	方位 %.0f  仰角 %.0f  %.0f km\n多普勒 %+.0f Hz
 Track	跟踪
-Track (choose a pass)	跟踪（请选择一次过境）
-During each pass of this satellite, retune about once a second for the Doppler shift	此卫星每次过境期间，约每秒重新调谐一次以补偿多普勒频移
 Auto start at AOS, stop at LOS	入境时自动开始，出境时停止
-Switches to the satellite's mode and starts the receiver at AOS (when it is stopped), and stops it at LOS	切换到该卫星的模式，在入境时启动接收机（若已停止），出境时停止
 Auto record IQ	自动录制 IQ
-Records the radio's IQ during the pass, as Record IQ does (format from the Record IQ setting), into %s/recordings	过境期间录制设备的 IQ，与“录制 IQ”相同（格式取自该设置），保存到 %s/recordings
-OnAir has no decoder for this: auto start opens the Spectrum explorer, and Auto record keeps the IQ	OnAir 没有对应的解码器：自动开始会打开 Spectrum explorer，自动录制会保存 IQ
 tracking%s	跟踪中%s
 , recording	，录制中
 #  data feeds
@@ -937,7 +924,6 @@ WSJT, 14.078 MHz	WSJT, 14.078 MHz
 WSJT, 14.080 MHz	WSJT, 14.080 MHz
 WSJT, 14.084 MHz	WSJT, 14.084 MHz
 WSJT, 14.100 MHz	WSJT, 14.100 MHz
-%.0f deg	%.0f 度
 %s, %llu spots sent in %llu packets, %llu duplicates skipped	%s，已在 %llu 个数据包中发送 %llu 个 spot，跳过 %llu 个重复项
 offset %+.3f %+.3f	偏移 %+.3f %+.3f
 sigma %.3f per axis (%.0f%% of the half-distance to a neighbour)	每轴 sigma %.3f（相邻点半距离的 %.0f%%）
@@ -961,13 +947,7 @@ Automatic update	自动更新
 Downloads the TLEs again once a day, only while this window is open or a pass is tracked. Without a network the saved lists are used.	每天重新下载一次 TLE，仅在此窗口打开或正在跟踪过境时进行。没有网络时使用已保存的列表。
 last downloaded %s	上次下载：%s
 Pass of %s in %d:%02d (max %.0f deg): the receiver starts by itself	%s 将在 %d:%02d 后过境（最大 %.0f 度）：接收机将自动启动
-Pass of %s in %d:%02d (max %.0f deg)	%s 将在 %d:%02d 后过境（最大 %.0f 度）
 remind %.0f min before	提前 %.0f 分钟提醒
-A line at the top of the window and a log entry before the tracked pass rises (0: off)	在被跟踪的过境开始前，窗口顶部显示一行提示并写入日志（0：关闭）
-Record this pass	录制此次过境
-Cancel recording this pass	取消录制此次过境
-Arms this pass only: at AOS the receiver starts in the satellite's mode and frequency (when it is stopped), Doppler is followed and the IQ is recorded; at LOS it stops and tracking switches off again	仅对此次过境有效：在 AOS 时，接收机（若已停止）以卫星的模式和频率启动，跟随多普勒并录制 IQ；在 LOS 时停止，跟踪随之关闭
-armed: %s at %s	已就绪：%s，%s
 Save PNG...	保存 PNG...
 Save CSV...	保存 CSV...
 saved	已保存
@@ -2425,13 +2405,10 @@ Room title	房间标题
 Also show decoded ACARS text in the room (public)	同时在房间中显示解码的 ACARS 文本（公开）
 Needs Server > Send data to map server and Also share interesting ACARS messages.	需要 服务器 > 向地图服务器发送数据 以及 同时分享有趣的 ACARS 消息。
 Go live	开始直播
-Schedule passes by itself	自动安排过境
-Takes the passes of the ticked groups one at a time, highest priority first, and starts, tunes and records each one without you. Overlapping passes are trimmed or skipped; a receiver you started yourself is left alone.	按优先级从高到低逐个处理已勾选分组的过境,无需你操作即可自动启动、调谐并录制。重叠的过境会被缩短或跳过;你自己启动的接收机不会被改动。
 Priority (higher wins)	优先级(越高越优先)
 Keep the SDR free every day	每天保持 SDR 空闲
 from %d:00	从 %d:00
 to %d:00	到 %d:00
-Nothing planned.	没有计划。
 planned	已计划
 trimmed	已缩短
 skipped: SDR reserved	已跳过:SDR 已预留
@@ -2830,7 +2807,6 @@ Presets	预设
 Preview	预览
 Programme type	节目类型
 Push to talk (hold the button)	按键通话（按住按钮）
-Puts every setting below back to its default.	将下方所有设置恢复为默认值。
 RDS	RDS
 RDS level	RDS 电平
 RF level	射频电平
@@ -3630,11 +3606,9 @@ Pinned: never paused by the CPU limit	已固定：CPU 上限不会将其暂停
 Follow this signal's sound; it is never paused by the CPU limit	跟随此信号的声音；CPU 上限不会将其暂停
 Remove: a signal you added is taken away, a found one is switched off	移除：手动添加的信号将被删除，自动发现的信号将被关闭
 # Share on web: relay, listeners, server settings
-Share my radio	分享我的电台
 Connecting to the relay ...	正在连接中继 ...
 Anyone with the link	任何拥有链接的人
 Invite links only	仅限邀请链接
-Limits that protect your computer	保护电脑的限制
 Antenna (shown to listeners, optional)	天线（对听众可见，可选）
 Listener limits	听众限制
 While sharing	分享期间
@@ -3660,7 +3634,6 @@ Most spectrum rows per second (0 = the default)	每秒最多频谱行数（0 = �
 Key file for that certificate	该证书的密钥文件
 A certificate needs both files.	证书需要两个文件。
 Relay service address (only if you run your own relay)	中继服务地址（仅在使用自己的中继时）
-OnAir relay (recommended: no setup, no open ports)	OnAir 中继（推荐：无需设置，无需开放端口）
 Free Cloudflare tunnel (needs a small helper program, downloaded once)	免费 Cloudflare 隧道（需要一个小型辅助程序，仅下载一次）
 Only my network (a phone on the same Wi-Fi)	仅限本地网络（同一 Wi-Fi 下的手机）
 Password (8 characters or more)	密码（8 个字符或更多）
@@ -3675,7 +3648,6 @@ invite links only	仅限邀请链接
 open to anyone with the link	任何拥有链接的人都可收听
 with a password	需要密码
 no radio found	未找到电台
-No radio found. Plug in a radio and press Refresh on the Radio and range tab, or pick the test signal.	未找到电台。请连接电台并在“电台与范围”选项卡中点击刷新，或选择测试信号。
 Join the OnAir Discord	加入 OnAir Discord
 
 # Multi-radio trunking (trunk pool)
@@ -3825,3 +3797,64 @@ Show country and zone in decoded messages	在解码消息中显示国家和分�
 Load file...	加载文件...
 Download from country-files.com	从 country-files.com 下载
 Reset to built-in	恢复为内置表
+Remove after: VDL2	移除时间: VDL2
+Remove after: ACARS	移除时间: ACARS
+Remove after: HFDL	移除时间: HFDL
+Remove after: ADS-B	移除时间: ADS-B
+Remove after: AIS	移除时间: AIS
+Remove after: UAT	移除时间: UAT
+Remove after: Inmarsat	移除时间: Inmarsat
+How long after it was last heard an entry stays in the list and on the map. Default is the rule of the mode; Never keeps everything.	条目最后一次收到后在列表和地图上保留多久。默认为该模式自身的规则;永不则全部保留。
+Custom remove-after time (minutes)	自定义移除时间(分钟)
+Used by every Remove after row set to Custom.	每个设为自定义的移除时间行都使用它。
+Default	默认
+Custom	自定义
+#  TV player and teletext (tr() added in panels/tv.cpp)
+%.1f kB written	已写入 %.1f kB
+%zu pages received, %llu packets	已接收 %zu 页，%llu 个数据包
+Decode	解码
+Forget this channel	忘记此频道
+Freeze the page (it keeps updating in the background)	冻结页面（后台仍在更新）
+Freeze the picture; the service keeps filling the buffer. Play resumes from here (Space)	冻结画面；节目仍继续填充缓冲区。播放将从此处继续（空格键）
+Gaps	间断
+How far behind live the picture is. Drag to go back (up to %s) or forward.	画面落后直播多久。拖动可后退（最多 %s）或前进。
+Jump to live##tvlive	跳到直播##tvlive
+Memory for the live buffer (filled %.0f MB). When it is full the oldest part is dropped.	直播缓冲区的内存（已用 %.0f MB）。缓冲区满时将丢弃最旧的部分。
+PLP	PLP
+Pick a service in the list on the right to start playback.	在右侧列表中选择一个节目即可开始播放。
+    Record##tvrec	    录制##tvrec
+Remove logo	移除台标
+Save stream	保存码流
+Save the current frequency as a favourite channel	将当前频率保存为收藏频道
+Set logo (PNG)...	设置台标（PNG）...
+Show concealed text (quiz answers)	显示隐藏文字（测验答案）
+Stop saving	停止保存
+Stop the recording after this many minutes (0 = no limit)	在这么多分钟后停止录制（0 = 不限）
+Stop the recording at this clock time (the next time it shows it)	在此时刻停止录制（下一次出现该时间时）
+Stops the recording (R)	停止录制（R）
+The disk was too slow: some packets are missing from the recording.	磁盘速度太慢：录像中缺少一些数据包。
+The language to use where a channel offers several:\nprogramme names and descriptions in the guide, the audio track and the subtitles.\nWhere a channel does not have it, what it sends first is used.	频道提供多种语言时使用的语言：\n节目指南中的节目名称和说明、音轨和字幕。\n频道没有该语言时，使用其首先发送的语言。
+This is a small preview. For the big picture, open the TV tab (the pop-out window and full screen are there too).	这是一个小预览。要看大画面，请打开“电视”标签页（弹出窗口和全屏也在那里）。
+This multiplex carries several physical layer pipes. The receiver decodes one at a time.	此复用包含多个物理层管道。接收机一次解码一个。
+This service's sound is AC-4 (Dolby). OnAir needs an optional FFmpeg with an AC-4 decoder to play it.	此节目的声音为 AC-4（杜比）。OnAir 需要带有 AC-4 解码器的可选 FFmpeg 才能播放。
+UTC	UTC
+Use the graphics chip to decode the video. It saves processor time for the receiver.\nSwitch it off if the picture shows green or garbled patches (a graphics driver problem).	使用显卡芯片解码视频，可为接收机节省处理器时间。\n如果画面出现绿色或花屏色块（显卡驱动问题），请关闭它。
+When a fade swallows part of the stream or damages the pictures after it, generate the missing pictures\n(Apple ML interpolation) instead of freezing or showing smears. It hides the loss; it cannot bring the data back.\nThe sound is not changed: a dropout stays a clean silence.	当衰落吞掉部分码流或损坏其后的画面时，生成缺失的画面\n（Apple ML 插帧），而不是画面冻结或出现拖影。这只是掩盖损失，无法找回数据。\n声音不变：中断时仍是干净的静音。
+Write the raw audio stream of this service (DRA, else MPEG audio) to a file you can play with FFmpeg (see the README).	将此节目的原始音频流（DRA，否则为 MPEG 音频）写入文件，可用 FFmpeg 播放（见 README）。
+audio only	仅音频
+automatic (first data PLP)	自动（第一个数据 PLP）
+click a service to play it	点击节目即可播放
+dropped %llu	丢失 %llu
+hardware video decoding	硬件视频解码
+name for %.3f MHz	%.3f MHz 的名称
+newest	最新
+no channels yet - run a scan (Scan tab)	还没有频道 - 请运行扫描（扫描标签页）
+page %d has not been received yet (pages repeat every few seconds)	尚未收到第 %d 页（页面每隔几秒重复一次）
+reveal	显示
+smooth picture gaps	平滑画面间断
+stopped - showing saved results	已停止 - 显示已保存的结果
+subpage %d/%d	子页 %d/%d
+type a page number	输入页码
+udp	udp
+Join the Discord to get access to built codecs	加入 Discord 获取已编译好的编解码器
+Opens the OnAir Discord in your browser. OnAir itself never downloads or includes a codec.	在浏览器中打开 OnAir 的 Discord。OnAir 本身从不下载或包含编解码器。

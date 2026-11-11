@@ -11,6 +11,8 @@
 #include "dect2/ham/ham_voice.h"
 #include "dect2/geo/maidenhead.h"
 #include "state/freq_model.h"
+#include "gfx/drag_tune.h"
+#include "ui/touch.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -210,6 +212,28 @@ void sMeter(const App& a) {
     } else ImGui::TextDisabled("%s", a.engine.running() ? "no level yet" : "stopped");
 }
 
+// the squelch: Off / Level / Auto in one combo, with the live level and the threshold; the same block in the controls, the receiver tab and the
+// "squelch closed" popup of the Listen list, so it is the same for every mode (NFM, WFM, AM, USB, LSB, CW)
+void squelchUi(App& a) {
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(tr("Squelch"));
+    ImGui::SameLine(0, 6 * gUi);
+    int sm = !S.sqOn ? 0 : S.sqAuto ? 2 : 1;
+    ImGui::SetNextItemWidth(90 * gUi);
+    if (comboTr("##gsqm", &sm, {N_("Off"), N_("Level"), N_("Auto")})) { S.sqOn = sm != 0; S.sqAuto = sm == 2; save(); }
+    tip("Off: everything is heard, no muting. Level: opens at the threshold in dBFS (drag the slider, or Set). Auto: USB and LSB open when the voice passband is 6 dB over its own noise (speech, no carrier needed). NFM, WFM, AM and CW open 6 dB over the noise beside the channel. CW holds the squelch open for a second so keyed signals and beacons do not chatter.");
+    if (S.sqOn && !S.sqAuto) {
+        ImGui::SameLine(0, 6 * gUi);
+        ImGui::SetNextItemWidth(140 * gUi);
+        ImGui::SliderFloat("##gsql", &S.sqDb, -130, 0, "%.0f dBFS");
+        if (ImGui::IsItemDeactivatedAfterEdit()) save();
+        ImGui::SameLine(0, 4 * gUi);
+        if (ImGui::SmallButton("Set") && live(a) && T(a).levelDb > -199) { S.sqDb = std::round(T(a).levelDb + 3); save(); }
+        tip("Threshold 3 dB over the level now (set it while no one transmits)");
+    }
+    sMeter(a);
+}
+
 void extraChannelsUi(App& a);
 bool amBroadcast(const App& a);
 void audioFiltersUi(App& a);
@@ -354,24 +378,7 @@ void controls(App& a) {
     hamVoiceUi(a);
 
     // squelch, AGC, de-emphasis, pitch
-    if (ImGui::Checkbox("Squelch", &S.sqOn)) save();
-    tip("Mute the noise between transmissions");
-    flowNext(6 * gUi);
-    ImGui::BeginDisabled(!S.sqOn);
-    ImGui::SetNextItemWidth(80 * gUi);
-    int sm = S.sqAuto ? 0 : 1;
-    if (comboTr("##gsqm", &sm, {N_("Auto"), N_("Level")})) { S.sqAuto = sm == 0; save(); }
-    tip("Auto: USB and LSB open when the voice passband is 6 dB over its own noise (speech, no carrier needed). NFM, AM and the others open 6 dB over the noise beside the channel. Level: opens at the threshold in dBFS.");
-    if (!S.sqAuto) {
-        ImGui::SameLine(0, 4 * gUi);
-        ImGui::SetNextItemWidth(140 * gUi);
-        ImGui::SliderFloat("##gsql", &S.sqDb, -130, 0, "%.0f dBFS");
-        if (ImGui::IsItemDeactivatedAfterEdit()) save();
-        ImGui::SameLine(0, 4 * gUi);
-        if (ImGui::SmallButton("Set") && live(a) && T(a).levelDb > -199) { S.sqDb = std::round(T(a).levelDb + 3); save(); }
-        tip("Threshold 3 dB over the level now (set it while no one transmits)");
-    }
-    ImGui::EndDisabled();
+    squelchUi(a);
     const bool fm = S.demod == dect2::GenNfm || S.demod == dect2::GenWfm;
     flowNext(14 * gUi);
     if (fm) {
@@ -659,6 +666,7 @@ void receiver(App& a) {
     const auto& t = T(a);
     if (!live(a)) { ImGui::TextDisabled("%s", a.engine.running() ? "starting" : "stopped"); return; }
     ImGui::TextWrapped("%s", dect2::generalSummary(t).c_str());
+    squelchUi(a);
     ImGui::Text("Listening on %.6f MHz (%+.3f kHz from the dial)", listenHz(a) / 1e6, t.chanOffsetHz / 1e3);
     ImGui::Text("Input %.3f Msps, demodulated at %.0f kHz", t.rate / 1e6, t.demodRate / 1e3);
     ImGui::Text("Filter %+.2f to %+.2f kHz around the channel", t.filterLoHz / 1e3, t.filterHiHz / 1e3);
@@ -672,7 +680,14 @@ void list(App& a) {
     load();
     ImGui::TextDisabled("%s %.4g kHz", dect2::generalDemodName(S.demod), S.width[S.demod] / 1e3);
     ImGui::Text("%.4f MHz", listenHz(a) / 1e6);
-    if (live(a)) ImGui::TextDisabled("%s", T(a).squelchOpen ? "squelch open" : "squelch closed");
+    if (live(a)) {   // clickable: opens the squelch control (also in the receiver controls)
+        const char* txt = !S.sqOn ? "squelch off" : T(a).squelchOpen ? "squelch open" : "squelch closed";
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        if (ImGui::Selectable(txt, false, 0, ImVec2(ImGui::CalcTextSize(txt).x, 0))) ImGui::OpenPopup("##gsqpop");
+        ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Click to change the squelch");
+    }
+    if (ImGui::BeginPopup("##gsqpop")) { squelchUi(a); ImGui::EndPopup(); }
 }
 
 void status(App& a) {
@@ -810,8 +825,30 @@ void generalChannelBand(const App& a, bool fill) {
 
 bool generalDragging(int plotId) { return S.drag >= 0 && S.dragPlot == plotId; }
 
+// Drag to tune (Settings > Radio > Drag on spectrum, gfx/drag_tune.h): the press puts the channel there, the held drag keeps moving it
+static struct { int plot = -1; bool moved = false; double last = NAN, press = NAN; ImVec2 p0; } gGDT;
+
 void generalPlotMouse(App& a, int plotId) {
     load();
+    if (gGDT.plot == plotId) {
+        ImGuiIO& io = ImGui::GetIO();
+        if (!ImGui::IsMouseDown(0)) {   // let go: the target style centres the radio on a press that did not move (#301)
+            if (!gGDT.moved && a.centreTuning && !std::isnan(gGDT.press)) setListen(a, gGDT.press, true);
+            gGDT.plot = -1;
+            return;
+        }
+        if (!gGDT.moved && dragtune::moved(io.MousePos.x - gGDT.p0.x, io.MousePos.y - gGDT.p0.y)) gGDT.moved = true;
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+        if (!gGDT.moved) return;
+        const plt::Rect lim = plt::GetPlotLimits();
+        const double hzPerPx = (lim.X.Max - lim.X.Min) * 1e6 / std::max(1.f, plt::GetPlotSize().x);
+        const double step = dragtune::dragStepHz(stepHz(), stepHz(), hzPerPx, io.KeyShift || io.KeyCtrl);
+        const double x = std::min(lim.X.Max, std::max(lim.X.Min, plt::GetPlotMousePos().x));
+        const double to = dragtune::snapHz(x * 1e6, step);
+        if (dragtune::changed(gGDT.last, to)) { setListen(a, to, false); gGDT.last = to; }
+        ImGui::SetTooltip("%.4f MHz", to / 1e6);
+        return;
+    }
     const bool hov = plt::IsPlotHovered();
     if (!hov && !(S.drag >= 0 && S.dragPlot == plotId) && S.exDrag < 0) return;
     const plt::Rect lim = plt::GetPlotLimits();
@@ -867,6 +904,14 @@ void generalPlotMouse(App& a, int plotId) {
     }
     if (ImGui::IsMouseClicked(0)) S.dragged = false;
     const double to = snap(mhz * 1e6);
+    if (specDragTunes(a) && !touch::on()) {   // drag to tune: the press tunes (the target style waits for the release), a drag goes on tuning
+        if (ImGui::IsMouseClicked(0) && !plt::PressOnScale() && !ImGui::GetIO().KeyShift && !a.identifyTool) {
+            gGDT.plot = plotId; gGDT.moved = false; gGDT.p0 = ImGui::GetIO().MousePos; gGDT.press = to; gGDT.last = to;
+            if (!a.centreTuning) setListen(a, to, false);
+            return;
+        }
+        if (ImGui::IsMouseReleased(0)) return;   // a release here is the end of a pan of the scale, not a click
+    }
     const ImVec2 dd = ImGui::GetMouseDragDelta(0, 0);
     if (ImGui::IsMouseReleased(0) && !S.dragged && std::fabs(dd.x) < 4 && std::fabs(dd.y) < 4) { setListen(a, to, a.centreTuning); return; }
     if (std::fabs(to - listenHz(a)) > 0.5) {

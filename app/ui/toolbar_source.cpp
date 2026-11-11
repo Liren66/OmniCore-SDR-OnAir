@@ -10,6 +10,9 @@
 #include "dect2/hdr/hdr_rx.h"
 #include "dect2/source/hamlib_link.h"
 #include "dect2/source/iq_file.h"
+#include "dect2/ssdv/ssdv_audio.h"
+#include <filesystem>
+#include <cstring>
 #include <algorithm>
 #include <cctype>
 #include <map>
@@ -38,7 +41,29 @@ int adcBitsFor(const DeviceInfo& d, double rateHz) {
 static void applyIqFileInfo(App& a, const std::string& path) {
     a.file.offsetBytes = 0; a.file.endBytes = 0; a.file.bigEndian = false; a.file.centreHz = 0;
     IqFileInfo info; std::string err;
-    if (!probeIqFile(path, info, err)) { if (!err.empty()) { a.engine.log(err); a.file.path.clear(); } return; }
+    if (!probeIqFile(path, info, err)) {
+        // SSDV from a sound recording: a WAV of the radio's audio (any rate, mono or stereo, 8 - 32 bit PCM or float) is turned back into a
+        // frequency-modulated carrier and played as an IQ file (ssdv_audio.h)
+        const ModeTuning* mt = modeTuning(engineStd(a));
+        std::string low = path;
+        for (char& c : low) c = (char)tolower((unsigned char)c);
+        if (mt && !strcmp(mt->id, "ssdv") && low.size() > 4 && low.compare(low.size() - 4, 4, ".wav") == 0) {
+            const std::string dir = iqPrivateTempDir();
+            double outRate = 0; std::string cerr;
+            if (!dir.empty()) {
+                const std::string out = (std::filesystem::path(dir) / "onair-ssdv-audio.cf32").string();
+                if (ssdvWavToCf32File(path, out, outRate, cerr)) {
+                    a.file.path = out; a.file.format = FileFormat::CF32; a.file.bigEndian = false; a.file.offsetBytes = 0; a.file.endBytes = 0;
+                    a.file.sampleRate = outRate;
+                    a.engine.log("SSDV: audio recording " + path + " converted for the receiver (the audio is the FSK waveform of an FM receiver)");
+                    return;
+                }
+                err = cerr;
+            }
+        }
+        if (!err.empty()) { a.engine.log(err); a.file.path.clear(); }
+        return;
+    }
     a.file.path = info.dataPath; a.file.format = info.format; a.file.bigEndian = info.bigEndian;
     a.file.offsetBytes = info.offsetBytes; a.file.endBytes = info.endBytes;
     if (info.sampleRate > 0) a.file.sampleRate = info.sampleRate;
@@ -73,6 +98,7 @@ std::string rateWarning(const App& a) {
 
 void startReceiver(App& a) {
     if (std::string why; receiverModeBusy(a, &why)) { a.engine.log(why); return; }   // two receivers in one mode share screen state (docs/multi-sdr.md)
+    stationAutoPick(a, true);   // My station: another free radio when this one is held by a different receiver
     // a running scan has the radio: the receiver opening it too would take it away from the scan (SDRplay) or fail
     if (a.scanner.progress().running && a.devices[a.devIdx].isRadio()) { a.engine.log("a scan is using the radio: stop the scan first"); return; }
     const bool isFile = a.devices[a.devIdx].kind == DeviceInfo::File;
@@ -83,10 +109,11 @@ void startReceiver(App& a) {
     if (isFile && a.file.path.empty()) a.engine.log("choose an IQ file first");
     else {
         if (a.devices[a.devIdx].isAudio() || a.devices[a.devIdx].kind == DeviceInfo::Hamlib) applyAudioSettings(a);
-        a.engine.setComputeMode(a.computeMode); a.engine.setStandard(engineStd(a));
+        applyGpuPolicy(a); a.engine.setComputeMode(a.computeMode); a.engine.setStandard(engineStd(a));
         a.engine.start(a.devices[a.devIdx], a.tune, a.file);
         savePrefs(a);
         a.smooth.clear(); a.peak.clear(); a.lastSeq = 0;
+        firstStartAfterStart(a);
     }
 }
 

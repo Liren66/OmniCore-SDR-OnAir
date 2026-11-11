@@ -14,6 +14,7 @@
 #include "dect2/engine/updater.h"
 #include "dect2/dab/dab_fig.h"
 #include "dab_txlist.h"
+#include "dect2/dab/dab_sfn.h"
 #include <algorithm>
 #include <atomic>
 #include <ctime>
@@ -119,13 +120,18 @@ void importList(const std::string& path) {
     load(); S.fitted = false;
 }
 
+// the country of the shared channel list (the Scan tab), else the one the setup wizard stored, else none yet
+void adoptKnownCountry() {
+    if (S.country[0]) return;
+    std::string c = plat::prefs().getS("dabTiiCountry", plat::prefs().getS("scanDbCountry", ""));
+    if (c.size() != 2) c = plat::prefs().getS("locCountry", "");
+    if (c.size() == 2) { S.country[0] = c[0]; S.country[1] = c[1]; }
+}
+
 void load() {
     S.loaded = true;
     S.sites.clear();
-    if (!S.country[0]) {   // the country of the shared channel list (the Scan tab), else none yet
-        const std::string c = plat::prefs().getS("dabTiiCountry", plat::prefs().getS("scanDbCountry", ""));
-        if (c.size() == 2) { S.country[0] = c[0]; S.country[1] = c[1]; }
-    }
+    adoptKnownCountry();
     int bad = 0, shared = -1;
     if (S.country[0]) shared = readList(sharedFile(S.country), false, bad);
     S.ownFile = plat::dataDir() + "/dab-transmitters.csv";
@@ -199,6 +205,7 @@ void submitDialog() {
     if (P.lon[0] && !okLo) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "longitude: a number between -180 and 180");
     if (zero) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "0, 0 is not a place where a transmitter stands");
     ImGui::TextDisabled("Your browser opens GitHub with this filled in; press Submit new issue there.\nGitHub shows your user name on the issue; the data becomes public domain (CC0).");
+    adoptKnownCountry();   // the wizard may have run after the list was first loaded
     const bool noCountry = !S.country[0];
     if (noCountry) ImGui::TextColored(ImVec4(1, 0.6f, 0.3f, 1), "No country chosen yet: pick one on the Scan tab (Shared data) first.");
     ImGui::BeginDisabled(!(okLa && okLo) || zero || noCountry);
@@ -422,6 +429,20 @@ void dabTransmittersTab(App& a) {
         ImGui::EndTable();
     }
 
+    {   // the network's paths and which transmitter each is: needs the antenna position and the transmitters' positions
+        const DabTelemetry& d = a.rx.dab;
+        const auto paths = dect2::dabCirPaths(d.cir);
+        if (a.rx.standard == 3 && d.state == 2 && paths.size() >= 2 && ImGui::TreeNode(trw("Transmitter delays"))) {
+            std::vector<dect2::DabSfnTx> txs;
+            for (const auto& r : rows) { dect2::DabSfnTx t; t.mainId = r.h->mainId; t.subId = r.h->subId; t.km = r.km; t.bearingDeg = r.deg; t.tiiDb = r.h->levelDb; txs.push_back(t); }
+            const auto s = dect2::dabSfnSolve(paths, txs);
+            for (const auto& p : paths) ImGui::TextDisabled("%+.1f us  %.0f dB  (%.1f km)", p.delayUs, p.levelDb, std::fabs(p.delayUs) * 0.2998);
+            if (s.outsideGuard) ImGui::TextColored(ImVec4(0.95f, 0.6f, 0.3f, 1), "%s", tr("A path arrives beyond the guard interval: it interferes. A directional antenna away from it helps."));
+            for (const auto& r : s.rows) if (r.matched) ImGui::Text("%02d/%02d  %.0f km  %.0f deg  %s %+.1f us", r.tx.mainId, r.tx.subId, r.tx.km, r.tx.bearingDeg, tr("path"), r.path.delayUs);
+            if (s.refTx >= 0) ImGui::TextDisabled("%s %.0f deg", tr("Strongest path comes from bearing"), s.rows[(size_t)s.refTx].tx.bearingDeg);
+            ImGui::TreePop();
+        }
+    }
     submitDialog();
     // ---- the list and the antenna position
     ImGui::Spacing();

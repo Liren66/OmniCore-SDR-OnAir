@@ -5,6 +5,7 @@
 #include "../app.h"
 #include "dect2/tx/tx.h"
 #include "dect2/tx/tx_iqfile.h"
+#include "dect2/tx/tx_control.h"
 #include <memory>
 #include <atomic>
 #include <future>
@@ -24,6 +25,7 @@ struct PDef {
     const char* key = ""; Sec sec = Sec::Modulation; PType type = PType::Float; const char* label = ""; const char* tip = "";
     double def = 0, lo = 0, hi = 1; const char* fmt = "%.2f"; const char* when = nullptr; Bind bind = Bind::Opt;
     std::vector<const char*> choices; double base = 0;   // Choice: the value sent is base + the chosen index
+    bool hex = false;                                     // Int: shown as 0xNN (a sync word)
 };
 
 struct TxUi {
@@ -48,7 +50,8 @@ struct TxUi {
     double freqSent = 0;
     int tickFrame = -1;
     char callsign[16] = {}, grid[8] = {}, dest[24] = {}, name[16] = {}, path[64] = {}, file[512] = {}, text[256] = {};
-    char rdsRt[128] = {}, audioDevice[64] = {};
+    std::string rdsRt;
+    std::string audioDevice;   // the microphone (listAudioInputs id: its name, which can be longer than 64 bytes); empty = default
     char provider[64] = {}, network[64] = {}, svc[4][48] = {}, svcFile[4][512] = {}, svcCam[4][96] = {}, videoDevice[96] = {};
     int nsvc = 1, serviceId = 1, videoSrc = 0, svcSrc[4] = {};
     int kind = 0, baudIdx = 0, shiftIdx = 0, variant = 0, wpm = 20, dbm = 37, function = 3;
@@ -86,6 +89,17 @@ struct TxUi {
     bool linkRx = false;                     // the transmit frequency follows the receiver's
     bool pttHold = false;                    // voice: transmit only while the PTT button is held
     bool pttDown = false;
+    // full control (docs/TX-CONTROL-3.8.md): the radio's analogue filter (0 = automatic), the typed gain stages of a SoapySDR radio, the schedule
+    double filterKhz = 0;
+    char stageGains[128] = {};
+    char schedAt[12] = {};                   // "HH:MM[:SS]" UTC of the first start; empty: when Start is pressed
+    double schedEverySec = 0;                // then again every so many seconds (0: once)
+    int schedCount = 0;                      // in all (0: until cancelled)
+    bool schedArmed = false, schedRunning = false;   // Start was pressed with a schedule; the running session was started by it
+    double schedNext = -1, schedLast = 0;    // UTC seconds
+    int schedDone = 0;
+    double targetDbm = 10;                   // "Set the level for" (from the radio's power table)
+    bool radioLoaded = false;                // filter / stages / schedule read from the settings
     // the destination of the signal: 0 a radio, 1 an IQ file (no radio is opened or claimed, no radio-only notice applies)
     int destKind = 0;
     char ifPath[512] = {};                   // the folder (or a file name without extension) the IQ file goes to
@@ -178,6 +192,20 @@ enum class Note { Info, Warn, Error };
 void banner(Note kind, const char* text);              // an inline message box (no popup)
 void stepSignal(App& a, TxUi& s, bool running, float listH);                                                         // tx_step_signal.cpp: the signal list
 void stepSettings(App& a, TxUi& s, const DeviceInfo* radio, int conflict, const TxModeSpec* mode, bool running);   // tx_step_settings.cpp: Basic + Advanced
+// full control (tx_control_ui.cpp, docs/TX-CONTROL-3.8.md)
+TxCalibration calibrationFor(const std::string& radioKey);                          // this radio's TX calibration (empty when none was saved)
+void saveCalibration(const std::string& radioKey, const TxCalibration& c);
+void controlApply(const TxUi& s, TxRequest& r);                                       // filter, gain stages, calibration of the chosen radio into a request
+void loadControlPrefs(TxUi& s);                                                       // filter, stages, schedule from the settings (once)
+void resetControl(TxUi& s);                                                           // the radio and timing choices back to automatic (not the calibration)
+void radioControlPanel(TxUi& s, const DeviceInfo* radio, bool running);              // Advanced > Radio: filter, gain stages
+void schedulePanel(TxUi& s, bool running);                                            // Advanced > Timing: start at, repeat every, times
+void calibrationPanel(App& a, TxUi& s, const DeviceInfo* radio, bool running);      // Advanced > Calibration of this radio
+void powerReadout(TxUi& s, const DeviceInfo* radio);                                  // the predicted output power and "Set the level for"
+bool scheduleConfigured(const TxUi& s);
+void scheduleArm(TxUi& s);                                                            // Start was pressed with a schedule: the first start is planned
+void scheduleStatus(TxUi& s);                                                         // the "Scheduled: next start ..." line with Cancel
+void scheduleTick(App& a, TxUi& s);                                                   // every frame: starts a planned transmission, plans the next
 TxIqStreamConfig txIqStreamFromPrefs();   // tx_step_settings.cpp: the "Send the IQ over TCP" setting (tx_iqstream.h)
 void stepSend(App& a, TxUi& s, const DeviceInfo* radio, int conflict, const TxModeSpec* mode, bool running);       // tx_step_send.cpp + tx_preview.cpp: the preview
 void drawStatusHeader(App& a, TxUi& s, const DeviceInfo* radio, int conflict, const TxModeSpec* mode);              // tx_panel.cpp: state word and the big button

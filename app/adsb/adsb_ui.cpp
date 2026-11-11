@@ -55,6 +55,8 @@ void loadState() {
     S.units.spd = d.getI("adsbSpeedUnit", 0) == 1 ? dect2::adsbu::Speed::MS : dect2::adsbu::Speed::KmH;
     S.disp.altColour = d.getB(dect2::adsbd::kPrefAltColour, true);
     S.disp.labels = d.getB(dect2::adsbd::kPrefLabels, true);
+    S.disp.labelScale = dect2::adsbd::clampLabelScale((int)d.getI(dect2::adsbd::kPrefLabelScale, dect2::adsbd::kDefaultLabelScale));
+    S.disp.labelFields = (int)d.getI(dect2::adsbd::kPrefLabelFields, dect2::adsbd::kAllLabelFields) & dect2::adsbd::kAllLabelFields;
     S.disp.trackWidth = dect2::adsbd::clampTrackWidth((int)d.getI(dect2::adsbd::kPrefTrackWidth, dect2::adsbd::kDefaultTrackWidth));
     S.disp.dropSec = dect2::adsbd::clampDropSec((int)d.getI(dect2::adsbd::kPrefDropSec, dect2::adsbd::kDefaultDropSec));
     S.map.lat = S.refLat; S.map.lon = S.refLon;
@@ -334,11 +336,11 @@ void tuner(App& a, bool& retune) {
 }
 
 void decoder(App& a, bool&) {
-    static const char* names[] = {"off", "1 bit", "up to 3 bits"};
+    static const char* names[] = {"off", "1 bit", "up to 3 bits", "up to 5 bits"};
     ImGui::TextDisabled("FIX"); ImGui::SameLine(0, 5 * gUi);
     ImGui::SetNextItemWidth(std::min(90 * gUi, ImGui::GetContentRegionAvail().x));   // no wider than the side panel
     if (ImGui::BeginCombo("##fix", names[S.correction])) {
-        for (int i = 0; i < 3; i++) if (ImGui::Selectable(names[i], S.correction == i)) { S.correction = i; if (a.engine.running()) a.engine.adsb().setCorrection(i); }
+        for (int i = 0; i < 4; i++) if (ImGui::Selectable(names[i], S.correction == i)) { S.correction = i; if (a.engine.running()) a.engine.adsb().setCorrection(i); }
         ImGui::EndCombo();
     }
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Repair of bit errors in DF11, DF17 and DF18 messages. 2 bits finds more messages but lets more false ones through.");
@@ -409,11 +411,13 @@ void syncAdsbReference(App& a) {
 
 void receiverLocation(double& lat, double& lon) { loadState(); lat = S.refLat; lon = S.refLon; }
 
-bool receiverLocationSet() { return plat::prefs().has("adsbLat") && plat::prefs().has("adsbLon"); }
+bool receiverLocationSet() { return plat::prefs().has("adsbLat") && plat::prefs().has("adsbLon") && !plat::prefs().getB("adsbLocCleared", false); }
 
 double receiverAltitudeM() { loadState(); return S.refAltM; }
 
-void setReceiverLocation(App& a, double lat, double lon) { loadState(); setReference(a, lat, lon); }
+void setReceiverLocation(App& a, double lat, double lon) { loadState(); plat::prefs().setB("adsbLocCleared", false); setReference(a, lat, lon); }
+// Undo of an automatic position (E12): back to the old placeholder and to "not set"
+void receiverLocationClear(App& a, double lat, double lon) { setReceiverLocation(a, lat, lon); plat::prefs().setB("adsbLocCleared", true); plat::prefs().flush(); }
 
 void receiverPositionFields(App& a) { loadState(); pollLocate(a); positionFields(a); }
 

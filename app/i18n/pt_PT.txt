@@ -68,7 +68,6 @@ QO-100 path	QO-100 path
 Radio ID	Radio ID
 Radio text (RT)	Radio text (RT)
 RDS PI	RDS PI
-Receiver-style options (demo signal)	Receiver-style options (demo signal)
 Report	Report
 Reverse (mark is the upper tone)	Reverse (mark is the upper tone)
 RFPI	RFPI
@@ -438,7 +437,6 @@ The width of the signal is measured in the spectrum and the receiver switches be
 The receiver's channel filter. Narrower keeps a strong neighbour out (150 kHz copes with one 10 dB stronger 150 kHz away); below about 180 kHz loud passages distort a little and RDS suffers first.	O filtro de canal do receptor. Mais estreito deixa de fora um vizinho forte (150 kHz aguenta um 10 dB mais forte a 150 kHz de distância); abaixo de cerca de 180 kHz os trechos altos distorcem um pouco e o RDS sofre primeiro.
 The width is measured in the spectrum, and 6, 8 and 7 MHz are tried in turn while nothing locks.	A largura é medida no espectro, e 6, 8 e 7 MHz são testados em sequência enquanto nada trava.
 6 MHz in Japan and the Americas, 8 MHz in the Maldives (ISDB-T International). The signal is the same, scaled in time by the width.	6 MHz no Japão e nas Américas, 8 MHz nas Maldivas (ISDB-T International). O sinal é o mesmo, escalado no tempo pela largura.
-Set by the country: there is nothing to measure it from. A receiver set to the wrong width finds nothing.	Definida pelo país: não há nada de onde medi-la. Um receptor com a largura errada não encontra nada.
 Follows the symbol rate: symbol rate x (1 + roll-off).	Segue a taxa de símbolos: taxa de símbolos x (1 + roll-off).
 Choose automatic or a manual symbol rate in the tuner to change it.	Escolha uma taxa de símbolos automática ou manual no sintonizador para alterá-la.
 This mode	Este modo
@@ -455,7 +453,6 @@ Radio settings (%d changed)	Ajustes do rádio (%d alterados)
 %s: frequency correction and the other settings of this radio	%s: correção de frequência e demais ajustes deste rádio
 The driver's own settings show up here\nonce this radio has been started.	Os ajustes próprios do driver aparecem aqui\ndepois que este rádio for iniciado.
 0 = libiio's default	0 = padrão da libiio
-Weather (137 MHz)	Meteorologia (137 MHz)
 Amateur	Radioamador
 Amateur satellites	Satélites de radioamador
 downloading...	baixando...
@@ -472,8 +469,6 @@ No TLE for:	Sem TLE para:
 no valid TLE in the pasted text (two lines per satellite, checksums must match)	nenhum TLE válido no texto colado (duas linhas por satélite, os checksums devem conferir)
 pasted TLEs added:	TLEs colados adicionados:
 No TLEs yet: download them or paste some.	Ainda não há TLEs: baixe-os ou cole alguns.
-No TLEs: open TLE data above.	Sem TLEs: abra Dados TLE acima.
-No passes in the next 24 hours.	Nenhuma passagem nas próximas 24 horas.
 TLE data	Dados TLE
 %d TLEs, %d satellites listed	%d TLEs, %d satélites listados
 the oldest is %.0f days old: download again	o mais antigo tem %.0f dias: baixe novamente
@@ -482,23 +477,15 @@ Receiver position	Posição do receptor
 The same position as the ADS-B antenna position	A mesma posição da antena ADS-B
 not set: the times are for a placeholder position	não definida: os horários são para uma posição provisória
 Satellite	Satélite
-AOS	AOS
-LOS	LOS
 Max el	Elev. máx
 Duration	Duração
 Frequency	Frequência
 AOS in %d:%02d:%02d	AOS em %d:%02d:%02d
 %s - %s, max %.0f deg	%s - %s, máx %.0f graus
-no pass	sem passagem
 az %.0f  el %.0f  %.0f km\nDoppler %+.0f Hz	az %.0f  el %.0f  %.0f km\nDoppler %+.0f Hz
 Track	Acompanhar
-Track (choose a pass)	Acompanhar (escolha uma passagem)
-During each pass of this satellite, retune about once a second for the Doppler shift	Durante cada passagem deste satélite, ressintoniza cerca de uma vez por segundo para compensar o efeito Doppler
 Auto start at AOS, stop at LOS	Início automático no AOS, parada no LOS
-Switches to the satellite's mode and starts the receiver at AOS (when it is stopped), and stops it at LOS	Muda para o modo do satélite e inicia o receptor no AOS (se estiver parado), e o para no LOS
 Auto record IQ	Gravar IQ automaticamente
-Records the radio's IQ during the pass, as Record IQ does (format from the Record IQ setting), into %s/recordings	Grava o IQ do rádio durante a passagem, como o Gravar IQ (formato conforme essa configuração), em %s/recordings
-OnAir has no decoder for this: auto start opens the Spectrum explorer, and Auto record keeps the IQ	O OnAir não tem decodificador para isso: o início automático abre o Spectrum explorer e a gravação automática guarda o IQ
 tracking%s	acompanhando%s
 , recording	, gravando
 Sends decoded data to other programs while the mode runs. Every feed is off until you turn it on.	Envia os dados decodificados para outros programas enquanto o modo está em execução. Cada feed fica desligado até você ativá-lo.
@@ -910,7 +897,6 @@ WSJT, 14.078 MHz	WSJT, 14,078 MHz
 WSJT, 14.080 MHz	WSJT, 14,080 MHz
 WSJT, 14.084 MHz	WSJT, 14,084 MHz
 WSJT, 14.100 MHz	WSJT, 14,100 MHz
-%.0f deg	%.0f graus
 %s, %llu spots sent in %llu packets, %llu duplicates skipped	%s, %llu spots enviados em %llu pacotes, %llu duplicados ignorados
 offset %+.3f %+.3f	desvio %+.3f %+.3f
 sigma %.3f per axis (%.0f%% of the half-distance to a neighbour)	sigma %.3f por eixo (%.0f%% da meia-distância a um vizinho)
@@ -925,11 +911,8 @@ High contrast (black, white, yellow)	Alto contraste (preto, branco, amarelo)
 Look for Red Pitaya boards on this computer's networks again	Procurar novamente placas Red Pitaya nas redes deste computador
 No Red Pitaya answered on this computer's networks (is its SDR transceiver app running?): type its address.	Nenhuma Red Pitaya respondeu nas redes deste computador (a sua aplicação de transceptor SDR está a correr?): escreva o seu endereço.
 searching for Red Pitaya boards…	a procurar placas Red Pitaya…
-A line at the top of the window and a log entry before the tracked pass rises (0: off)	Uma linha no topo da janela e uma entrada no registo antes de a passagem seguida começar (0: desligado)
 All time	Sempre
-Arms this pass only: at AOS the receiver starts in the satellite's mode and frequency (when it is stopped), Doppler is followed and the IQ is recorded; at LOS it stops and tracking switches off again	Arma só esta passagem: no AOS o receptor inicia no modo e na frequência do satélite (quando está parado), o Doppler é seguido e o IQ é gravado; no LOS pára e o seguimento desliga-se novamente
 Automatic update	Atualização automática
-Cancel recording this pass	Cancelar a gravação desta passagem
 Download SDDC_FX3.img from the Releases page of the SDDC_Driver project (button below).	Transfira SDDC_FX3.img da página de Releases do projeto SDDC_Driver (botão abaixo).
 Downloads the TLEs again once a day, only while this window is open or a pass is tracked. Without a network the saved lists are used.	Transfere os TLEs novamente uma vez por dia, só enquanto esta janela está aberta ou uma passagem está a ser seguida. Sem rede, são usadas as listas guardadas.
 Downloads when you click, and by itself once a day. Fetches:	Transfere ao clicar, e sozinho uma vez por dia. Obtém:
@@ -937,12 +920,10 @@ Last 24 hours	Últimas 24 horas
 Last hour	Última hora
 Longest range: %.0f %s at %.0f deg (%llu reports)	Maior alcance: %.0f %s a %.0f graus (%llu relatórios)
 Nothing heard yet: the plot fills in as positions arrive.	Ainda nada ouvido: o gráfico preenche-se à medida que chegam posições.
-Pass of %s in %d:%02d (max %.0f deg)	Passagem de %s em %d:%02d (máx %.0f graus)
 Pass of %s in %d:%02d (max %.0f deg): the receiver starts by itself	Passagem de %s em %d:%02d (máx %.0f graus): o receptor inicia sozinho
 Plug the radio into a USB 3 port directly on the computer, not through a USB 2 hub.	Ligue o rádio a uma porta USB 3 diretamente no computador, não através de um hub USB 2.
 Put the file in OnAir's codecs folder (button below).	Coloque o ficheiro na pasta de codecs do OnAir (botão abaixo).
 Range	Alcance
-Record this pass	Gravar esta passagem
 Rolling window: a sector's furthest position counts only for this long	Janela deslizante: a posição mais distante de um setor só conta durante este tempo
 Save CSV...	Guardar CSV...
 Save PNG...	Guardar PNG...
@@ -952,7 +933,6 @@ The RX888 is on a USB 2 port	O RX888 está numa porta USB 2
 The RX888 needs its firmware file	O RX888 precisa do seu ficheiro de firmware
 The RX888 MkII has no program of its own in its USB chip: OnAir loads SDDC_FX3.img into RAM when the radio is in boot-loader mode (nothing is flashed to the radio). Official OnAir packages include this file; a copy built by hand may not.	O RX888 MkII não tem programa próprio no chip USB: o OnAir carrega SDDC_FX3.img na RAM em modo boot-loader (nada é gravado na rádio). Os pacotes oficiais do OnAir incluem este ficheiro; uma cópia compilada manualmente pode não incluir.
 Use a USB 3 cable (the one that came with the radio).	Use um cabo USB 3 (o que veio com o rádio).
-armed: %s at %s	armado: %s às %s
 last downloaded %s	última transferência %s
 remind %.0f min before	lembrar %.0f min antes
 saved	guardado
@@ -2408,13 +2388,10 @@ Room title	Título da sala
 Also show decoded ACARS text in the room (public)	Mostrar também o texto ACARS descodificado na sala (público)
 Needs Server > Send data to map server and Also share interesting ACARS messages.	Requer Servidor > Enviar dados ao servidor do mapa e Partilhar também mensagens ACARS interessantes.
 Go live	Entrar ao vivo
-Schedule passes by itself	Agendar passagens automaticamente
-Takes the passes of the ticked groups one at a time, highest priority first, and starts, tunes and records each one without you. Overlapping passes are trimmed or skipped; a receiver you started yourself is left alone.	Pega as passagens dos grupos marcados uma de cada vez, da maior prioridade para a menor, e inicia, sintoniza e grava cada uma sem você. Passagens sobrepostas são encurtadas ou ignoradas; um receptor iniciado por você não é tocado.
 Priority (higher wins)	Prioridade (a maior vence)
 Keep the SDR free every day	Manter o SDR livre todos os dias
 from %d:00	das %d:00
 to %d:00	às %d:00
-Nothing planned.	Nada agendado.
 planned	agendada
 trimmed	encurtada
 skipped: SDR reserved	ignorada: SDR reservado
@@ -2813,7 +2790,6 @@ Presets	Predefinições
 Preview	Pré-visualização
 Programme type	Tipo de programa
 Push to talk (hold the button)	Premir para falar (mantenha o botão pressionado)
-Puts every setting below back to its default.	Repõe todas as definições abaixo nos valores padrão.
 RDS	RDS
 RDS level	Nível do RDS
 RF level	Nível de RF
@@ -3583,11 +3559,9 @@ Pinned: never paused by the CPU limit	Fixado: o limite de CPU nunca o pausa
 Follow this signal's sound; it is never paused by the CPU limit	Acompanha o som deste sinal; o limite de CPU nunca o pausa
 Remove: a signal you added is taken away, a found one is switched off	Remover: um sinal adicionado é retirado, um encontrado é desligado
 # Share on web: relay, listeners, server settings
-Share my radio	Partilhar o meu rádio
 Connecting to the relay ...	A ligar ao relay ...
 Anyone with the link	Qualquer pessoa com a ligação
 Invite links only	Apenas ligações de convite
-Limits that protect your computer	Limites que protegem o computador
 Antenna (shown to listeners, optional)	Antena (visível para os ouvintes, opcional)
 Listener limits	Limites de ouvintes
 While sharing	Durante a partilha
@@ -3613,7 +3587,6 @@ Most spectrum rows per second (0 = the default)	Máximo de linhas de espetro por
 Key file for that certificate	Ficheiro de chave desse certificado
 A certificate needs both files.	Um certificado precisa dos dois ficheiros.
 Relay service address (only if you run your own relay)	Endereço do serviço de relay (só se usar o seu próprio)
-OnAir relay (recommended: no setup, no open ports)	Relay do OnAir (recomendado: sem configuração, sem portas abertas)
 Free Cloudflare tunnel (needs a small helper program, downloaded once)	Túnel gratuito da Cloudflare (precisa de um pequeno programa auxiliar, descarregado uma vez)
 Only my network (a phone on the same Wi-Fi)	Apenas a minha rede (um telemóvel na mesma Wi-Fi)
 Password (8 characters or more)	Palavra-passe (8 caracteres ou mais)
@@ -3628,7 +3601,6 @@ invite links only	apenas com ligações de convite
 open to anyone with the link	aberto a qualquer pessoa com a ligação
 with a password	com palavra-passe
 no radio found	nenhum rádio encontrado
-No radio found. Plug in a radio and press Refresh on the Radio and range tab, or pick the test signal.	Nenhum rádio encontrado. Ligue um rádio e prima Atualizar no separador Rádio e intervalo, ou escolha o sinal de teste.
 Join the OnAir Discord	Entrar no Discord do OnAir
 
 # Multi-radio trunking (trunk pool)
@@ -3778,3 +3750,17 @@ Show country and zone in decoded messages	Mostrar país e zona nas mensagens des
 Load file...	Carregar ficheiro...
 Download from country-files.com	Transferir de country-files.com
 Reset to built-in	Repor a tabela integrada
+Remove after: VDL2	Remover após: VDL2
+Remove after: ACARS	Remover após: ACARS
+Remove after: HFDL	Remover após: HFDL
+Remove after: ADS-B	Remover após: ADS-B
+Remove after: AIS	Remover após: AIS
+Remove after: UAT	Remover após: UAT
+Remove after: Inmarsat	Remover após: Inmarsat
+How long after it was last heard an entry stays in the list and on the map. Default is the rule of the mode; Never keeps everything.	Durante quanto tempo uma entrada fica na lista e no mapa depois de ouvida pela última vez. Predefinição é a regra do modo; Nunca mantém tudo.
+Custom remove-after time (minutes)	Tempo personalizado para remover (minutos)
+Used by every Remove after row set to Custom.	Usado por cada linha Remover após definida como Personalizado.
+Default	Predefinição
+Custom	Personalizado
+Join the Discord to get access to built codecs	Junte-se ao Discord para aceder a codecs já compilados
+Opens the OnAir Discord in your browser. OnAir itself never downloads or includes a codec.	Abre o Discord do OnAir no navegador. O próprio OnAir nunca descarrega nem inclui um codec.

@@ -58,7 +58,11 @@
 #include "dect2/fusion/fusion_rx.h"
 #include "dect2/ltr/ltr_tel.h"
 #include "dect2/edacs/edacs_tel.h"
+#include "dect2/smartnet/smartnet_tel.h"
+#include "dect2/tetradmo/tetradmo_tel.h"
+#include "dect2/opensky/opensky_tel.h"
 #include "dect2/marinevhf/marinevhf_tel.h"
+#include "dect2/chanvoice/chv_tel.h"
 #include "dect2/p25p2/p25p2_tel.h"
 #include "dect2/milhf/milhf_engine.h"
 #include "dect2/sbas/sbas_engine.h"
@@ -70,6 +74,7 @@
 #include "dect2/ale/ale_tel.h"
 #include "dect2/p25/p25_tel.h"
 #include "dect2/ble/ble_tel.h"
+#include "dect2/btc/btc_tel.h"
 #include "dect2/iono/iono_tel.h"
 #include "dect2/psk/psk_tel.h"
 #include "dect2/js8/js8_tel.h"
@@ -85,6 +90,8 @@
 #include "dect2/vdes/vdes_tel.h"
 #include "dect2/zigbee/zigbee_tel.h"
 #include "dect2/flarm/flarm_tel.h"
+#include "dect2/adsl/adsl_tel.h"
+#include "dect2/avroad/avroad_tel.h"
 #include "dect2/hfbeacon/hfbeacon_tel.h"
 #include "dect2/dji/dji_tel.h"
 #include "dect2/nbiot/nbiot_tel.h"
@@ -100,16 +107,27 @@
 #include "dect2/lorawan/lorawan_tel.h"
 #include "dect2/lorasat/lorasat_tel.h"
 #include "dect2/pactor/pactor_tel.h"
+#include "dect2/hfutil/hfutil_tel.h"
 #include "dect2/pactorhf/pactorhf_tel.h"
 #include "dect2/esubghz/esubghz_tel.h"
 #include "dect2/roshf/roshf_tel.h"
 #include "dect2/ssdv/ssdv_tel.h"
 #include "dect2/ebicab/ebicab_tel.h"
 #include "dect2/inmsat/inmsat_tel.h"
+#include "dect2/rclink/rc_tel.h"
+#include "dect2/xlink/xlink_tel.h"
 #include "dect2/nrf24/nrf24_tel.h"
+#include "dect2/sensors/sensors_tel.h"
+#include "dect2/bgan/bgan_tel.h"
+#include "dect2/sferics/sferics_tel.h"
 #include "dect2/atis/atis_tel.h"
 #include "dect2/selcal/selcal_tel.h"
+#include "dect2/umts/umts_rx.h"
 #include "dect2/fy3/fy3_tel.h"
+#include "dect2/wxsat/wxsat_tel.h"
+#include "dect2/sd3/sd3_tel.h"
+#include "dect2/hamsci/hamsci_tel.h"
+#include "dect2/xband/xband_tel.h"
 #include "dect2/shortwave/shortwave_tel.h"
 #include "dect2/pskdsp/pskdsp_tel.h"
 #include "dect2/wisun/wisun_tel.h"
@@ -135,6 +153,8 @@
 #include "dect2/goesdcs/goesdcs_tel.h"
 #include "dect2/bletrk/bletrk_tel.h"
 #include "dect2/satbeacon/satbeacon_tel.h"
+#include "dect2/satmisc/satdetect_tel.h"
+#include "dect2/navic/navic.h"
 #include "dect2/rid/rid_tel.h"
 #include "dect2/meteor/meteor_tel.h"
 #include "dect2/nr/nr_tel.h"
@@ -218,30 +238,45 @@ struct RxTelemetry {
     AleTelemetry ale;         // valid when standard == 50 (HF ALE)
     P25Telemetry p25;         // valid when standard == 51 (P25 Phase 1)
     BleTelemetry ble;         // valid when standard == 52 (Bluetooth LE advertising)
+    BtcTelemetry btc;         // valid when standard == 381 (Bluetooth Classic discovery)
     IonoTelemetry iono;       // valid when standard == 53 (ionospheric sounders)
     Qo100Telemetry qo100;     // valid when standard == 54 (QO-100)
     WifiTelemetry wifi;       // valid when standard == 55 (Wi-Fi networks)
     GeneralTelemetry general; // valid when standard == 56 (general receiver)
     TimeTelemetry timesig;    // valid when standard == 59 (time signals)
     FlarmTelemetry flarm;     // valid when standard == 67 (FLARM)
+    AvRoadTelemetry avroad;   // valid when standard is 401 - 412 (families 400 - 411)
+    AdslTelemetry adsl;       // valid when standard == 301 (ADS-L, family 300, engine standard 302)
     DjiTelemetry dji;         // valid when standard == 69 (DJI drones)
     CubeTelemetry cube;       // valid when standard == 62 (CubeSat telemetry)
     GlobalstarTelemetry globalstar;   // valid when standard == 63 (Globalstar activity monitor)
     VdesTelemetry vdes;       // valid when standard == 64 (VDES)
     NbiotTelemetry nbiot;     // valid when standard == 70 (NB-IoT cells)
     ZigbeeTelemetry zigbee;   // valid when standard == 66 (Zigbee / 802.15.4)
+    ZigbeeTelemetry thread;   // valid when standard == 245 (Thread, family 244, engine standard 246)
     LoraRawTelemetry loraraw; // valid when standard == 72 (LoRa raw)
     LorawanTelemetry lorawan; // valid when standard == 201 (LoRaWAN all channels, family 200, engine standard 202)
     LoraSatTelemetry lorasat; // valid when standard == 202 (LoRa satellites, family 201, engine standard 203)
+    HfUtilTelemetry hfutil;   // valid when standard is 431 .. 440 (HF utility modes, families 430 .. 439)
     PactorTelemetry pactor;   // valid when standard == 204 (PACTOR-I monitor, family 203, engine standard 205)
     RoshfTelemetry roshf;     // valid when standard == 206 (ROS (HF) detector, family 205, engine standard 207)
     SsdvTelemetry ssdv;       // valid when standard == 207 (SSDV pictures, family 206, engine standard 208)
+    Sd3Telemetry sd3;         // valid when standard is 291 .. 300 or 511 (families 290 .. 299, 510, sd3_tel.h)
+    WxsatTelemetry wxsat;     // valid when standard is 261 .. 272 (families 260 .. 271, wxsat_tel.h)
+    HamsciTelemetry hamsci;   // valid when standard is 461 .. 466 or 501 .. 503 (the ham science modes, families 460 .. 465 and 500 .. 502, hamsci_tel.h)
+    XbTelemetry xband;        // valid when standard is 531 .. 550 (families 530 .. 549, xband_tel.h)
     Fy3Telemetry fy3a;        // valid when standard == 236 (FY-3 AHRPT, family 235, engine standard 237)
     Fy3Telemetry fy3m;        // valid when standard == 237 (FY-3 MPT, family 236, engine standard 238)
     PactorHfTelemetry pactorhf;   // valid when standard == 238, 239 or 240 (PACTOR-II / -III / -IV, families 237 .. 239, engine standards 239 .. 241)
+    UmtsTelemetry umts;   // valid when standard == 481 (UMTS cells, family 480, engine standard 482)
     SelcalTelemetry selcal;   // valid when standard == 241 (SELCAL, family 240, engine standard 242)
     AtisTelemetry atis;       // valid when standard == 212 (ATIS inland waterways, family 211, engine standard 213)
     ShortwaveTelemetry shortwave;   // valid when standard == 213 (Shortwave, family 212, engine standard 214)
+    SensorsTelemetry sensors; // valid when standard == 242 (Sub-GHz sensors, family 241, engine standard 243)
+    BganTelemetry bgan;       // valid when standard == 246 (Inmarsat BGAN, family 245, engine standard 247)
+    SfericsTelemetry sferics; // valid when standard == 244 (Sferics, family 243, engine standard 245)
+    XlinkTelemetry xlink;     // valid when standard == 601 (Extra links, family 600, engine standard 602)
+    RcTelemetry rclink;       // valid when standard == 361 (RC and mesh links, family 360, engine standard 362)
     Nrf24Telemetry nrf24;     // valid when standard == 211 (nRF24L01, family 210, engine standard 212)
     InmsatTelemetry inmsat;   // valid when standard == 209 (Inmarsat all carriers, family 208, engine standard 210)
     EbicabTelemetry ebicab;   // valid when standard == 208 (EBICab / Eurobalise, family 207, engine standard 209)
@@ -271,6 +306,8 @@ struct RxTelemetry {
     DmeTelemetry dme;         // valid when standard == 123 (DME, engine standard 123)
     DcsTelemetry goesdcs;     // valid when standard == 142 (GOES DCS, family 141)
     BletrkTelemetry bletrk;   // valid when standard == 144 (BLE tracker detector, family 143)
+    NavicTelemetry navic;     // valid when standard == 562 (NavIC)
+    SatDetectTelemetry satdetect;   // valid for the satellite detector modes (active standards 551 on)
     SbTelemetry satbeacon;    // valid when standard == 145 (satellite beacon)
     HfbTelemetry hfb;         // valid when standard == 68 (HF beacons)
     WbTelemetry wb;           // valid when standard == 74 (Signal workbench)
@@ -307,8 +344,12 @@ struct RxTelemetry {
     MptTelemetry mpt1327;       // valid when standard == 128 (MPT1327 trunking, family 127)
     FusionTelemetry fusion;     // valid when standard == 129 (Yaesu Fusion, family 128, stdMode 130)
     LtrTelemetry ltr;           // valid when standard == 130 (LTR control channel, engine standard 131)
+    ChvTelemetry chanvoice;     // valid when standard is 341 .. 347 (CB, FRS / GMRS, PMR446, ham FM, HF voice, MDC-1200, wireless mic; families 340 - 346, engine standards 342 - 348)
     MarineVhfTelemetry marinevhf;   // valid when standard == 156 (Marine VHF voice, engine standard 157)
     EdacsTelemetry edacs;       // valid when standard == 131 (EDACS control channel, engine standard 132)
+    SmartnetTelemetry smartnet; // valid when standard == 321 (Motorola Type II, family 320)
+    TetraDmoTelemetry tetradmo; // valid when standard == 322 (TETRA Direct Mode, family 321)
+    OpenSkyTelemetry opensky;   // valid when standard == 323 (OpenSky identifier, family 322)
     SbasTelemetry sbas;         // valid when standard == 151 (SBAS, family 150, engine standard 152)
     ArgosTelemetry argos;       // valid when standard == 153 (Argos, engine standard 154)
     SigfoxModeTelemetry sigfoxm;   // valid when standard == 154 (Sigfox, engine standard 155)
@@ -407,6 +448,8 @@ struct RxTelemetry {
     struct PlpInfo { int id = 0, type = 0, payloadType = 0, mod = 0, cod = 0, rotation = 0, fecType = 0, tiType = 0, tiLength = 0, blocks = 0; bool supported = true; };
     std::vector<PlpInfo> plpList;          // every PLP signalled in L1-post
     int plpSelectedId = -1;                // PLP being decoded
+    int t2Layer = 0;                       // layer being followed: 1 T2-Base, 2 T2-Lite
+    uint64_t t2OtherLayerP1 = 0;           // P1 symbols of the other layer seen (a mixed signal carries both)
     std::vector<std::string> unsupported;  // reasons why (part of) this multiplex cannot be decoded, e.g. "MISO transmission"
     std::vector<std::vector<uint8_t>> blockMap; // per decoded frame (oldest first, last 90): 1 = FEC block decoded, 0 = failed
 };
@@ -433,6 +476,7 @@ public:
     void setComputeMode(int m);
     // Which PLP to decode: its PLP_ID, or -1 for automatic (the first data PLP).
     void selectPlp(int id);
+    void selectLayer(int layer);   // 0 = automatic (the first layer seen), 1 = T2-Base, 2 = T2-Lite
     void setPlpCallback(std::function<void(const PlpResult&)> cb);
 
 private:

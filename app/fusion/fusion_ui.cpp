@@ -1,6 +1,7 @@
 // Yaesu System Fusion screens (work in progress): lock, frame counts, call mode, source / destination callsigns, repeater, the slow data
 // text and the state of the speech codec plug-in. The voice needs a codec that the user installs (codec id "ysf", docs/CODECS.md).
 #include "app.h"
+#include "ease/ease_ui.h"
 #include "ui/kit/mode_frame.h"
 #include "ui/kit/session_list.h"
 #include "voice/voice_monitor_ui.h"
@@ -105,6 +106,7 @@ void tab(App& a) {
     if (t.haveCsd[2]) ImGui::Text("Supplementary: %s | %s | %s | %s", t.rem[0].c_str(), t.rem[1].c_str(), t.rem[2].c_str(), t.rem[3].c_str());
     ImGui::Spacing();
     ImGui::TextUnformatted("Position / slow data text");
+    if (t.hasGps) ImGui::Text("%s: %s, %.5f %.5f", tr("GPS"), t.radioModel.empty() ? "-" : t.radioModel.c_str(), t.gpsLat, t.gpsLon);
     if (t.slowText.empty()) ImGui::TextDisabled("none received (the GPS data format is not in the public specification, so only the text is shown)");
     else ImGui::TextWrapped("%s", t.slowText.c_str());
     codecBlock(a);
@@ -114,6 +116,7 @@ void tab(App& a) {
 }
 
 void receiver(App& a) {
+    easeui::repeaterPicker(a, "Fusion");
     if (!live(a)) return;
     const dect2::FusionTelemetry& t = a.rx.fusion;
     ImGui::Text("%s", dect2::fusionSummary(t).c_str());

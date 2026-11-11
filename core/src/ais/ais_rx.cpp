@@ -4,15 +4,20 @@
 // Front end, per pair: mix the pair's middle to 0 Hz, decimate to about 100 kHz, resample to exactly 96 kHz; each channel is mixed to zero, filtered
 // and decimated to 48 kHz (5 samples per bit). A power detector finds the bursts (they are short and stand alone), each one is cut out of a ring of samples
 // and decoded offline by aisDecodeBurst (ais_phy.cpp). The message layer and the station table are here.
+#include "dect2/limits.h"
+#include "dect2/wirecap/wire.h"
 #include "dect2/session/mode_adapters.h"
 #include "dect2/marine/marine_mmsi.h"
+#include "dect2/marine/marine_incident.h"
 #include "dect2/ais/ais_rx.h"
 #include "dect2/dsp/baseband_filter.h"
 #include "dect2/automation/engine.h"
 #include "dect2/net/feeds.h"
 #include "dect2/ais/ais_phy.h"
 #include "dect2/ais/ais_alerts.h"
+#include "dect2/ais/ais_anomaly.h"
 #include "dect2/ais/ais_proto.h"
+#include "dect2/ais/ais_apps.h"
 #include "dect2/ais/ais_longrange.h"
 #include "dect2/ais/ais_sat.h"
 #include "dect2/automation/event.h"
@@ -41,7 +46,7 @@ constexpr size_t kBlock = 960;              // noise blocks of 20 ms
 constexpr size_t kBlocks = 64;              // the noise floor is a low percentile of the last 1.3 s
 constexpr double kOn = 2.0;                 // burst starts at 3 dB above the noise
 constexpr double kEndAbs = 1.5, kEndRel = 0.08;
-constexpr size_t kMaxVessels = 300, kTrackCap = 100, kTrackShown = 25, kNmeaCap = 50;
+constexpr size_t kMaxVessels = limits::kVessels, kTrackCap = 100, kTrackShown = 25, kNmeaCap = 50;
 constexpr size_t kPublishSamples = 12000;   // 0.25 s at 48 kHz
 
 int pickDecimation(double fs) {
@@ -153,6 +158,8 @@ struct AisReceiver::Impl {
     bool timeBaseFixed = false;
     std::deque<AisRxRecord> recent;
     uint64_t recN = 0;
+    std::deque<AisAppRecord> apps;
+    uint64_t appN = 0;
     std::vector<double> hints[4];   // satellite mode: frequency candidates per channel, refreshed with every report
 
     // results
@@ -175,6 +182,8 @@ struct AisReceiver::Impl {
     bool collisionCancel = true;
     AisAlertEngine alertEng;
     std::deque<AisAlertRecord> alertLog;
+    AisAnomalyEngine anomalyEng;
+    std::deque<AisAnomalyRecord> anomalyLog;
 
     void logLine(const std::string& s) { if (log) log(s); }
     double now() const { return fs > 0 ? (double)inSamples / fs : 0.0; }
@@ -267,6 +276,13 @@ struct AisReceiver::Impl {
     }
 
     // the lists of a report: the stations most recently heard first, the sentences
+    // stations not heard for the user\'s "remove after" time leave the table (the default is to keep them: the old behaviour). telMu not needed: the analysis thread owns vessels.
+    void expire(double tnow) {
+        const double lim = limits::staleSec(limits::Family::Ais, 0);
+        if (lim > 1e17) return;
+        for (auto it = vessels.begin(); it != vessels.end();) { if (tnow - it->second.lastHeard > lim) it = vessels.erase(it); else ++it; }
+        if (vessels.empty()) vessels = decltype(vessels)();
+    }
     void fillLists(AisTelemetry& o, double tnow) const {
         std::vector<const Rec*> order;
         order.reserve(vessels.size());
@@ -285,6 +301,7 @@ struct AisReceiver::Impl {
         for (const auto& kv : vessels) o.longRangeVessels += kv.second.v.longRange;
         o.nmea.assign(nmea.begin(), nmea.end());
         o.recent.assign(recent.begin(), recent.end());
+        o.apps.assign(apps.begin(), apps.end());
     }
     // a report of the lists alone (after a reset, a load or a clear: no new signal to wait for)
     void republish() {
@@ -363,7 +380,30 @@ struct AisReceiver::Impl {
                 .num("sog_kt", v.sog).num("cog_deg", v.cog).num("nav_status", v.navStatus).str("class", cls[v.cls >= 0 && v.cls <= 5 ? v.cls : 5]).str("destination", v.destination);
             automation::emit(std::move(ev));
         }
-        if (m.hasPos) raiseAlerts(v);
+        if (m.hasPos) { raiseAlerts(v); raiseAnomalies(v); incidentFeed(v); }
+    }
+
+    // the sea distress board (marine/marine_incident.h) sees every position; its alerts (AIS-SART, MOB, EPIRB) are logged and become events
+    void incidentFeed(const AisVessel& v) {
+        marine::IncidentBoard::global().onAis(v, automation::wallNow());   // wall clock: the DSC calls and NAVTEX messages of the marine receiver use it too
+        marine::incidentFlush([this](const std::string& t) { logLine(t); });
+    }
+
+    // consistency checks (ais_anomaly.h): the alerts go to the list, the log and the automation event ais.anomaly
+    void raiseAnomalies(const AisVessel& v) {
+        const double utc = v.lastUtc > 0 ? v.lastUtc : automation::wallNow();
+        for (const AisAnomaly& a : anomalyEng.update(v, utc)) {
+            AisAnomalyRecord r;
+            r.utc = a.utc; r.kind = a.kind; r.severity = a.severity; r.mmsi = a.mmsi; r.name = a.name; r.lat = a.lat; r.lon = a.lon; r.text = a.text;
+            anomalyLog.push_back(r);
+            while (anomalyLog.size() > 100) anomalyLog.pop_front();
+            logLine("AIS anomaly: " + std::to_string(a.mmsi) + " " + a.name + " " + a.kind + ": " + a.text);
+            if (!automation::wants(automation::FAis)) continue;
+            automation::Event ev("ais.anomaly");
+            ev.at(automation::wallNow(), "AIS", aisChannelHz(aisChannelIndex(v.channel)));
+            ev.num("mmsi", a.mmsi).str("name", a.name).str("kind", a.kind).num("severity", a.severity).num("lat", a.lat).num("lon", a.lon).str("text", a.text);
+            automation::emit(std::move(ev));
+        }
     }
 
     // CPA and geofence alerts for one position update
@@ -416,6 +456,7 @@ struct AisReceiver::Impl {
         const std::vector<std::string> sentences = ais::toNmea(bits, chn, nmeaSeq);
         if (forwardFeeds && Feeds::get().wantAis()) Feeds::get().ais(sentences);   // the data feed out (feeds.h), off unless the user turned it on
         for (const std::string& s : sentences) nmea.push_back(s);
+        if (wire::on(wire::Ais)) for (std::string s : sentences) { s += "\r\n"; wire::Hub::get().publish(wire::Ais, (const uint8_t*)s.data(), s.size()); }
         if (bits.size() > 6 * 60) nmeaSeq = (nmeaSeq + 1) % 10;
         while (nmea.size() > kNmeaCap) nmea.pop_front();
         ch[c].dop.add(tnow, cfoHz);
@@ -436,6 +477,17 @@ struct AisReceiver::Impl {
         recent.push_back(rec);
         while (recent.size() > 500) recent.pop_front();
         if (m.mmsi) updateVessel(m, chn, tnow, rec.utc);
+        // the application, text and network messages, as readable records (ais_apps.h): one record per kind and content, the repeats just counted
+        if (!(m.type <= 5 || m.type == 9 || m.type == 11 || m.type == 18 || m.type == 19 || m.type == 21 || m.type == 24 || m.type == 27)) {
+            AisAppRecord ar;
+            if (ais::interpretApp(bits, m, ar)) {
+                ar.channel = chn; ar.utc = rec.utc; ar.n = ++appN;
+                auto same = std::find_if(apps.begin(), apps.end(), [&](const AisAppRecord& x) { return x.mmsi == ar.mmsi && x.type == ar.type && x.dac == ar.dac && x.fi == ar.fi && x.summary == ar.summary; });
+                if (same != apps.end()) { ar.count = same->count + 1; apps.erase(same); }
+                apps.push_back(std::move(ar));
+                while (apps.size() > 150) apps.pop_front();
+            }
+        }
     }
 
     // satellite mode: the frequency candidates of a channel: the bursts heard lately, and (with the satellite's elements) the Doppler shift each
@@ -601,9 +653,13 @@ struct AisReceiver::Impl {
             logLine(t.state == 2 ? "AIS: decoding messages" : t.state == 1 ? "AIS: signal, no good message" : "AIS: lost the signal");
             lastState = t.state;
         }
+        expire(tnow);
+        t.vesselCount = (uint32_t)vessels.size();
         AisTelemetry o = t;
         fillLists(o, tnow);
         o.alerts.assign(alertLog.begin(), alertLog.end());
+        o.anomalies.assign(anomalyLog.begin(), anomalyLog.end());
+        { const AisAnomalyEngine::Stats st = anomalyEng.stats(); o.anomalyTracked = (uint32_t)st.tracked; o.anomalySectors = (uint32_t)st.sectorsKnown; o.anomalyRangeNm = (float)st.maxRangeNm; }
         std::lock_guard<std::mutex> lk(telMu);
         o.seq = ++seq;
         pub = std::move(o);
@@ -709,6 +765,9 @@ void AisReceiver::setCollisionCancel(bool on) {
 void AisReceiver::setAlertConfig(const AisAlertConfig& c) {
     std::lock_guard<std::mutex> lk(p_->procMu);
     p_->alertEng.configure(c);
+    AisAnomalyConfig a = c.anomaly;
+    a.ownValid = c.ownValid; a.ownLat = c.ownLat; a.ownLon = c.ownLon;   // the coverage model works from the receiver position
+    p_->anomalyEng.configure(a);
 }
 void AisReceiver::setSatelliteTle(const Tle* tle) {
     std::lock_guard<std::mutex> lk(p_->procMu);
@@ -743,7 +802,7 @@ bool AisReceiver::telemetry(AisTelemetry& out, uint64_t lastSeq) {
 }
 void AisReceiver::clearResults() {
     std::lock_guard<std::mutex> lk(p_->procMu);
-    p_->vessels.clear(); p_->nmea.clear(); p_->recent.clear(); p_->alertLog.clear(); p_->alertEng.clear();
+    p_->vessels.clear(); p_->nmea.clear(); p_->recent.clear(); p_->apps.clear(); p_->alertLog.clear(); p_->alertEng.clear(); p_->anomalyLog.clear(); p_->anomalyEng.clear();
     p_->republish();
 }
 std::string AisReceiver::saveResults() const {

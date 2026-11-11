@@ -12,12 +12,13 @@ BUILD=build-windows
 OUT=$BUILD/OnAir-$VERSION-windows-x64
 PREFIX=${MSYSTEM_PREFIX:-/ucrt64}
 cmake -S . -B $BUILD -G Ninja -DCMAKE_BUILD_TYPE=Release -DDECT2_BUILD_APP=ON -DDECT2_BUILD_TESTS=ON
-cmake --build $BUILD -j"$(nproc)" --target dect2 dect2cli dect2scan
+cmake --build $BUILD -j"$(nproc)" --target dect2 dect2cli dect2scan onair-extcap
 
 rm -rf "$OUT" && mkdir -p "$OUT"
 strip -o "$OUT/OnAir.exe" $BUILD/dect2.exe
 strip -o "$OUT/onair-cli.exe" $BUILD/dect2cli.exe
 strip -o "$OUT/onair-scan.exe" $BUILD/dect2scan.exe
+strip -o "$OUT/onair-extcap.exe" $BUILD/onair-extcap.exe   # Wireshark capture interface (docs/WIRESHARK-3.8.md)
 # every DLL the programs need from the MSYS2 tree (FFmpeg, GLFW, libhackrf, libusb, the C++ runtime ...), found recursively
 collect() {
   ldd "$1" | awk -v p="$PREFIX/" 'index($3, p) == 1 {print $3}' | while read -r dll; do
@@ -42,7 +43,7 @@ done
 tools/package/check_win_dlls.sh "$OUT" || { echo "error: the DLLs of $OUT do not fit together (see above)"; exit 1; }
 cp LICENSE "$OUT/LICENSE.txt"
 # MSYS2's mingw-w64-ffmpeg is built with --enable-gpl (x264, x265 ...): this check fails for it. The release zip comes from make_windows_cross.sh (LGPL FFmpeg).
-tools/package/for f in "$OUT"/OnAir.exe "$OUT"/avcodec-*.dll; do [ -f "$f" ] && { tools/package/check_lgpl_bundle.sh "$f" || FFBAD=1; }; done; [ -z "${FFBAD:-}" ] || { echo "Do not publish this build: use tools/package/make_windows_cross.sh"; exit 1; }
+for f in "$OUT"/OnAir.exe "$OUT"/avcodec-*.dll; do [ -f "$f" ] && { tools/package/check_lgpl_bundle.sh "$f" || FFBAD=1; }; done; [ -z "${FFBAD:-}" ] || { echo "Do not publish this build: use tools/package/make_windows_cross.sh"; exit 1; }
 tools/package/add_license_files.sh "$OUT"   # THIRD_PARTY.md, LICENSES/, LICENSE-NOTICES-BINARIES.md (licence of every bundled DLL, source offer)
 cat > "$OUT/README.txt" <<'TXT'
 OnAir - DVB-T2 / DVB-T / ATSC / DAB receiver (Windows x64)

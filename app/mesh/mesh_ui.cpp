@@ -1,6 +1,7 @@
 // Mesh (LoRa) mode entry: the screen state, the mode's tick, and the entry points the shell calls (tab, list, receiver,
 // panels, status, summary, tuner, decoder, synth, meters). The tables, views, LoRaWAN screens and settings are in the other mesh_*.cpp.
 #include "mesh_internal.h"
+#include "ui/topo_view.h"
 #include "ui/kit/mode_panel.h"
 #include "ui/kit/mode_frame.h"
 #include "ui/kit/session_list.h"
@@ -89,7 +90,8 @@ void loadState() {
     S.view = (int)d.getI("meshView", 0);
     S.region = std::max(0, std::min(kNumPlans - 1, (int)d.getI("meshRegion", 0)));
     S.protocols = (int)d.getI("meshProtocols", 15);
-    S.allPresets = d.getB("meshPresets", false);
+    S.allPresets = d.getB("meshPresets", true);   // Auto: every Meshtastic preset of the region, the node need not be on LongFast
+    S.tableScale = (int)d.getI("meshTableScale", 1); if (S.tableScale != 5 && S.tableScale != 20) S.tableScale = 1;
     S.mtRegion = d.getS("meshMtRegion", "");
     S.mtPreset = d.getS("meshMtPreset", "LongFast");
     S.mcPreset = d.getS("meshCorePreset", "");
@@ -137,14 +139,10 @@ double meshBandwidthHz(App& a) {
 
 double meshSampleRate(App& a) { return meshBandwidthHz(a) > 500e3 ? 4e6 : 2e6; }
 
-// 0 = the usual rate. An RTL-SDR (USB or rtl_tcp) drops samples at 2.048 Msps, which breaks frames of a long LoRa symbol; a channel of up to
-// 500 kHz fits in 1.024 Msps, where it loses none (issue #386). Other radios keep 2 Msps, so more than one channel stays inside the window.
+// 0 = the usual rate. An RTL-SDR (USB or rtl_tcp) runs a channel that fits in 1.024 Msps there (meshRtlRateHz, issue #386); other radios keep 2 Msps.
 double meshRtlRate(App& a) {
     const double bw = meshBandwidthHz(a);
-    if (bw > 0 && bw <= 500e3 && a.devIdx >= 0 && a.devIdx < (int)a.devices.size()) {
-        const std::string& b = a.devices[a.devIdx].board;
-        if (b == "rtlsdr" || b == "rtltcp") return 1.024e6;
-    }
+    if (bw > 0 && a.devIdx >= 0 && a.devIdx < (int)a.devices.size()) return dect2::meshRtlRateHz(a.devices[a.devIdx].board, bw);
     return 0;
 }
 
@@ -152,6 +150,7 @@ namespace meshui {
 
 void tick(App& a) {
     loadState();
+    if (subMask(a) == 2) meshcoreTick(a);   // the MeshCore device: frames heard, retries, the transmitter (also while another view is open)
     dect2::MeshReceiver& r = a.engine.mesh();
     {
         const std::string mreg = meshtasticShown(a) ? S.mtRegion : "";
@@ -176,6 +175,7 @@ void tick(App& a) {
     if (!S.keysPushed) { pushKeys(a); S.keysPushed = true; }
     if (S.pushedRegion != effRegion(a)) { S.pushedRegion = effRegion(a); r.setRegion(kPlans[S.pushedRegion].rxRegion); }
     if (S.pushedProtocols != effProtocols(a)) { S.pushedProtocols = effProtocols(a); r.setProtocols(S.pushedProtocols); }   // a protocol entry: only its own network
+    if (S.pushedScale != S.tableScale) { r.setTableScale(S.tableScale); S.pushedScale = S.tableScale; }
     if (S.pushedPresets != (int)S.allPresets) { r.setPresetSearch(S.allPresets); S.pushedPresets = (int)S.allPresets; }
     if (S.pushedTuned != a.freqMhz) { r.setTunedHz(a.freqMhz * 1e6); S.pushedTuned = a.freqMhz; }   // the engine does not pass the user's frequency
     if (!a.engine.running()) { S.lastSeq = 0; S.logPrimed = false; return; }
@@ -198,32 +198,36 @@ void tab(App& a) {
     loadState();
     kit::modeHeader({20, "LoRa mesh", live(a) ? 1 : a.engine.running() ? 2 : 0, -1000.f, a.freqMhz * 1e6});
     if (const int m = subMask(a)) {   // a protocol entry: only its own views (LoRa APRS: stations instead of nodes and chat; MeshCom: stations and chat; LoRaWAN: devices and frames)
-        static const int aprsIds[] = {5, 1, 3, 4, 9}, comIds[] = {5, 1, 2, 3, 4, 9}, meshIds[] = {0, 1, 2, 3, 8, 4, 9}, lwIds[] = {6, 7, 4, 9};
-        const bool ap = m == 4, com = m == 8, lw = m == 16;
-        const int* ids = ap ? aprsIds : com ? comIds : lw ? lwIds : meshIds;
-        const int n = ap ? 5 : lw ? 4 : com ? 6 : 7;
+        static const int aprsIds[] = {5, 1, 3, 4, 9}, comIds[] = {5, 1, 2, 3, 4, 9}, meshIds[] = {0, 1, 2, 3, 8, 10, 4, 9}, lwIds[] = {6, 7, 4, 9},
+                         mcIds[] = {11, 0, 1, 2, 3, 8, 10, 4, 9};   // MeshCore: the Device (send and receive) first
+        const bool ap = m == 4, com = m == 8, lw = m == 16, mc = m == 2;
+        const int* ids = ap ? aprsIds : com ? comIds : lw ? lwIds : mc ? mcIds : meshIds;
+        const int n = ap ? 5 : lw ? 4 : com ? 6 : mc ? 9 : 8;
         int k = 0;
         for (int i = 0; i < n; i++) if (ids[i] == S.view) k = i;
         if (ap) subNav("meshva", k, {"Stations", "Map", "Packets", "Settings", tr("Tracks")});
         else if (com) subNav("meshvc", k, {"Stations", "Map", "Chat", "Packets", "Settings", tr("Tracks")});
         else if (lw) subNav("meshvl", k, {"Devices", "Frames", "Settings", tr("Tracks")});
-        else subNav("meshvm", k, {"Nodes", "Map", "Chat", "Packets", "Telemetry", "Settings", tr("Tracks")});
+        else if (mc) subNav("meshvmc", k, {tr("Device"), "Nodes", "Map", "Chat", "Packets", "Telemetry", tr("Topology"), "Settings", tr("Tracks")});
+        else subNav("meshvm", k, {"Nodes", "Map", "Chat", "Packets", "Telemetry", tr("Topology"), "Settings", tr("Tracks")});
         S.view = ids[k];
     } else {
-        if (S.view == 7) S.view = 3;
-        static const int ids[] = {0, 1, 2, 3, 8, 4, 5, 6, 9};   // the views in the order of the tabs (7, the LoRaWAN frames, has no tab here)
+        if (S.view == 7 || S.view == 11) S.view = 3;
+        static const int ids[] = {0, 1, 2, 3, 8, 10, 4, 5, 6, 9};   // the views in the order of the tabs (7, the LoRaWAN frames, has no tab here)
         int k = 0;
-        for (int i = 0; i < 9; i++) if (ids[i] == S.view) k = i;
-        subNav("meshv", k, {"Nodes", "Map", "Chat", "Packets", "Telemetry", "Settings", "APRS", "LoRaWAN", tr("Tracks")});
+        for (int i = 0; i < 10; i++) if (ids[i] == S.view) k = i;
+        subNav("meshv", k, {"Nodes", "Map", "Chat", "Packets", "Telemetry", tr("Topology"), "Settings", "APRS", "LoRaWAN", tr("Tracks")});
         S.view = ids[k];
     }
     plat::prefs().setI("meshView", S.view);
     const float W = ImGui::GetContentRegionAvail().x, H = ImGui::GetContentRegionAvail().y;
     if (S.view == 9) { kit::sessionItems(20, 3, "mesh"); return; }
+    if (S.view == 11) { meshcoreView(a); return; }
     if (S.view == 0) { nodeTable(a, false); return; }
     if (S.view == 2) { chatView(a); return; }
     if (S.view == 3) { packetTable(a); return; }
     if (S.view == 8) { telemetryTable(a); return; }
+    if (S.view == 10) { topoView(a, "mesh", a.rx.mesh.topo); return; }
     if (S.view == 4) { settingsView(a); return; }
     if (S.view == 5) { aprsTable(a); return; }
     if (S.view == 6) { lorawanDevices(a, false); return; }

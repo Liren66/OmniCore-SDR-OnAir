@@ -1,6 +1,8 @@
 # Voice and audio codecs
 
 > **DMR, P25, NXDN, dPMR and D-STAR voice is silent until you install mbelib.** The calls, IDs and data are shown without it. Its vocoders are patented, so OnAir does not include it: put `libmbe` / `mbelib` in the codecs folder (the **?** button next to the sound has an **Open codecs folder** button), then press **Look again**.
+>
+> **Built codecs on Discord.** Every codec install screen and notice in OnAir (the **?** help, **Help > Voice codecs**, the setup wizard and the voice and sound panels) has a **Join the Discord to get access to built codecs** button. It opens <https://discord.gg/ptxkzCuzR> in your browser and nothing else: OnAir itself never downloads, bundles or installs a codec, so the install-it-yourself steps below stay the way to do it, and you still copy the file into the codecs folder yourself.
 
 > **CDR (China Digital Radio) sound is silent until you install the DRA+ add-on.** The services, signal information and data work without it. See [DRA+ (CDR sound)](#dra-cdr-sound).
 
@@ -12,6 +14,8 @@ install or use them is your own responsibility: follow the patent and radio-list
 Every mode that needs a codec has a small **?** button. It shows whether the library was found and where, the exact file names OnAir
 looks for, the exact folders it searches, an **Open codecs folder** button (it makes the folder if it is missing) and **Look again**
 (searches again, no restart).
+
+> **All the optional libraries in one list** (LAME MP3, libfaad2, libfdk-aac, mbelib, radio drivers such as `fobos_sdr.dll`, ...), the folder for each on Windows, macOS and Linux and where to get each one: [OPTIONAL-LIBRARIES.md](OPTIONAL-LIBRARIES.md).
 
 ## Quick start: install the voice codecs (Codec Setup)
 
@@ -40,7 +44,6 @@ The built files are yours: they are never committed to the OnAir repository and 
 | HD Radio (NRSC-5, FM and AM) | HDC (patented, owned by Xperi) | a **patched FAAD2** (`libfaad_hdc`) that you build yourself (see below); sound is silent until you do |
 | CDR (China Digital Radio) | DRA+ (patent and licence status not verified) | the **DRA+ add-on** (`libonair_dra`) that you build yourself (see [DRA+ (CDR sound)](#dra-cdr-sound)); sound is silent until you do |
 | FreeDV 700D / 700E / 1600, M17 | codec2 (open, LGPL) | **codec2**: comes with OnAir (the library `libcodec2` next to the program) |
-| FreeDV RADE | RADE neural modem (open, BSD) | **librade** (not codec2): optional; without it the RADE slot stays dark |
 | Inmarsat Aero C channel voice (Inmarsat > Voice) | AMBE 4800x3600 (patented) | a **speech codec plug-in** `onair-codec-aeroambe` that you build yourself from `tools/addons/aeroambe` and libaeroambe's mbelib (see [AMBE (Inmarsat Aero voice)](#ambe-inmarsat-aero-voice)); calls, aircraft and ground station are shown without it |
 | Yaesu System Fusion | AMBE+2 class (proprietary, DVSI) | a speech codec **plug-in with the id `ysf`** that you install yourself (see [Speech codec plug-ins](#speech-codec-plug-ins-voice-modes)); callsigns and data are shown without it, no sound |
 | TETRA | its own speech codec | nothing from you: it is not mbelib and not codec2 |
@@ -363,7 +366,7 @@ pictures are 4:2:0 8 bit (anything else is refused with a message), interlaced a
 Licences: the project is MIT and FFmpeg LGPL, so building it yourself is fine for copyright; AVS+ is covered by patents (check where you live).
 OnAir ships and downloads nothing of it.
 
-Details and the external-player route (save the TS / stream UDP, copy the VLC / mpv command): [AVSPLUS.md](AVSPLUS.md).
+The external-player route (save the TS / stream UDP, copy the VLC / mpv command) is in the TV tab.
 
 The player panel has a **?** button next to these messages. A channel that signals a CA system (a CA descriptor, free_CA_mode) but sends
 its streams in the clear is not shown as scrambled: OnAir goes by the scrambling bits of the stream packets.
@@ -401,6 +404,9 @@ to `onair_speech_decode` gets the **39 bytes (312 bits) of the voice field** of 
 de-scrambling, de-interleaving or error correction of its own; a plug-in that wraps osmo-ir77's decoder (or a decoder extracted from firmware,
 see the toolkit's `ambe_emu`) therefore gets exactly what the toolkit would give it, and returns 8 kHz PCM. **Unverified:** this has been tested
 with synthetic bursts through the whole receiver (offsets, Doppler, clock error, noise) and a stub plug-in, never a real Iridium recording.
+
+3.7: Iridium voice never writes a silent WAV. Slots that carry data (Reed-Solomon and zero-sum checks as in iridium-toolkit) are no longer sent to the codec, lost frames leave a silent gap of the right length instead of shortening the call, and a call with no sound says why (no plug-in, plug-in refused the frames, data only). If your plug-in expects a different byte order from the toolkit's 39-byte `.dfs` frames the calls stay silent; the counters on the call row show it. Not proven on a real recording (docs/IRIDIUM-3.7.md).
+
 **The Iridium voice plug-in is not distributed with OnAir.** Without one the voice stays silent; use **Save for iridium-toolkit** below. No public
 description defines an "encrypted" marker, so none is shown: frames that fail their checks or that the plug-in refuses are listed as "not
 readable" and stay silent. OnAir never decodes encrypted traffic itself; a key handed to your own plug-in is your own business and OnAir has no key handling.
@@ -436,6 +442,12 @@ not loaded* with the reason: on Windows "a DLL it needs is missing" (an MSYS2/Mi
 **Look again** loads it without restarting OnAir.
 Check the licence and your local patent situation before installing it. Status: the frames and the stream configuration follow ETSI ES 201 980;
 the decoding with a real libfdk-aac against a real DRM xHE-AAC recording has not been verified yet.
+
+## Your own FFmpeg (Settings > Advanced > FFmpeg libraries)
+
+Default **Bundled**: OnAir uses the FFmpeg inside it. Choose **External folder** and pick a folder with shared `libavcodec` / `libavutil` (for example
+an official FFmpeg build) and the optional add-ons that load FFmpeg at run time (AC-4, AVS+) search that folder first. OnAir ships and downloads
+nothing for this. The TV, DAB and DRM decoders are linked to the bundled FFmpeg and do not switch to the external one.
 
 ## AC-4 (ATSC 3.0 sound)
 

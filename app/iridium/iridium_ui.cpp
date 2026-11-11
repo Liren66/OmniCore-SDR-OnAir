@@ -2,6 +2,7 @@
 // counters and burst rates, the ring alert list, the pager messages with a text panel, the Iridium time, and a burst scatter
 // (time against frequency) of the last 2 s.
 #include "app.h"
+#include "iridium_sky.h"
 #include "ui/kit/mode_panel.h"
 #include "ui/kit/mode_frame.h"
 #include "ui/kit/session_list.h"
@@ -11,6 +12,8 @@
 #include "iridium_extra_ui.h"
 #include "dect2/codec/codec_registry.h"
 #include "../codec/speech_codec_ui.h"
+#include "../voice/voice_clips_ui.h"
+#include "../state/recdir.h"
 #include <algorithm>
 #include <filesystem>
 #include <cmath>
@@ -295,7 +298,14 @@ void callsView(App& a) {
     if (ImGui::Checkbox("Record calls##irrec", &S.record)) plat::prefs().setI("iridiumRecord", S.record ? 1 : 0);
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("One WAV per call, written when the call ends (needs the codec plug-in).");
     ImGui::SameLine(); kit::recordingsButton("iri");
-    if (!ImGui::BeginTable("##iri_calls", 12, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit, ImVec2(0, ImGui::GetContentRegionAvail().y))) return;
+    {   // a call that has no sound says why (no codec, a plug-in that returns silence, a write error) instead of silently saving nothing
+        std::string why;
+        for (auto it = t.calls.rbegin(); it != t.calls.rend() && why.empty(); ++it) why = it->warning;
+        if (!why.empty()) ImGui::TextColored(ImVec4(0.95f, 0.7f, 0.2f, 1), "%s", why.c_str());
+    }
+    const float tableH = std::max(120.f * gUi, ImGui::GetContentRegionAvail().y - 250.f * gUi);
+    const bool tableOpen = ImGui::BeginTable("##iri_calls", 12, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit, ImVec2(0, tableH));
+    if (tableOpen) {
     ImGui::TableSetupScrollFreeze(0, 1);
     ImGui::TableSetupColumn("#"); ImGui::TableSetupColumn("Time"); ImGui::TableSetupColumn("MHz"); ImGui::TableSetupColumn("Dir");
     ImGui::TableSetupColumn("Length"); ImGui::TableSetupColumn("Sat"); ImGui::TableSetupColumn("Beam");
@@ -323,10 +333,23 @@ void callsView(App& a) {
         }
         ImGui::TableNextColumn();
         ImGui::Text("%s%s", it->active ? "live, " : "", it->status.c_str());
+        if (!it->warning.empty() && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", it->warning.c_str());
         if (!it->file.empty()) { ImGui::SameLine(); ImGui::TextDisabled("(saved)"); if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", it->file.c_str()); }
     }
     if (t.calls.empty()) { ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextDisabled("no voice calls heard"); }
     ImGui::EndTable();
+    }
+    std::vector<dect2::voice::Clip> fresh;   // the saved calls, with what this mode knows about them
+    for (const auto& c : t.calls) {
+        if (c.file.empty()) continue;
+        dect2::voice::Clip k;
+        char lab[96];
+        snprintf(lab, sizeof lab, "%.4f MHz %s%s%s", c.freqHz / 1e6, c.downlink ? "down" : "up", c.sat >= 0 ? ", sat " : "", c.sat >= 0 ? std::to_string(c.sat).c_str() : "");
+        k.path = c.file; k.mode = "iridium"; k.label = lab; k.seconds = c.audioSec;
+        k.wallStart = c.wallEnd > 0 ? c.wallEnd - int64_t(c.audioSec) : 0;
+        fresh.push_back(std::move(k));
+    }
+    voiceclips::panel(a, "iridium", "iriclips", recordingsDir(), "iridium-call-", fresh);
 }
 
 // ---------------------------------------------------------------- burst scatter
@@ -526,13 +549,14 @@ void panels(App& a) {
 void tab(App& a) {
     loadState();
     kit::modeHeader({19, "Iridium", live(a) ? 1 : a.engine.running() ? 2 : 0, -1000.f, a.freqMhz * 1e6});
-    kit::modeNav("iriv", S.view, {{tr("Live"), 0}, {tr("Tracks"), 8}, {tr("Messages"), 1, true}, {tr("Ring alerts"), 2, true}, {tr("Bursts"), 3, true}, {tr("Calls"), 4, true}, {tr("ACARS"), 5, true}, {tr("Log"), 6, true}, {tr("Pager"), 7, true}});
+    kit::modeNav("iriv", S.view, {{tr("Live"), 0}, {tr("Tracks"), 8}, {tr("Messages"), 1, true}, {tr("Ring alerts"), 2, true}, {tr("Bursts"), 3, true}, {tr("Calls"), 4, true}, {tr("ACARS"), 5, true}, {tr("Log"), 6, true}, {tr("Pager"), 7, true}, {tr("Sky"), 9, true}});
     if (S.view == 8) { kit::sessionItems(19, 3, "iridium"); return; }
     const float W = ImGui::GetContentRegionAvail().x, H = ImGui::GetContentRegionAvail().y;
     if (S.view == 4) { callsView(a); return; }
     if (S.view == 5) { iridiumui::acarsView(a); return; }
     if (S.view == 6) { iridiumui::packetsView(a); return; }
     if (S.view == 7) { iridiumui::pagerView(a); return; }
+    if (S.view == 9) { iridiumSkyView(a, W, H); return; }
     if (S.view == 1) { messages(a, W, H); return; }
     if (S.view == 2) { ringAlerts(a); return; }
     if (S.view == 3) {
@@ -616,6 +640,7 @@ void summary(const App& a, std::string& l1, std::string& l2) {
 // The engine does not pass the tuned frequency on: the receiver needs it for absolute frequencies and the simplex rule.
 void tick(App& a) {
     loadState();
+    iridiumSkyTick(a);
     if (!a.engine.running()) { S.pushedCenter = 0; S.pushedThr = -1; return; }
     dect2::IridiumReceiver& r = a.engine.iridium();
     if (live(a)) appcodec::voiceCodecTick("iridium");   // the user's codec plug-in (docs/CODECS.md), loaded whichever tab is shown

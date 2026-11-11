@@ -1,6 +1,8 @@
 // HFDL receiver (hfdl_rx.h)
+#include "dect2/limits.h"
 #include "dect2/session/mode_adapters.h"
 #include "dect2/hfdl/hfdl_rx.h"
+#include "dect2/hfdl/hfdl_learn.h"
 #include "dect2/dsp/rrc.h"
 #include "dect2/dsp/fftutil.h"
 #include "dect2/automation/engine.h"
@@ -722,11 +724,18 @@ struct HfdlReceiver::Impl {
         return tel.stations.front();
     }
 
+    // aircraft not heard for the user's "remove after" time leave the table (most recently heard first); the memory is given back. mu held.
+    void expire(double now) {
+        const double lim = limits::staleSec(limits::Family::Hfdl, limits::kAeroStaleSec);
+        while (!tel.aircraft.empty() && now - tel.aircraft.back().lastHeardSec > lim) tel.aircraft.pop_back();
+        if (tel.aircraft.capacity() > 4 * tel.aircraft.size() + 256) tel.aircraft.shrink_to_fit();
+    }
     void note(double dial, HfdlMessage& m) {
         const double now = nowSec();
         if (m.squitter) {
             tel.squitters++;
             HfdlGroundStation& g = station(m.gsId);
+            { const int dk = (int)std::lround(dial / 1e3); HfdlFreqLearner::global().squitter(m.gsId, dk, m.systable, m.activeKhz, (double)std::time(nullptr)); }   // the frequency plan follows what is heard (hfdl_learn.h)
             g.squitters++; g.freqHz = dial; g.lastHeardSec = now; g.levelDb = m.levelDb; g.utcSync = m.utcSync; g.frameIndex = m.frameIndex; g.activeKhz = m.activeKhz; g.heardDirect = true;
             if (!logged[m.gsId]) {
                 logged[m.gsId] = true;
@@ -746,6 +755,7 @@ struct HfdlReceiver::Impl {
         for (auto& x : tel.aircraft) if (x.key == key) { a = &x; break; }
         if (!a && m.icao) for (auto& x : tel.aircraft) if (x.key == (0x1000000u | slot)) { x.key = key; a = &x; break; }
         if (!a) { tel.aircraft.push_back(HfdlAircraft()); a = &tel.aircraft.back(); a->key = key; }
+        HfdlAircraft* const touched = a;
         a->icao = m.icao ? m.icao : a->icao;
         if (m.acId > 0) a->acId = m.acId;
         a->gsId = m.gsId;
@@ -762,8 +772,10 @@ struct HfdlReceiver::Impl {
             a->track.push_back({m.lat, m.lon, now});
             if (a->track.size() > 24) a->track.erase(a->track.begin());
         }
-        std::stable_sort(tel.aircraft.begin(), tel.aircraft.end(), [](const HfdlAircraft& x, const HfdlAircraft& y) { return x.lastHeardSec > y.lastHeardSec; });
-        if (tel.aircraft.size() > 200) tel.aircraft.resize(200);
+        // most recently heard first: the heard one moves to the front (the rest keeps its order), the oldest expire by age, then by the large safety cap
+        std::rotate(tel.aircraft.begin(), tel.aircraft.begin() + (touched - tel.aircraft.data()), tel.aircraft.begin() + (touched - tel.aircraft.data()) + 1);
+        while (tel.aircraft.size() > limits::kAircraft) tel.aircraft.pop_back();
+        expire(now);
         (void)hex6;
     }
 };
@@ -822,9 +834,15 @@ void HfdlReceiver::feed(const cf32* x, size_t n) {
         for (Impl::Chan* k : act) { for (auto& f : k->pend) f(); k->pend.clear(); }
     }
     I.nIn += n;
+    {   // the frequencies this capture covers, for the learner's "listened long enough" rule
+        std::vector<int> khz;
+        for (Impl::Chan* k : act) khz.push_back((int)std::lround(k->dial / 1e3));
+        HfdlFreqLearner::global().listen(khz, I.rate > 0 ? (double)n / I.rate : 0);
+    }
     std::lock_guard<std::mutex> lk(I.mu);
     const double now = I.nowSec();
     I.tel.nowSec = now;
+    I.expire(now);
     I.tel.channels.clear();
     for (auto& k : I.ch) { k.info.active = k.info.lastHeardSec > 0 && now - k.info.lastHeardSec < 40; I.tel.channels.push_back(k.info); }
     I.tel.state = now - I.lastGood < 120 ? 2 : now - I.lastBurst < 60 ? 1 : 0;

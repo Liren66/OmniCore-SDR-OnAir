@@ -33,6 +33,14 @@ airspy_info
 - gain is the linearity gain, 0 to 21
 - 10 Msps needs a decent CPU, a 2-core laptop couldn't keep up with live ATSC
 
+# HydraSDR RFOne
+
+Native driver (`core/src/source/source_hydrasdr.cpp`), receive only. 24 MHz to 1.8 GHz, 10 Msps and decimated rates down to 156 ksps, float samples, a bias tee on the ANT input, three RF inputs (ANT, CABLE1, CABLE2: the radio's "RF input" setting). OnAir loads `libhydrasdr` (rfone_host, MIT) at run time when it is installed; it is not included in the downloads. USB id 1d50:60a1 with firmware before 1.0.2 and 38af:0001 since; on Windows the WinUSB binding is done by the driver. Not tested here on a real radio for TV-width channels.
+
+# ESP32 and nRF24L01 modules (3.7)
+
+A home-made module on a USB serial port: nRF24L01+ receive and transmit (Enhanced ShockBurst, all its parameters), BLE advertisements and WiFi observation (networks, clients, signal, channel load; never transmits). Transmit is behind the Arm gate. The firmware is in `firmware/esp32/`, the design and limits in docs/ESP32-NRF24-DESIGN.md. It was written without hardware and tested only against a simulated serial device: **untested on a real ESP32 or nRF24 module.**
+
 # SDRplay RSPduo
 
 OnAir talks directly to the [SDRplay Hardware API](https://sdrplay.com/hardware-api/), which supplies IQ samples. Install API 3.x
@@ -130,7 +138,7 @@ OnAir drives the OmniCoreSDR (AD9361 + Zynq + CH32H417 USB 3 bridge, USB id 1a86
 (OCH, `omnicore.dll` / `libomnicore.so`, C ABI 1). The library is not shipped with OnAir; OnAir loads it at run time and the radio is listed
 only when it is found:
 
-- The OmniCore-SDR-OnAir release packages bundle OmniCore Host 0.7.1. Firmware v2026.11.07 and newer (framed USB transport,
+- The OmniCore-SDR-OnAir release packages bundle OmniCore Host 0.7.2. Firmware v2026.11.07 and newer (framed USB transport,
   `SDK_CMD_1.1` or later) needs OmniCore Host 0.6.0 or later; older Host versions refuse to open it.
 - Windows: install OmniCore Host 0.4.6 or later (0.4.7 for the RX RSSI) (`OmniCoreHost-<version>-win64-setup.exe`) and its libusbK driver (`och-driver install`).
   OnAir looks for `omnicore.dll` next to `OnAir.exe`, then in `C:\Program Files\OmniCore Host\bin`, then on the PATH.
@@ -266,7 +274,7 @@ that librfnm finds on USB and on the network is listed once, on USB. `onair.log`
 
 # Icom IC-R8600 (I/Q OUT, receive only)
 
-**Experimental: no IC-R8600 was available when this was written; it needs a user test.** Full notes: [docs/ICOM-R8600.md](docs/ICOM-R8600.md).
+**Experimental: no IC-R8600 was available when this was written; it needs a user test.**
 
 OnAir drives the receiver's [I/Q OUT] USB port itself (libusb, no SoapySDR module). 10 kHz to 3 GHz, six sample rates from 0.24 to 5.12 Msps.
 The port needs Icom's firmware (`IC-R8600_usb_iq.spt` from Icom's "USB I/Q Package for HDSDR"), which OnAir cannot ship: **Radio settings > Import Icom

@@ -2,6 +2,7 @@
 #include "call_filter.h"
 #include "ui/kit/export.h"
 #include "app.h"
+#include "ease/ease_ui.h"
 #include "ui/voice_why_ui.h"
 #include "dect2/voice/voice_why_modes.h"
 #include "ui/kit/session_list.h"
@@ -13,6 +14,7 @@
 #include "../codec/speech_codec_ui.h"
 #include "../voice/voice_monitor_ui.h"
 #include "../voice/radioid_ui.h"
+#include "../voice/tgdir_ui.h"
 #include "../voice/watch_ui.h"
 #include "dect2/codec/codec_registry.h"
 #include "dect2/dmr/dmr_proto.h"
@@ -81,7 +83,7 @@ std::string targetText(const DmrCall& c) {
     if (!c.idsKnown || c.dst == 0) return "-";
     if (c.kind == 2 || c.dst == 0xFFFFFF) return "all";
     char b[24]; snprintf(b, sizeof b, c.kind == 0 ? "TG %u" : "%u", c.dst);
-    return b;
+    return c.kind == 0 ? tgdirui::withName(dect2::TgKind::Dmr, b, c.dst) : std::string(b);   // the talkgroup directory's name beside the number
 }
 
 // Voice frames come three to a 60 ms burst, so one is 20 ms: the length of a call that is still going on
@@ -327,6 +329,18 @@ void callsView(App& a) {
         if (ImGui::TreeNode("Install helper")) { appcodec::codecInstallHelper("ambe2"); ImGui::TreePop(); }
     }
     if (on && !t.cachInfo.empty() && t.cachInfo != "null") ImGui::TextDisabled("CACH: %s", t.cachInfo.c_str());
+    if (on && t.xpt.seen && ImGui::TreeNode(trw("Hytera XPT"))) {   // recognised from its control blocks: no setting
+        ImGui::TextUnformatted(dect2::xptSummary(t.xpt).c_str());
+        ImGui::TextDisabled("%s", tr("Field positions from DSD-FME's findings; the maker publishes no description."));
+        for (int i = 0; i < 24; i++) {
+            const auto& l = t.xpt.lsn[i];
+            if (l.status < 0) continue;
+            ImGui::Text("LSN %2d: %s %d", i + 1, l.status == 3 ? "group" : l.status == 2 ? "private" : l.status == 0 ? "idle" : "?", l.tg);
+        }
+        for (const auto& c : t.xpt.calls) ImGui::Text("%u > %u  LCN %d", c.source, c.target, c.lcn);
+        for (const auto& a : t.xpt.adjacent) ImGui::TextDisabled("%s %d: %s %d", tr("Adjacent site"), a.site, tr("free LCN"), a.freeLcn);
+        ImGui::TreePop();
+    }
     ImGui::Spacing();
     const float rest = ImGui::GetContentRegionAvail().y;
     const float lh = ImGui::GetTextLineHeightWithSpacing();
@@ -509,7 +523,9 @@ void spectrumPlotDmr(const DmrTelemetry& t, bool on, ImVec2 sz) {
 }
 
 void receiver(App& a) {
+    easeui::repeaterPicker(a, "DMR");
     radioidui::section(dect2::RadioIdKind::Dmr);
+    tgdirui::section(dect2::TgKind::Dmr);
     wideCarriersTable(a, 0);
     const DmrTelemetry& t = a.rx.dmr;
     if (!live(a)) { ImGui::TextDisabled("%s", a.engine.running() ? "starting" : "stopped"); return; }

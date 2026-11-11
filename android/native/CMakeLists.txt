@@ -58,7 +58,7 @@ file(COPY "${_android_hackrf_header}" DESTINATION "${CMAKE_BINARY_DIR}/android-h
 target_include_directories(dect2core PRIVATE "${CMAKE_BINARY_DIR}/android-host-headers")
 
 option(ONAIR_ANDROID_OMNICORE "Build OmniCore Host with Android USB descriptor support" ON)
-set(OMNICORE_HOST_SRC "" CACHE PATH "Unmodified OmniCore Host 0.7.1 source; downloaded when empty")
+set(OMNICORE_HOST_SRC "" CACHE PATH "Unmodified OmniCore Host 0.7.2 source; downloaded when empty")
 if(ONAIR_ANDROID_OMNICORE)
   if(NOT _have_libusb)
     message(FATAL_ERROR "OmniCore Android needs LIBUSB_SRC; its USB transport cannot use stubs")
@@ -66,7 +66,7 @@ if(ONAIR_ANDROID_OMNICORE)
   if(NOT OMNICORE_HOST_SRC)
     include(FetchContent)
     FetchContent_Declare(omnicore_host_source
-      URL https://github.com/Liren66/OmniCore-SDR-Host/archive/c51cf8774e5931ff94a317963e9ad6bff93b342c.tar.gz
+      URL https://github.com/Liren66/OmniCore-SDR-Host/archive/b4b4cf697491ab421bae5169694a5d00ea419197.tar.gz
       DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
     FetchContent_GetProperties(omnicore_host_source)
     if(NOT omnicore_host_source_POPULATED)
@@ -77,23 +77,38 @@ if(ONAIR_ANDROID_OMNICORE)
   set(_och "${CMAKE_BINARY_DIR}/omnicore-host-android")
   # Patch a build-local copy. Never modify the user's desktop Host checkout.
   file(COPY "${OMNICORE_HOST_SRC}/src" "${OMNICORE_HOST_SRC}/include" DESTINATION "${_och}")
-  foreach(_file src/core/api.cpp src/core/device.cpp src/transport/libusb.hpp)
-    file(READ "${_och}/${_file}" _text)
+  foreach(_file src/capi/device.cpp src/transport/posix/libusb_link.cpp)
+    file(READ "${OMNICORE_HOST_SRC}/${_file}" _text)
     string(REPLACE "\r\n" "\n" _text "${_text}")
     file(WRITE "${_och}/${_file}" "${_text}")
   endforeach()
   find_program(PATCH_EXECUTABLE patch REQUIRED)
   execute_process(COMMAND "${PATCH_EXECUTABLE}" --batch -p1 -i "${CMAKE_CURRENT_SOURCE_DIR}/omnicore-host-android.patch"
-    WORKING_DIRECTORY "${_och}" RESULT_VARIABLE _och_patch_result)
-  if(NOT _och_patch_result EQUAL 0)
-    message(FATAL_ERROR "OmniCore Android patch failed; use the pinned unmodified Host source")
-  endif()
+    WORKING_DIRECTORY "${_och}" COMMAND_ERROR_IS_FATAL ANY)
   add_library(omnicore SHARED
-    ${_och}/src/core/api.cpp ${_och}/src/core/device.cpp ${_och}/src/core/configuration.cpp
-    ${_och}/src/core/reconfigure.cpp ${_och}/src/core/stream.cpp ${_och}/src/core/rf.cpp
-    ${_och}/src/core/firmware.cpp ${_och}/src/core/power.cpp ${_och}/src/core/board.cpp
-    ${_och}/src/core/timebase.cpp ${_och}/src/core/sync.cpp
-    ${_och}/src/dsp/codec.cpp ${_och}/src/dsp/frame.cpp)
+    ${_och}/src/dsp/codec.cpp
+    ${_och}/src/protocol/frame.cpp
+    ${_och}/src/core/device.cpp
+    ${_och}/src/core/control.cpp
+    ${_och}/src/core/configuration.cpp
+    ${_och}/src/core/reconfigure.cpp
+    ${_och}/src/core/stream.cpp
+    ${_och}/src/core/stream_io.cpp
+    ${_och}/src/core/rf.cpp
+    ${_och}/src/core/power.cpp
+    ${_och}/src/core/board.cpp
+    ${_och}/src/core/firmware.cpp
+    ${_och}/src/core/timebase.cpp
+    ${_och}/src/core/sync.cpp
+    ${_och}/src/transport/posix/libusb_link.cpp
+    ${_och}/src/capi/device.cpp
+    ${_och}/src/capi/stream.cpp
+    ${_och}/src/capi/rf.cpp
+    ${_och}/src/capi/board.cpp
+    ${_och}/src/capi/firmware.cpp
+    ${_och}/src/capi/timebase.cpp
+    ${_och}/src/capi/sync.cpp
+  )
   target_include_directories(omnicore PRIVATE "${_och}/include" "${_och}/src")
   target_compile_definitions(omnicore PRIVATE OCH_BUILD)
   target_compile_features(omnicore PRIVATE cxx_std_17)

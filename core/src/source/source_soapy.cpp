@@ -1,5 +1,6 @@
 // Generic radios through SoapySDR: Airspy, SDRplay, RTL-SDR, PlutoSDR, LimeSDR, BladeRF, USRP, ... (whatever drivers are installed).
 // The HackRF keeps its own native source (source.cpp); a "hackrf" Soapy entry is hidden so a radio is listed once.
+#include "dect2/tx/tx_control.h"
 #include "dect2/common/thread_name.h"
 #include "dect2/engine/rate_choice.h"
 #include "dect2/source/source.h"
@@ -428,6 +429,7 @@ private:
         dev_ = nullptr;
     }
 
+    double lastTuneHz_ = -1;
     bool apply(const TuneSettings& s, std::string& err, bool live) {
         const int ch = 0;
         if (!live || std::fabs(s.sampleRate - requestedRate_) > 1.0) {
@@ -492,7 +494,7 @@ private:
             for (const auto& x : dev_->getFrequencyRange(SOAPY_SDR_RX, ch)) { hi = std::max(hi, x.maximum()); lo = lo == 0 ? x.minimum() : std::min(lo, x.minimum()); }
             addNote(err, freqSpecNote("radio", s.centerHz, lo, hi));
         } catch (...) {}
-        dev_->setFrequency(SOAPY_SDR_RX, ch, std::max(tuneHz, 0.0));
+        if (!live || tuneHz != lastTuneHz_) { dev_->setFrequency(SOAPY_SDR_RX, ch, std::max(tuneHz, 0.0)); lastTuneHz_ = tuneHz; }   // (a gain-only retune leaves the LO alone)
         try { if (dev_->hasGainMode(SOAPY_SDR_RX, ch)) dev_->setGainMode(SOAPY_SDR_RX, ch, false); } catch (...) {}   // we run our own AGC
         const auto gr = effectiveGainRange(dev_, ch);
         const double g = std::min(std::max(s.gainDb, gr.minimum()), gr.maximum());
@@ -596,7 +598,7 @@ public:
             rate_ = dev_->getSampleRate(SOAPY_SDR_TX, (size_t)ch_);
             try {
                 const auto bws = dev_->getBandwidthRange(SOAPY_SDR_TX, (size_t)ch_);
-                if (!bws.empty()) dev_->setBandwidth(SOAPY_SDR_TX, (size_t)ch_, nearestRate(bws, t.bandwidthHz > 0 ? t.bandwidthHz : rate_ * 0.95));
+                if (!bws.empty()) dev_->setBandwidth(SOAPY_SDR_TX, (size_t)ch_, nearestRate(bws, plan(t).filterHz));
             } catch (...) {}
             if (!tuneAndGain(t, err)) { shut(); return false; }
             stream_ = dev_->setupStream(SOAPY_SDR_TX, SOAPY_SDR_CF32, {(size_t)ch_});
@@ -639,10 +641,23 @@ public:
     std::string name() const override { return "SoapySDR radio"; }
 
 private:
+    // the frequency, the overall gain and the typed gain stages as soapyTxPlan (tx_control.h) works them out with the ranges the driver reports
+    TxHwPlan plan(const TxTune& t) {
+        TxHwRange overall;
+        std::map<std::string, TxHwRange> stages;
+        try { const auto gr = dev_->getGainRange(SOAPY_SDR_TX, (size_t)ch_); overall = {gr.minimum(), gr.maximum()}; } catch (...) {}
+        try {
+            for (const std::string& n : dev_->listGains(SOAPY_SDR_TX, (size_t)ch_)) {
+                const auto r = dev_->getGainRange(SOAPY_SDR_TX, (size_t)ch_, n);
+                stages[n] = {r.minimum(), r.maximum()};
+            }
+        } catch (...) {}
+        return soapyTxPlan(t, rate_, overall, stages);
+    }
     bool tuneAndGain(const TxTune& t, std::string& err) {
-        TuneSettings ts; ts.radio = t.radio;
-        const double ppm = radioPpm(ts);
-        const double tuneHz = std::max(ppmCorrectedHz(txRadioHz(t), ppm), 0.0);
+        const TxHwPlan p = plan(t);
+        if (!p.note.empty()) fprintf(stderr, "transmit: %s\n", p.note.c_str());
+        const double tuneHz = p.loHz;
         try { dev_->setFrequency(SOAPY_SDR_TX, (size_t)ch_, tuneHz); }
         catch (const std::exception& e) {
             char b[400];
@@ -650,10 +665,15 @@ private:
             err = b;
             return false;
         }
-        const auto gr = dev_->getGainRange(SOAPY_SDR_TX, (size_t)ch_);
-        const double g = gr.maximum() > gr.minimum() ? std::min(std::max(t.gainDb, gr.minimum()), gr.maximum()) : t.gainDb;   // only the radio's own scale clamps
-        try { dev_->setGain(SOAPY_SDR_TX, (size_t)ch_, g); }
-        catch (const std::exception& e) { err = std::string("the radio's driver refused the TX gain: ") + e.what(); return false; }
+        for (const auto& g : p.gains) {   // the overall gain (only the radio's own scale clamps), then each typed stage
+            try {
+                if (g.first.empty()) dev_->setGain(SOAPY_SDR_TX, (size_t)ch_, g.second);
+                else dev_->setGain(SOAPY_SDR_TX, (size_t)ch_, g.first, g.second);
+            } catch (const std::exception& e) {
+                err = std::string("the radio's driver refused the TX gain") + (g.first.empty() ? "" : " " + g.first) + ": " + e.what();
+                return false;
+            }
+        }
         return true;
     }
     void shut() {

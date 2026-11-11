@@ -70,7 +70,6 @@ QO-100 path	QO-100 経路
 Radio ID	無線 ID
 Radio text (RT)	ラジオテキスト (RT)
 RDS PI	RDS PI
-Receiver-style options (demo signal)	受信機スタイルのオプション (デモ信号)
 Report	レポート
 Reverse (mark is the upper tone)	反転 (マークが上側のトーン)
 RFPI	RFPI
@@ -448,7 +447,6 @@ The width of the signal is measured in the spectrum and the receiver switches be
 The receiver's channel filter. Narrower keeps a strong neighbour out (150 kHz copes with one 10 dB stronger 150 kHz away); below about 180 kHz loud passages distort a little and RDS suffers first.	受信機のチャンネルフィルターです。狭くすると強い隣接局を排除できます (150 kHz なら 150 kHz 離れた 10 dB 強い局に耐えます)。約 180 kHz 未満では大きな音がやや歪み、まず RDS に影響が出ます。
 The width is measured in the spectrum, and 6, 8 and 7 MHz are tried in turn while nothing locks.	スペクトラムから幅を測定し、ロックしない間は 6、8、7 MHz を順に試します。
 6 MHz in Japan and the Americas, 8 MHz in the Maldives (ISDB-T International). The signal is the same, scaled in time by the width.	日本と中南米では 6 MHz、モルディブでは 8 MHz (ISDB-T International)。信号は同じで、幅に応じて時間軸が拡縮されます。
-Set by the country: there is nothing to measure it from. A receiver set to the wrong width finds nothing.	国によって決まります。測定の手がかりはありません。幅を間違えた受信機は何も見つけられません。
 Follows the symbol rate: symbol rate x (1 + roll-off).	シンボルレートに従います: シンボルレート x (1 + ロールオフ)。
 Choose automatic or a manual symbol rate in the tuner to change it.	変更するには、チューナーでシンボルレートを自動または手動にしてください。
 This mode	このモード
@@ -467,7 +465,6 @@ Radio settings (%d changed)	無線機の設定 (%d 件変更)
 The driver's own settings show up here\nonce this radio has been started.	ドライバー固有の設定は、この無線機を一度\n開始するとここに表示されます。
 0 = libiio's default	0 = libiio の既定値
 #  passes
-Weather (137 MHz)	気象 (137 MHz)
 Amateur	アマチュア
 Amateur satellites	アマチュア衛星
 downloading...	ダウンロード中...
@@ -484,8 +481,6 @@ No TLE for:	TLE がありません:
 no valid TLE in the pasted text (two lines per satellite, checksums must match)	貼り付けたテキストに有効な TLE がありません (衛星ごとに 2 行、チェックサムが一致する必要があります)
 pasted TLEs added:	貼り付けた TLE を追加しました:
 No TLEs yet: download them or paste some.	TLE がまだありません: ダウンロードするか貼り付けてください。
-No TLEs: open TLE data above.	TLE がありません: 上の TLE データを開いてください。
-No passes in the next 24 hours.	今後 24 時間以内のパスはありません。
 TLE data	TLE データ
 %d TLEs, %d satellites listed	TLE %d 件、衛星 %d 機を一覧表示
 the oldest is %.0f days old: download again	最も古いものは %.0f 日前です: 再ダウンロードしてください
@@ -494,23 +489,15 @@ Receiver position	受信地点
 The same position as the ADS-B antenna position	ADS-B アンテナの位置と同じ
 not set: the times are for a placeholder position	未設定: 時刻は仮の位置のものです
 Satellite	衛星
-AOS	AOS
-LOS	LOS
 Max el	最大仰角
 Duration	継続時間
 Frequency	周波数
 AOS in %d:%02d:%02d	AOS まで %d:%02d:%02d
 %s - %s, max %.0f deg	%s - %s、最大 %.0f 度
-no pass	パスなし
 az %.0f  el %.0f  %.0f km\nDoppler %+.0f Hz	方位 %.0f  仰角 %.0f  %.0f km\nドップラー %+.0f Hz
 Track	追尾
-Track (choose a pass)	追尾 (パスを選択)
-During each pass of this satellite, retune about once a second for the Doppler shift	この衛星のパス中、ドップラーシフトに合わせて約 1 秒ごとに同調し直します
 Auto start at AOS, stop at LOS	AOS で自動開始、LOS で停止
-Switches to the satellite's mode and starts the receiver at AOS (when it is stopped), and stops it at LOS	衛星のモードに切り替え、AOS で受信機を開始し (停止中の場合)、LOS で停止します
 Auto record IQ	IQ を自動録音
-Records the radio's IQ during the pass, as Record IQ does (format from the Record IQ setting), into %s/recordings	IQ 録音と同様に (形式は IQ 録音の設定に従います)、パス中の無線機の IQ を %s/recordings に録音します
-OnAir has no decoder for this: auto start opens the Spectrum explorer, and Auto record keeps the IQ	OnAir にはこれ用のデコーダーがありません。自動開始では Spectrum explorer が開き、自動録音では IQ が保存されます
 tracking%s	追尾中%s
 , recording	、録音中
 #  data feeds
@@ -928,7 +915,6 @@ WSJT, 14.078 MHz	WSJT、14.078 MHz
 WSJT, 14.080 MHz	WSJT、14.080 MHz
 WSJT, 14.084 MHz	WSJT、14.084 MHz
 WSJT, 14.100 MHz	WSJT、14.100 MHz
-%.0f deg	%.0f 度
 %s, %llu spots sent in %llu packets, %llu duplicates skipped	%s、%llu 件のスポットを %llu パケットで送信、重複 %llu 件をスキップ
 offset %+.3f %+.3f	オフセット %+.3f %+.3f
 sigma %.3f per axis (%.0f%% of the half-distance to a neighbour)	シグマ 軸あたり %.3f (隣接点との半分の距離の %.0f%%)
@@ -944,11 +930,8 @@ FM	FM
 %s  %.4f MHz  %s%s%s%s  %.1f dB  %s	%s  %.4f MHz  %s%s%s%s  %.1f dB  %s
 -	-
 8 MHz	8 MHz
-A line at the top of the window and a log entry before the tracked pass rises (0: off)	追尾するパスが始まる前に、ウィンドウ上部の表示とログを出します (0: オフ)
 All time	全期間
-Arms this pass only: at AOS the receiver starts in the satellite's mode and frequency (when it is stopped), Doppler is followed and the IQ is recorded; at LOS it stops and tracking switches off again	このパスだけを予約します。AOS で、受信機が停止中なら衛星のモードと周波数で開始し、ドップラーに追従して IQ を録音します。LOS で停止し、追尾も再びオフになります
 Automatic update	自動アップデート
-Cancel recording this pass	このパスの録音を取り消す
 Dark	ダーク
 Download SDDC_FX3.img from the Releases page of the SDDC_Driver project (button below).	SDDC_Driver プロジェクトの Releases ページから SDDC_FX3.img をダウンロードしてください (下のボタン)。
 Downloads the TLEs again once a day, only while this window is open or a pass is tracked. Without a network the saved lists are used.	TLE を 1 日に 1 回再ダウンロードします。このウィンドウが開いているか、パスを追尾している間のみです。ネットワークがない場合は保存済みのリストを使います。
@@ -961,12 +944,10 @@ Look for Red Pitaya boards on this computer's networks again	このコンピュ�
 MHz	MHz
 No Red Pitaya answered on this computer's networks (is its SDR transceiver app running?): type its address.	このコンピューターのネットワーク上で Red Pitaya の応答がありません (SDR トランシーバーアプリは動作していますか?): アドレスを入力してください。
 Nothing heard yet: the plot fills in as positions arrive.	まだ何も受信していません。位置情報が届くとプロットが埋まっていきます。
-Pass of %s in %d:%02d (max %.0f deg)	%s のパスまで %d:%02d (最大 %.0f 度)
 Pass of %s in %d:%02d (max %.0f deg): the receiver starts by itself	%s のパスまで %d:%02d (最大 %.0f 度): 受信機は自動で開始します
 Plug the radio into a USB 3 port directly on the computer, not through a USB 2 hub.	無線機は USB 2 ハブ経由ではなく、コンピューター本体の USB 3 ポートに直接接続してください。
 Put the file in OnAir's codecs folder (button below).	ファイルを OnAir のコーデックフォルダーに置いてください (下のボタン)。
 Range	距離
-Record this pass	このパスを録音
 Rolling window: a sector's furthest position counts only for this long	移動ウィンドウ: 各セクターの最遠位置は、この時間だけ有効です
 Save CSV...	CSV を保存...
 Save PNG...	PNG を保存...
@@ -976,7 +957,6 @@ The RX888 is on a USB 2 port	RX888 が USB 2 ポートに接続されていま�
 The RX888 needs its firmware file	RX888 にはファームウェアファイルが必要です
 The RX888 MkII has no program of its own in its USB chip: OnAir loads SDDC_FX3.img into RAM when the radio is in boot-loader mode (nothing is flashed to the radio). Official OnAir packages include this file; a copy built by hand may not.	RX888 MkII の USB チップには自前のプログラムがなく、OnAir はブートローダーモードで SDDC_FX3.img を RAM に読み込みます（無線機には書き込みません）。公式 OnAir パッケージには含まれます。手元でビルドしたコピーには含まれない場合があります。
 Use a USB 3 cable (the one that came with the radio).	USB 3 ケーブル (無線機に付属のもの) を使用してください。
-armed: %s at %s	予約済み: %s、%s
 last downloaded %s	最終ダウンロード %s
 remind %.0f min before	%.0f 分前に通知
 saved	保存しました
@@ -2425,13 +2405,10 @@ Room title	ルームのタイトル
 Also show decoded ACARS text in the room (public)	デコードしたACARSテキストもルームに表示する（公開）
 Needs Server > Send data to map server and Also share interesting ACARS messages.	サーバー > 地図サーバーにデータを送信 と 興味深いACARSメッセージも共有 が必要です。
 Go live	ライブ配信を開始
-Schedule passes by itself	通過を自動でスケジュール
-Takes the passes of the ticked groups one at a time, highest priority first, and starts, tunes and records each one without you. Overlapping passes are trimmed or skipped; a receiver you started yourself is left alone.	チェックしたグループの通過を優先度の高い順に1つずつ取り、操作なしで開始・同調・録音します。重なる通過は短縮またはスキップされ、自分で起動した受信機には手を触れません。
 Priority (higher wins)	優先度(高い方が優先)
 Keep the SDR free every day	毎日SDRを空けておく
 from %d:00	%d:00から
 to %d:00	%d:00まで
-Nothing planned.	予定なし。
 planned	予定済み
 trimmed	短縮
 skipped: SDR reserved	スキップ: SDR予約中
@@ -2830,7 +2807,6 @@ Presets	プリセット
 Preview	プレビュー
 Programme type	番組タイプ
 Push to talk (hold the button)	プッシュトゥトーク（ボタンを押している間）
-Puts every setting below back to its default.	下のすべての設定を既定値に戻します。
 RDS	RDS
 RDS level	RDS レベル
 RF level	RF レベル
@@ -3601,11 +3577,9 @@ Pinned: never paused by the CPU limit	固定: CPU上限では一時停止され�
 Follow this signal's sound; it is never paused by the CPU limit	この信号の音声を追いかけます。CPU上限では一時停止されません
 Remove: a signal you added is taken away, a found one is switched off	削除: 追加した信号は取り除かれ、検出された信号はオフになります
 # Share on web: relay, listeners, server settings
-Share my radio	ラジオを共有する
 Connecting to the relay ...	リレーに接続中 ...
 Anyone with the link	リンクを知っている人なら誰でも
 Invite links only	招待リンクのみ
-Limits that protect your computer	コンピューターを守る制限
 Antenna (shown to listeners, optional)	アンテナ（リスナーに表示、任意）
 Listener limits	リスナーの制限
 While sharing	共有中
@@ -3631,7 +3605,6 @@ Most spectrum rows per second (0 = the default)	1秒あたりの最大スペク�
 Key file for that certificate	その証明書の鍵ファイル
 A certificate needs both files.	証明書には両方のファイルが必要です。
 Relay service address (only if you run your own relay)	リレーサービスのアドレス（自分のリレーを使う場合のみ）
-OnAir relay (recommended: no setup, no open ports)	OnAirリレー（推奨: 設定不要、ポート開放不要）
 Free Cloudflare tunnel (needs a small helper program, downloaded once)	無料のCloudflareトンネル（小さな補助プログラムが必要、初回のみダウンロード）
 Only my network (a phone on the same Wi-Fi)	自分のネットワークのみ（同じWi-Fiのスマートフォン）
 Password (8 characters or more)	パスワード（8文字以上）
@@ -3646,7 +3619,6 @@ invite links only	招待リンクのみ
 open to anyone with the link	リンクを知っている人なら誰でも
 with a password	パスワード付き
 no radio found	ラジオが見つかりません
-No radio found. Plug in a radio and press Refresh on the Radio and range tab, or pick the test signal.	ラジオが見つかりません。ラジオを接続し、「ラジオと範囲」タブで更新を押すか、テスト信号を選んでください。
 Join the OnAir Discord	OnAir の Discord に参加
 
 # Multi-radio trunking (trunk pool)
@@ -3796,3 +3768,17 @@ Show country and zone in decoded messages	デコードしたメッセージに�
 Load file...	ファイルを読み込む...
 Download from country-files.com	country-files.com からダウンロード
 Reset to built-in	内蔵テーブルに戻す
+Remove after: VDL2	削除までの時間: VDL2
+Remove after: ACARS	削除までの時間: ACARS
+Remove after: HFDL	削除までの時間: HFDL
+Remove after: ADS-B	削除までの時間: ADS-B
+Remove after: AIS	削除までの時間: AIS
+Remove after: UAT	削除までの時間: UAT
+Remove after: Inmarsat	削除までの時間: Inmarsat
+How long after it was last heard an entry stays in the list and on the map. Default is the rule of the mode; Never keeps everything.	最後に受信してから一覧と地図に残る時間。既定はモード自身の規則、なしはすべて保持します。
+Custom remove-after time (minutes)	カスタム削除時間(分)
+Used by every Remove after row set to Custom.	「カスタム」にした削除時間の行すべてで使います。
+Default	既定
+Custom	カスタム
+Join the Discord to get access to built codecs	Discord に参加してビルド済みコーデックを入手する
+Opens the OnAir Discord in your browser. OnAir itself never downloads or includes a codec.	ブラウザで OnAir の Discord を開きます。OnAir 自身がコーデックをダウンロードしたり同梱したりすることはありません。

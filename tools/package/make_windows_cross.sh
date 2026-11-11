@@ -21,12 +21,14 @@ if [ -z "$ONAIR_WIN_PARTIAL" ]; then
   for f in libusb-1.0 libstdc++-6 libgcc_s_seh-1 libwinpthread-1; do [ -f "$P/redist/$f.dll" ] || missing="$missing redist/$f.dll"; done
   [ -z "$missing" ] || { echo "error: not in $P:$missing"; echo "run tools/package/cross_deps_windows.sh first (or set ONAIR_WIN_PARTIAL=1 to package without them)"; exit 1; }
 fi
+# The RTL-SDR Blog V4 Lite needs librtlsdr 1.4.0 or later (#340): never package a prefix from before it
+if [ -f "$P/bin/librtlsdr.dll" ] && ! grep -aq "Blog V4L" "$P/bin/librtlsdr.dll"; then echo "error: $P/bin/librtlsdr.dll has no RTL-SDR Blog V4 Lite support: run tools/package/cross_deps_windows.sh"; exit 1; fi
 HAMLIB_CMAKE=OFF
 for f in "$P/bin"/libhamlib*.dll "$P/bin"/hamlib.dll; do [ -f "$f" ] && HAMLIB_CMAKE=ON && break; done
 TLS_CMAKE=OFF; [ -f "$P/lib/libssl.a" ] && TLS_CMAKE=ON || echo "warning: no OpenSSL in $P: onair-server is built without TLS (ONAIR_WIN_PARTIAL)"
 GEN=""; command -v ninja >/dev/null 2>&1 && GEN="-G Ninja"   # Ninja plus ccache (CMake picks it up) make a repeat build several times faster
 cmake --fresh $GEN -S . -B $BUILD "-DCMAKE_TOOLCHAIN_FILE=$PWD/packaging/windows/mingw-toolchain.cmake" -DCMAKE_BUILD_TYPE=Release -DDECT2_BUILD_APP=ON -DDECT2_BUILD_TESTS=ON -DDECT2_HAVE_HAMLIB=$HAMLIB_CMAKE -DDECT2_WITH_SOAPY=ON -DDECT2_WITH_TLS=$TLS_CMAKE -DOPENSSL_ROOT_DIR=$P -DOPENSSL_USE_STATIC_LIBS=TRUE -DONAIR_WIN_SOAPY=ON -DCMAKE_POLICY_VERSION_MINIMUM=3.5 >/dev/null
-cmake --build $BUILD -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc)" --target dect2 dect2cli dect2scan onair-server
+cmake --build $BUILD -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc)" --target dect2 dect2cli dect2scan onair-server onair-extcap
 OUT=${ONAIR_WIN_OUT:-$BUILD/OnAir-$VERSION-windows-x64}
 ZIP=${OUT%/}.zip
 SETUP=${OUT%/}-setup.exe
@@ -35,6 +37,7 @@ S=x86_64-w64-mingw32-strip
 $S -o "$OUT/OnAir.exe" $BUILD/dect2.exe
 $S -o "$OUT/onair-cli.exe" $BUILD/dect2cli.exe
 $S -o "$OUT/onair-scan.exe" $BUILD/dect2scan.exe
+$S -o "$OUT/onair-extcap.exe" $BUILD/onair-extcap.exe   # Wireshark capture interface (docs/WIRESHARK-3.8.md)
 $S -o "$OUT/onair-server.exe" $BUILD/onair-server.exe   # the headless server (OnAir Web)
 [ -f "$OUT/onair-server.exe" ] || { echo "error: onair-server.exe is missing from $OUT"; exit 1; }
 mkdir -p "$OUT/web"; cp -R web/onair-web "$OUT/web/"   # the OnAir Web browser page (onair-server.exe looks in web\\onair-web next to it)
@@ -84,6 +87,8 @@ done
 python3 tools/package/scrub_paths.py "$OUT"   # no build-machine paths in the shipped files
 tools/package/check_win_dlls.sh "$OUT" || { echo "error: the DLLs of $OUT do not fit together (see above)"; exit 1; }
 cp LICENSE "$OUT/LICENSE.txt"
+# the camera stub (CMake found no libavdevice): the program would list no camera, as in the releases up to now
+if strings "$OUT/OnAir.exe" | grep -q "this build has no camera / capture-card support"; then echo "error: OnAir.exe has no camera support (libavdevice missing in $P: rerun cross_deps_windows.sh)"; exit 1; fi
 tools/package/check_lgpl_bundle.sh "$OUT/OnAir.exe" || exit 1   # fails if FFmpeg inside is a GPL build
 tools/package/check_lgpl_bundle.sh "$OUT/onair-server.exe" || exit 1
 tools/package/add_license_files.sh "$OUT"   # THIRD_PARTY.md, LICENSES/, LICENSE-NOTICES-BINARIES.md (licence of every bundled DLL, source offer)

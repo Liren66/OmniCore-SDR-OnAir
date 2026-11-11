@@ -1,6 +1,7 @@
 // Zigbee / IEEE 802.15.4 monitor telemetry, shared by the receiver and the UI.
 // The first members are copied into RxTelemetry (history plot, top bar): keep them and their meaning.
 #pragma once
+#include "dect2/map/mesh_topology.h"
 #include <cstdint>
 #include <cstdio>
 #include <string>
@@ -19,6 +20,8 @@ struct ZbPan {
     int channel = 0;                   // 11 - 26, 0 unknown (a file)
     std::string extPan;                // from a Zigbee beacon, "" when none heard
     std::string coordinator;           // the address of the PAN coordinator (beacon source, or 0x0000)
+    std::string networkName;           // Thread mode: the network name of a Thread beacon (not saved in the results file)
+    int threadVersion = -1;            // Thread mode: the version of that beacon
     bool zigbee = false;               // a Zigbee beacon or NWK header was seen
     bool joinOpen = false;             // the last beacon allowed association
     int stackProfile = -1;
@@ -82,6 +85,7 @@ struct ZigbeeTelemetry {
     std::vector<ZbPan> pans;           // most recently heard first
     std::vector<ZbDevice> devices;     // most recently heard first
     std::vector<ZbFrame> log;          // newest first, at most kZbLogMax
+    TopoSnapshot topo;                 // the mesh of each PAN: links, routers, single points of failure (refreshed about once a second)
 };
 
 inline std::string zigbeeSummary(const ZigbeeTelemetry& t) {

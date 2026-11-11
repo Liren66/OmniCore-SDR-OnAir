@@ -55,6 +55,8 @@ npx wrangler deploy        # routes: map.on-air.dev custom domain (wrangler.json
 
 ## 5. Deploy the relay (relay.on-air.dev, *.relay.on-air.dev)
 
+Alternative without a VPS: the Cloudflare Worker in `web/relay-worker/` (same protocol, addresses `https://<label>-r.on-air.dev/`, no wildcard certificate needed). Deploy steps and costs: docs/CF-RELAY-3.8.md.
+
 Needs a small Linux VPS (1 vCPU, 512 MB is plenty to start) with a public IPv4, Node 20+, and the domain on Cloudflare. Not deployed by any script. Run `cd relay && npm test` first.
 
 1. DNS (Cloudflare): `A relay` -> the VPS address, `A *.relay` -> the same address. Orange cloud (proxied) is fine for both and gives TLS for free; the wildcard `*.relay.on-air.dev` is NOT covered by the free universal certificate (it covers only one label), so either buy Advanced Certificate Manager for `*.relay.on-air.dev`, or use grey cloud (DNS only) and let Caddy issue the wildcard (step 3).
@@ -93,6 +95,44 @@ Needs a small Linux VPS (1 vCPU, 512 MB is plenty to start) with a public IPv4, 
 5. Real test: on a computer, `onair-server --web --device test` with `web_relay=1`; the Share window (or `web_relay_status.json`) must say online with an `https://<label>.relay.on-air.dev/` address; open it from a phone on mobile data.
 6. Ban: `curl -X POST -H "Authorization: Bearer $RELAY_ADMIN_TOKEN" -d '{"id":"onair-..."}' https://relay.on-air.dev/relay/v1/admin/ban` (in memory; put permanent bans in `RELAY_BAN_IDS` / `RELAY_BAN_IPS`). Update: copy the new `relay.js`, `sudo systemctl restart onair-relay` (hosts reconnect by themselves within seconds). Logs: `journalctl -u onair-relay` (server ids only, no traffic).
 7. Public list on web.on-air.dev (optional, later): the directory page can read `https://relay.on-air.dev/api/v1/servers` (CORS open); not wired into the directory Worker yet.
+
+## 5b. What release 3.7 changes, and what must be deployed for it
+
+State of the live site on 2026-11-09 (read with plain GET requests only):
+* `https://web.on-air.dev` runs an older page than `web/onair-directory/public/` (`index.html` 14244 bytes live, 16724 in the repo; `app.js` 10881 live, 26146 in the repo). The API is the same (`/api/v1/health`, `/api/v1/servers`, `/api/v1/heartbeat`), and the list is empty.
+* `relay.on-air.dev` does not exist (the name does not resolve). This is why sharing has failed for almost everyone: the Share window defaulted to the relay, and without a separately installed `cloudflared` the start ended with "The OnAir relay did not answer".
+
+Nothing below has been deployed; each step needs the owner's OK.
+
+| Item | Change | Needed for |
+| --- | --- | --- |
+| Directory Worker `web/onair-directory/src/` | `validateUrl(url, devLocal)` and `ONAIR_DEV_LOCAL`: a local-test-only path. Production behaviour is unchanged while the variable is unset (it is not in `wrangler.jsonc`) | Nothing user-visible; ship it so the deployed code matches the repo |
+| Directory page `web/onair-directory/public/` | the current page, restyled (already in the repo before this work) | Visitors see the current list page |
+| Directory schema `schema.sql` | No change. No migration | |
+| Relay `relay/relay.js` | new optional `RELAY_SCHEME`, `RELAY_PUBLIC_PORT` (for local tests). First deploy of the service | Stable links (same address every time) |
+| Browser client `web/onair-web/` | control-slot button, listener count refresh | Ships with the app; nothing on Cloudflare |
+
+Deploy, in this order:
+
+```
+# 1. the directory
+cd web/onair-directory && npm install && npm test
+npx wrangler deploy
+curl -s https://web.on-air.dev/api/v1/health
+curl -s 'https://web.on-air.dev/api/v1/servers?limit=3' | head -c 300
+# 2. the relay (first time: section 5 of this file, a small VPS and a wildcard certificate for *.relay.on-air.dev)
+cd relay && npm test     # then copy relay.js as in section 5, step 2
+curl -s https://relay.on-air.dev/relay/v1/status    # {"v":1,"ok":true}
+curl -s https://nothing.relay.on-air.dev/ | head -c 200   # "This radio is offline"
+```
+
+How the released 3.6 app behaves against this:
+* Directory: 3.6 speaks the same heartbeat protocol (v1), signing unchanged. Its listings keep working before and after the deploy.
+* Relay: 3.6 tries `wss://relay.on-air.dev/relay/v1/host` by default. Today it finds nothing and falls back to a Cloudflare tunnel if `cloudflared` is present. Once the relay is deployed, 3.6 users get a working link with no update. 3.7 does not need the relay: its default falls back automatically.
+* Browser pages come from each host's own OnAir version, so a 3.6 host keeps serving the 3.6 page; a 3.7 host serves the page with the control-slot button. 3.6 hosts do not send `welcome.control`; the page handles that (no button). Older client pages ignore `control` messages, because unknown server messages are ignored.
+* `web_password` (plain, older settings files) is still read; the 3.7 window stores only `web_password_hash`.
+
+Rollback: `npx wrangler rollback` (directory); stop the relay service (apps fall back to the tunnel).
 
 ## 6. After deploying
 

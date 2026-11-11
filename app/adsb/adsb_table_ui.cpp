@@ -5,6 +5,7 @@
 #include "../panels/photo_links_ui.h"
 #include "adsb_internal.h"
 #include "adsb_acars.h"
+#include "dect2/aero/aero_adsc.h"
 
 using namespace adsbui;
 
@@ -53,6 +54,17 @@ void displayControls() {
     if (ImGui::Checkbox(tr("Labels on the map"), &S.disp.labels)) ch = true;
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("The callsign, altitude and speed boxes beside the aircraft. Off: cleaner in crowded areas; the selected aircraft still shows its box."));
     ImGui::SetNextItemWidth(140 * gUi);
+    if (ImGui::SliderInt(tr("Label text size (%)"), &S.disp.labelScale, ad::kMinLabelScale, ad::kMaxLabelScale)) { S.disp.labelScale = ad::clampLabelScale(S.disp.labelScale); ch = true; }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("The size of the text in the boxes beside the aircraft on the map. 100 is the normal size."));
+    {
+        bool f1 = S.disp.labelFields & 1, f2 = S.disp.labelFields & 2, f4 = S.disp.labelFields & 4;
+        ImGui::TextDisabled("%s", tr("Show in the label"));
+        if (ImGui::Checkbox(tr("Altitude and speed"), &f1)) ch = true;
+        if (ImGui::Checkbox(tr("Squawk and category"), &f2)) ch = true;
+        if (ImGui::Checkbox(tr("Registration and operator"), &f4)) ch = true;
+        S.disp.labelFields = (f1 ? 1 : 0) | (f2 ? 2 : 0) | (f4 ? 4 : 0);
+    }
+    ImGui::SetNextItemWidth(140 * gUi);
     if (ImGui::SliderInt(tr("Track width (px)"), &S.disp.trackWidth, ad::kMinTrackWidth, ad::kMaxTrackWidth)) { S.disp.trackWidth = ad::clampTrackWidth(S.disp.trackWidth); ch = true; }
     bool never = S.disp.dropSec == 0;
     if (ImGui::Checkbox(tr("Never drop silent aircraft"), &never)) { S.disp.dropSec = never ? 0 : ad::kDefaultDropSec; ch = true; }
@@ -64,7 +76,7 @@ void displayControls() {
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("An aircraft that has not been heard for this long leaves the table and the map. Never keeps them until the list is cleared (the table holds at most 2000)."));
     if (ch) {
         plat::Prefs& p = plat::prefs();
-        p.setB(ad::kPrefAltColour, S.disp.altColour); p.setB(ad::kPrefLabels, S.disp.labels); p.setI(ad::kPrefTrackWidth, S.disp.trackWidth); p.setI(ad::kPrefDropSec, S.disp.dropSec);
+        p.setB(ad::kPrefAltColour, S.disp.altColour); p.setB(ad::kPrefLabels, S.disp.labels); p.setI(ad::kPrefLabelScale, S.disp.labelScale); p.setI(ad::kPrefLabelFields, S.disp.labelFields); p.setI(ad::kPrefTrackWidth, S.disp.trackWidth); p.setI(ad::kPrefDropSec, S.disp.dropSec);
         p.flush();
     }
     ImGui::EndPopup();
@@ -222,7 +234,7 @@ static void acarsLogSection(const App& a, const AdsbAircraft& ac) {
     ImGui::EndChild();
 }
 
-void detail(const App& a) {
+void detail(App& a) {
     // the readout of the selected aircraft is refreshed once a second and always has the same rows, so that it does not jump about
     static AdsbAircraft shown; static bool have = false; static double at = 0; static uint32_t of = 0;
     const AdsbTelemetry& t = a.rx.adsb;
@@ -232,6 +244,12 @@ void detail(const App& a) {
     const double now = ImGui::GetTime();
     if (!have || of != cur->icao || now - at > 1.0) { shown = *cur; have = true; of = cur->icao; at = now; }
     const AdsbAircraft* ac = &shown;
+    if (ac->hasPos && ImGui::SmallButton(tr("Listen on airband"))) {   // E15: opens Airband on the nearest airport's Tower / Approach / Centre
+        std::string what;
+        if (airbandListenAt(a, ac->lat, ac->lon, ac->hasAlt ? ac->altFt : 10000, what)) firstStartSay(what);
+        else firstStartSay(tr("No airport with airband frequencies near this aircraft."));
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Switches this receiver to Airband, tuned to the nearest airport. The channel is a best guess from the aircraft's height and position."));
     auto kv = [&](const char* k, const std::string& v) { ImGui::TextDisabled("%s", k); kvColumn(96 * gUi); ImGui::PushFont(a.mono, 0); ImGui::PushTextWrapPos(0); ImGui::TextUnformatted(v.c_str()); ImGui::PopTextWrapPos(); ImGui::PopFont(); };
     char b[96];
     kv("ICAO", icaoText(ac->icao) + (ac->icao >> 24 ? " (not ICAO)" : ""));
@@ -279,16 +297,53 @@ void detail(const App& a) {
     kv("wind", b);
     if (ac->hasSat) snprintf(b, sizeof b, "%+.0f C %s", ac->satC, ac->satDerived ? "derived" : "reported"); else snprintf(b, sizeof b, "-");
     kv("SAT", b);
+    {   // operational status (TC 31) and velocity quality (TC 19)
+        std::string o;
+        auto flag = [&](const char* n, int v) { if (v >= 0) o += std::string(o.empty() ? "" : ", ") + n + (v ? " yes" : " no"); };
+        flag(tr("ACAS"), ac->capAcas); flag(tr("1090 In"), ac->cap1090In); flag(tr("UAT In"), ac->capUatIn); flag(tr("RA active"), ac->raActive); flag(tr("IDENT"), ac->identOn); flag(tr("ATC services"), ac->atcSvc);
+        if (ac->nacv >= 0) o += std::string(o.empty() ? "" : ", ") + "NACv " + std::to_string(ac->nacv);
+        if (ac->lengthCode >= 0) o += std::string(o.empty() ? "" : ", ") + tr("length/width code") + " " + std::to_string(ac->lengthCode);
+        if (!o.empty()) ImGui::TextDisabled("%s: %s", tr("Status"), o.c_str());
+    }
     if (ac->hasRa) {
         std::string ra = dect2::adsb::raText(ac->raAra, ac->raRac, ac->raTerminated);
         if (ac->raThreat) { snprintf(b, sizeof b, ", threat %06X", (unsigned)ac->raThreat); ra += b; }
         snprintf(b, sizeof b, " (%.0f s ago)", ac->raAgeSec); ra += b;
         ImGui::TextDisabled("ACAS RA"); kvColumn(96 * gUi); ImGui::TextColored(kWarn, "%s", ra.c_str());
     } else kv("ACAS RA", "-");
+    if (ac->trust >= 0) {
+        snprintf(b, sizeof b, "%d / 100", ac->trust);
+        ImGui::TextDisabled("%s", tr("trust")); kvColumn(96 * gUi);
+        if (ac->trust < 80) {
+            ImGui::TextColored(kWarn, "%s", b);
+            static const char* const why[] = {N_("much louder than aircraft at that range"), N_("much weaker than aircraft at that range"), N_("claimed position is beyond the radio horizon"),
+                                              N_("position jumps"), N_("claimed speed does not match the positions"), N_("registration callsign does not match the address"), N_("same callsign on another address far away")};
+            for (int i = 0; i < 7; i++) if (ac->trustFlags & (1u << i)) ImGui::TextWrapped("- %s", tr(why[i]));
+        }
+        else ImGui::TextUnformatted(b);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Checks what this aircraft claims against what the receiver can measure. A low score is a hint, not proof: a shaded antenna, ducting or a faulty transponder look similar."));
+    }
+    for (const auto& e : t.raEvents) {   // the conflict timeline of this aircraft: as the one manoeuvring or as the threat
+        if (e.icao != ac->icao && e.threat != ac->icao) continue;
+        std::string line = (e.icao == ac->icao ? std::string(tr("advisory")) : std::string(tr("threat to ")) + (e.callsign.empty() ? icaoText(e.icao) : e.callsign));
+        snprintf(b, sizeof b, " %.0f s ago, %.0f s long, %d updates", t.timeSec - e.lastSec, e.lastSec - e.startSec, e.updates); line += b;
+        if (e.icao == ac->icao && e.threat) line += ", " + (e.threatCallsign.empty() ? icaoText(e.threat) : e.threatCallsign);
+        if (e.hasSeparation) { line += ", " + uDist(e.separationNm, 1) + " " + au::distUnit(S.units); }
+        if (e.hasAlt && e.hasThreatAlt) { line += ", " + uAlt(std::abs(e.altFt - e.threatAltFt)) + " " + au::altUnit(S.units); }
+        ImGui::TextDisabled("%s", tr("conflict")); kvColumn(96 * gUi); ImGui::TextWrapped("%s", line.c_str());
+    }
     if (ac->emergency) snprintf(b, sizeof b, "state %d", ac->emergency); else snprintf(b, sizeof b, "none");
     kv("emergency", b);
     snprintf(b, sizeof b, "%u messages", ac->messages); kv("heard", b);
     snprintf(b, sizeof b, "%.0f dBFS", ac->levelDbfs); kv("level", b);
+    {   // the ADS-C contracts its operator and the ATC centres hold with it, from ACARS, VDL2, HFDL and Aero
+        const std::string reg = registrationOf(ac->icao);
+        if (!reg.empty()) for (const auto& c : dect2::AdscContractBook::get().contractsOf(reg)) {
+            static const char* const st[] = {N_("requested"), N_("acknowledged"), N_("refused"), N_("cancelled")};
+            ImGui::TextDisabled("ADS-C %s", c.ground.c_str()); kvColumn(96 * gUi);
+            ImGui::TextWrapped("%s (%s)", dect2::AdscContractBook::describe(c).c_str(), tr(st[c.state]));
+        }
+    }
     acarsLogSection(a, *ac);
     tx::voiceSection(a, ac->icao, ac->callsign, registrationOf(ac->icao));
 }

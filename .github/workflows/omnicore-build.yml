@@ -1,0 +1,114 @@
+name: OmniCore builds
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+jobs:
+  desktop:
+    name: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {platform: windows-x64, os: windows-2022, shell: 'msys2 {0}'}
+          - {platform: linux-x86_64, os: ubuntu-24.04, shell: bash}
+          - {platform: macos-arm64, os: macos-15, shell: bash}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    env:
+      ONAIR_UPSTREAM_COMMIT: dcfb46cd57e5771125c93994ff492e8f0355a537
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/checkout@v4
+        with:
+          repository: Liren66/OmniCore-SDR-Host
+          ref: b4b4cf697491ab421bae5169694a5d00ea419197
+          path: build-release/omnicore-host-source
+          persist-credentials: false
+      - if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git make diffutils nasm curl tar xz file
+            mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf mingw-w64-ucrt-x86_64-rust mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-libiconv mingw-w64-ucrt-x86_64-libusb mingw-w64-ucrt-x86_64-hackrf mingw-w64-ucrt-x86_64-glfw
+      - if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ninja-build nasm libhackrf-dev libusb-1.0-0-dev libglfw3-dev libasound2-dev
+      - if: runner.os == 'macOS'
+        run: tools/release/retry.sh brew install cmake ninja pkg-config nasm hackrf libusb glfw hamlib openssl@3
+      - name: Prepare sources
+        run: |
+          set -eu
+          ver=$(grep -m1 -oE 'project\(OnAir VERSION [0-9.]+' CMakeLists.txt | awk '{print $3}')
+          echo "VERSION=$ver" >> "$GITHUB_ENV"
+          mkdir -p build-release/deps build-release/sources release
+          git -C build-release/omnicore-host-source archive --format=tar.gz HEAD > build-release/sources/OmniCore-Host-0.7.2-source.tar.gz
+          curl -fsSL --retry 4 https://ffmpeg.org/releases/ffmpeg-8.0.tar.xz -o build-release/deps/ffmpeg-8.0.tar.xz
+          python3 -c "import hashlib,pathlib; assert hashlib.sha256(pathlib.Path('build-release/deps/ffmpeg-8.0.tar.xz').read_bytes()).hexdigest()=='b2751fccb6cc4c77708113cd78b561059b6fa904b24162fa0be2d60273d27b8e'"
+      - uses: actions/cache@v4
+        id: ffmpeg
+        with:
+          path: build-release/deps/ffmpeg
+          key: ffmpeg8-${{ matrix.platform }}-${{ hashFiles('tools/package/build_ffmpeg_static.sh') }}
+      - if: steps.ffmpeg.outputs.cache-hit != 'true'
+        run: bash tools/package/build_ffmpeg_static.sh "$PWD/build-release/deps/ffmpeg" "$PWD/build-release/deps/ffmpeg-8.0.tar.xz"
+      - name: Restore Windows USB runtime
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $src='build-release/omnicore-host-source/third_party/driver'
+          $asset=Get-Content "$src/SOURCES.json" -Raw | ConvertFrom-Json | Where-Object name -eq 'libusbK-3.1.0.0-bin.7z'
+          $archive=Join-Path $env:RUNNER_TEMP $asset.name
+          Invoke-WebRequest $asset.url -OutFile $archive
+          if((Get-FileHash $archive).Hash -ne $asset.sha256){throw 'libusbK archive checksum mismatch'}
+          7z x -y $archive "-o$src/libusbK-3.1.0.0" *> $null
+          if($LASTEXITCODE){throw 'libusbK extraction failed'}
+      - name: Build OmniCore Host
+        run: |
+          cmake -S build-release/omnicore-host-source -B build-release/omnicore-host -G Ninja -DCMAKE_BUILD_TYPE=Release -DOCH_BUILD_EXAMPLES=OFF
+          cmake --build build-release/omnicore-host --target omnicore --parallel 3
+      - if: runner.os == 'Windows'
+        run: |
+          BUILD_JOBS=4 bash tools/package/build_omnicore_windows.sh
+          python tools/package/package_omnicore_windows.py --host-source build-release/omnicore-host-source --host-build build-release/omnicore-host
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dir=(Resolve-Path release).Path
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DAppVersion=$env:VERSION" "/DReleaseDir=$dir" packaging/windows/omnicore.iss
+      - if: runner.os == 'Linux'
+        run: |
+          BUILD_JOBS=4 bash tools/package/build_omnicore_linux.sh
+          python3 tools/package/package_omnicore_linux.py
+      - if: runner.os == 'macOS'
+        env: {ONAIR_ALLOW_MISSING_RADIO_LIBS: '1'}
+        run: |
+          FFMPEG_PREFIX="$PWD/build-release/deps/ffmpeg" bash tools/package/make_dmg.sh "$VERSION"
+          codesign --verify --deep --strict build-release/OmniCore-SDR-OnAir.app
+          hdiutil verify build-release/*.dmg
+          cp build-release/*.dmg release/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OmniCore-SDR-OnAir-${{ matrix.platform }}
+          path: |
+            release/*.zip
+            release/*-setup.exe
+            release/*.tar.gz
+            release/*.dmg
+          if-no-files-found: error
+          retention-days: 30
+  android:
+    uses: ./.github/workflows/android.yml
+    with: {native: true}

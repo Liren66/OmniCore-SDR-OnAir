@@ -86,8 +86,11 @@ public:
     // Group and subscriber IDs of the call in this slot (0 unknown). Zero for any call not known to be clear: an encrypted call keeps no IDs.
     void slotIds(int tn, double nowSec, uint32_t& talkgroup, uint32_t& issi) const;
 private:
-    struct Entry { bool valid = false; int callId = 0, enc = -1; double t = 0; int gssi = -1, issi = -1; };
+    struct Entry { bool valid = false; int callId = 0, enc = -1; bool encSeen = false; double t = 0; int gssi = -1, issi = -1; };
     Entry slot_[4];
+public:
+    FragReassembler frag_[5];     // MAC-FRAG / MAC-END of each downlink timeslot (index 1 - 4; 0 for frames not tied to one)
+private:
     int mainCarrier_ = -1;
 };
 
