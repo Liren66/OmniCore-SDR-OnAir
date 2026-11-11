@@ -23,10 +23,12 @@ This is an independent fork of OnAir with native OmniCore SDR integration, inclu
 | 发布包 | 平台 | OmniCore 功能 |
 | --- | --- | --- |
 | `OmniCore-SDR-OnAir-3.8.0-windows-x64.zip` | Windows x64 | RX / TX / 全双工 |
+| `OmniCore-SDR-OnAir-3.8.0-windows-x64-setup.exe` | Windows x64 安装版 | RX / TX / 全双工 |
 | `OmniCore-SDR-OnAir-3.8.0-linux-x86_64.tar.gz` | Ubuntu 24.04 x86-64 | RX / TX / 全双工 |
+| `OmniCore-SDR-OnAir-3.8.0-macos-arm64.dmg` | macOS 15+，Apple Silicon | RX / TX / 全双工 |
 | `OmniCore-SDR-OnAir-3.8.0-android-arm64-v8a.apk` | Android 9+ ARM64，需 USB Host/OTG | USB RX |
 
-在 GitHub Actions 的 OmniCore builds 工作流中可下载各平台的构建产物。macOS 构建面向 Apple Silicon（arm64），DMG 包含 OmniCore Host 动态库。
+在 GitHub Actions 的 OmniCore builds 工作流中选择平台，或选择 `all` 同时构建四个平台。完成后可在运行页面的 Artifacts 下载。Android 工作流可生成未签名的 APK，覆盖安装已发布的应用需要使用原发布密钥签名。
 
 ## Windows 使用
 

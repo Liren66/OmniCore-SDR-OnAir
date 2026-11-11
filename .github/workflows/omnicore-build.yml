@@ -1,24 +1,28 @@
 name: OmniCore builds
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to build
+        type: choice
+        default: all
+        options: [all, windows-x64, linux-x86_64, macos-arm64, android]
 
 permissions:
   contents: read
 jobs:
   desktop:
+    if: inputs.platform != 'android'
     name: ${{ matrix.platform }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - {platform: windows-x64, os: windows-2022, shell: 'msys2 {0}'}
-          - {platform: linux-x86_64, os: ubuntu-24.04, shell: bash}
-          - {platform: macos-arm64, os: macos-15, shell: bash}
-    runs-on: ${{ matrix.os }}
+        platform: ${{ fromJSON(inputs.platform == 'all' && '["windows-x64","linux-x86_64","macos-arm64"]' || format('["{0}"]', inputs.platform)) }}
+    runs-on: ${{ fromJSON('{"windows-x64":"windows-2022","linux-x86_64":"ubuntu-24.04","macos-arm64":"macos-15"}')[matrix.platform] }}
     timeout-minutes: 240
     defaults:
       run:
-        shell: ${{ matrix.shell }}
+        shell: ${{ matrix.platform == 'windows-x64' && 'msys2 {0}' || 'bash' }}
     env:
       ONAIR_UPSTREAM_COMMIT: dcfb46cd57e5771125c93994ff492e8f0355a537
       MACOSX_DEPLOYMENT_TARGET: '15.0'
@@ -44,8 +48,13 @@ jobs:
             mingw-w64-ucrt-x86_64-libiconv mingw-w64-ucrt-x86_64-libusb mingw-w64-ucrt-x86_64-hackrf mingw-w64-ucrt-x86_64-glfw
       - if: runner.os == 'Linux'
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y ninja-build nasm libhackrf-dev libusb-1.0-0-dev libglfw3-dev libasound2-dev
+          list="$RUNNER_TEMP/onair-ubuntu.list"
+          options=(-o Dir::Etc::sourcelist="$list" -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=20)
+          for suite in noble noble-updates noble-security; do
+            echo "deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://archive.ubuntu.com/ubuntu $suite main universe" >> "$list"
+          done
+          sudo timeout 5m apt-get "${options[@]}" -o APT::Update::Error-Mode=any update
+          sudo timeout 5m apt-get "${options[@]}" install --no-install-recommends -y ninja-build nasm libhackrf-dev libusb-1.0-0-dev libglfw3-dev libasound2-dev
       - if: runner.os == 'macOS'
         run: tools/release/retry.sh brew install cmake ninja pkg-config nasm hackrf libusb glfw hamlib openssl@3
       - name: Prepare sources
@@ -110,5 +119,6 @@ jobs:
           if-no-files-found: error
           retention-days: 30
   android:
+    if: inputs.platform == 'all' || inputs.platform == 'android'
     uses: ./.github/workflows/android.yml
     with: {native: true}
