@@ -50,11 +50,18 @@ jobs:
         run: |
           list="$RUNNER_TEMP/onair-ubuntu.list"
           options=(-o Dir::Etc::sourcelist="$list" -o Dir::Etc::sourceparts=- -o Acquire::Retries=2 -o Acquire::https::Timeout=20)
-          for suite in noble noble-updates noble-security; do
-            echo "deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] https://archive.ubuntu.com/ubuntu $suite main universe" >> "$list"
+          for mirror in https://mirrors.edge.kernel.org/ubuntu https://mirror.math.princeton.edu/pub/ubuntu https://archive.ubuntu.com/ubuntu; do
+            if ! curl -fsSL --connect-timeout 5 --max-time 15 "$mirror/dists/noble/InRelease" -o /dev/null; then continue; fi
+            for suite in noble noble-updates noble-security; do
+              echo "deb [signed-by=/usr/share/keyrings/ubuntu-archive-keyring.gpg] $mirror $suite main universe"
+            done > "$list"
+            if sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY timeout 5m apt-get "${options[@]}" -o APT::Update::Error-Mode=any update &&
+               sudo --preserve-env=http_proxy,https_proxy,HTTP_PROXY,HTTPS_PROXY timeout 5m apt-get "${options[@]}" install --no-install-recommends -y ninja-build nasm libhackrf-dev libusb-1.0-0-dev libglfw3-dev libasound2-dev; then
+              exit 0
+            fi
           done
-          sudo timeout 5m apt-get "${options[@]}" -o APT::Update::Error-Mode=any update
-          sudo timeout 5m apt-get "${options[@]}" install --no-install-recommends -y ninja-build nasm libhackrf-dev libusb-1.0-0-dev libglfw3-dev libasound2-dev
+          echo "Could not install dependencies from a signed Ubuntu mirror" >&2
+          exit 1
       - if: runner.os == 'macOS'
         run: tools/release/retry.sh brew install cmake ninja pkg-config nasm hackrf libusb glfw hamlib openssl@3
       - name: Prepare sources
