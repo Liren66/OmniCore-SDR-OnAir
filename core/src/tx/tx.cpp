@@ -28,7 +28,9 @@
 #include "dect2/kavb/kavb_txgen.h"
 #include "dect2/kaws/kaws_txgen.h"
 #include "dect2/esubghz/esubghz_gen.h"
+#include "dect2/cp16/cp16_gen.h"
 #include "dect2/mesh/meshcore_tx.h"
+#include "dect2/winlink/wl_modem.h"
 #include "dect2/kaft/kaft_txgen.h"
 #include "dect2/nfc/nfc_tx.h"
 #include "dect2/engine/mode_tuning.h"
@@ -39,6 +41,7 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 }
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -209,7 +212,10 @@ std::vector<TxModeSpec> makeTxTable() {
         mk("kapp", "KAPP", 126, "makeKappTxGenerator (kapp::buildBurst: BPSK to 1024-QAM LDPC bursts of selective-repeat blocks, sent one-way and repeated)", "callsign, message text or a file, profile 0 to 8, passes", kUnv, 0, 250000, false, 125000),
         mk("kaft", "KAFT", 127, "makeKaftTxGenerator (kaft::buildBurst: OPEN, data frames of LDPC blocks with CRC-32, FINISH; one-way and repeated)", "callsign, file, width 200 kHz / 500 kHz / 1 MHz, profile 0 to 9, passes", kUnv, 0, 2.4e6, false, 250000),
         mk("kaws", "KAWS", 135, "makeKawsTxGenerator (kaws::buildBurst: HF weak-signal chat and beacon bursts of LDPC blocks in UTC slots, as upper-sideband audio IQ, sent one-way and repeated)", "callsign, grid, recipient, message text, kind chat / short beacon / full beacon, profile 0 to 5, passes", kUnv, 0, 12000, false, 12000),
+        mk("cp16", "CP16", 882, "makeCp16TxGenerator (16 on-off carriers from the text, as sideband IQ; the text is sent once)", "text, seconds a character, spacing, lowest carrier, sideband", "tests/cp16/test_cp16_all.cpp (loop-back through the receiver)"),
         mk("esubghz", "Flipper Zero Sub-GHz chat", 206, "makeEsubghzTxGenerator (CC1101 GFSK 9.99 kbaud, packets of 60 octets; the line is sent once)", "the text of one plain chat line; encrypted lines are sent from the mode's Chat screen", "tests/esubghz/test_esubghz_rx.cpp (generator into the receiver)", 0, 2e6, false, 200e3),
+        mk("winlinkpkt", "Winlink over packet (AX.25)", 26, "makeWinlinkTxGenerator (wl_modem.h: the AX.25 frames of the Winlink screen's session at 1200 or 9600 baud, once, then it ends)", "none here: the Winlink screen fills it (empty: one test frame)", "tests/winlink/test_winlink_modem.cpp (whole session through the generator and the receiver)"),
+        mk("winlinkardop", "Winlink over ARDOP", 142, "makeWinlinkTxGenerator (wl_modem.h: the ARDOP frames of the Winlink screen's session, once, then it ends)", "none here: the Winlink screen fills it (empty: one test frame)", "tests/winlink/test_winlink_modem.cpp (whole session through the generator and the receiver)"),
     };
 }
 }
@@ -316,6 +322,7 @@ TxPayloadKind txPayloadKind(const std::string& id) {
     if (id == "kaft") return TxPayloadKind::Kaft;
     if (id == "kaws") return TxPayloadKind::Kaws;
     if (id == "esubghz") return TxPayloadKind::Keyboard;   // one chat line of text
+    if (id == "cp16") return TxPayloadKind::Keyboard;      // the text to draw on the waterfall
     if (id == "meshcore") return TxPayloadKind::Keyboard;  // one Public channel line; the MeshCore screen sends the rest
     if (id == "vdl4" || id == "uat" || id == "wisun" || id == "zwave") return TxPayloadKind::SatScene;   // demo-traffic generators, no custom message
     return TxPayloadKind::SatScene;   // never a generic callsign dump; unknown ids are treated as a test scene
@@ -347,7 +354,7 @@ std::string txVocoderNote(const TxModeSpec& m) {
     return {};
 }
 
-bool txModeFinite(const TxModeSpec& m) { return m.id && (std::string(m.id) == "kapp" || std::string(m.id) == "kaft" || std::string(m.id) == "kavb" || std::string(m.id) == "kaws" || std::string(m.id) == "esubghz" || std::string(m.id) == "meshcore"); }
+bool txModeFinite(const TxModeSpec& m) { return m.id && (std::string(m.id) == "kapp" || std::string(m.id) == "kaft" || std::string(m.id) == "kavb" || std::string(m.id) == "kaws" || std::string(m.id) == "esubghz" || std::string(m.id) == "cp16" || std::string(m.id) == "meshcore" || std::string(m.id) == "winlinkpkt" || std::string(m.id) == "winlinkardop"); }
 
 bool txModeNeedsAudio(const TxModeSpec& m, const TxRequest& r) {
     if (r.carrierTune) return false;
@@ -644,11 +651,42 @@ static SynthConfig cleanSynth(const SynthConfig& c, int stdMode) {
 
 double txModeTuneOffsetHz(const TxModeSpec& m) {
     switch (m.stdMode) {   // their own generators: the frequency plan is theirs (KAAL, KAVB, KAPP, KAFT, KAWS, KAIT, NFC, Flipper Sub-GHz)
-    case 124: case 125: case 126: case 127: case 135: case 133: case 150: case 206: return 0;
+    case 124: case 125: case 126: case 127: case 135: case 133: case 150: case 206: case 882: return 0;
     default: break;
     }
     const ModeTuning* mt = modeTuning(m.stdMode);
     return mt ? mt->tuneOffsetHz : 0;
+}
+
+// The Multiplex services whose source is a Digital video generator (#492): their live streams remuxed into one multiplex, each its own
+// programme (ts_remux.h). Empty when no service names a generator. The other services are not in it (they are encoded test cards).
+static std::function<void(uint8_t*)> generatorMux(const TxRequest& r, double br) {
+    std::vector<int> ids;
+    std::vector<std::string> names;
+    int others = 0;
+    for (const auto& p : r.mux) {
+        if (p.generator > 0) { ids.push_back(p.generator); names.push_back(p.name); }
+        else others++;
+    }
+    if (ids.empty()) return {};
+    auto src = vgen::generatorMuxSource(ids, names, r.provider, r.serviceId > 0 ? r.serviceId : 1, br);
+    if (!src) return {};
+    double sum = 0;
+    std::string list, idle;
+    for (int id : ids) {
+        const double g = vgen::generatorRate(id);
+        sum += g;
+        list += (list.empty() ? "" : ", ") + std::to_string(id);
+        if (g <= 0) idle += (idle.empty() ? "" : ", ") + std::to_string(id);
+    }
+    std::array<char, 64> b{};
+    snprintf(b.data(), b.size(), "%.2f of %.2f Mbit/s", sum / 1e6, br / 1e6);
+    std::string note = "multiplex of video generators " + list + " (live, each its own programme): the running ones use " + b.data();
+    if (sum > br * 0.98) note += ". Too much for this channel: lower their mux rates, or pictures will break up";
+    if (!idle.empty()) note += ". Not running yet: " + idle + " (they join when started with Output: Transmitter)";
+    if (others > 0) note += ". " + std::to_string(others) + " service(s) without a generator are left out";
+    const_cast<TxRequest&>(r).fileNote = note;
+    return src;
 }
 
 std::unique_ptr<TxGenerator> makeTxGenerator(const TxModeSpec& m, const TxRequest& r, double rateHz, std::string& err) {
@@ -657,7 +695,9 @@ std::unique_ptr<TxGenerator> makeTxGenerator(const TxModeSpec& m, const TxReques
     if (m.stdMode == 127) return makeKaftTxGenerator(r, rateHz > 0 ? rateHz : m.nominalRateHz, err);   // KAFT: its own file transmitter at the radio's rate
     if (m.stdMode == 124) return makeKaalTxGenerator(r, rateHz > 0 ? rateHz : m.nominalRateHz, err);   // KAAL: its own transmitter chain at the radio's rate
     if (m.stdMode == 135) return makeKawsTxGenerator(r, rateHz > 0 ? rateHz : m.nominalRateHz, err);   // KAWS: HF chat / beacon bursts as upper-sideband IQ at the radio's rate
+    if (m.id && (std::string(m.id) == "winlinkpkt" || std::string(m.id) == "winlinkardop")) return winlink::makeWinlinkTxGenerator(r, rateHz > 0 ? rateHz : m.nominalRateHz, err);   // Winlink: one burst of link frames, then it ends
     if (m.id && std::string(m.id) == "meshcore") return makeMeshCoreTxGenerator(r, rateHz > 0 ? rateHz : m.nominalRateHz, err);   // MeshCore: the node's frames once, then it ends
+    if (m.stdMode == 882) return makeCp16TxGenerator(r, rateHz > 0 ? rateHz : m.nominalRateHz, err);   // CP16: the text once, as sideband IQ
     if (m.stdMode == 206) return makeEsubghzTxGenerator(r, rateHz > 0 ? rateHz : m.nominalRateHz, err);   // Flipper Zero Sub-GHz chat: one message, then it ends
     if (m.stdMode == 133) return makeKaitTxGenerator(r, rateHz > 0 ? rateHz : m.nominalRateHz, err);   // KAIT: a picture burst at the radio's rate
     if (m.stdMode == 150) return makeNfcReaderTxGenerator(r, rateHz > 0 ? rateHz : m.nominalRateHz, err);   // NFC active reader: 100% ASK Miller on a continuous 13.56 MHz carrier (Phase 2, gated)
@@ -685,6 +725,7 @@ std::unique_ptr<TxGenerator> makeTxGenerator(const TxModeSpec& m, const TxReques
     };
     auto namedTs = [&](std::function<void(uint8_t*)> file, double br) {
         if (file) return file;
+        if (auto gm = generatorMux(r, br > 1e6 ? br : 20e6)) return gm;
         return demoTsSource(br > 1e6 ? br : 20e6, ident(r));
     };
     if (m.stdMode == 0) {
@@ -1155,7 +1196,7 @@ void TxSession::generatorLoop() {
             gen_->generate(blk.data(), n);
             txOutputStage(req_, blk.data(), n, made, rate_);
             if (limit != ~0ull) {   // one pass or the timeout: the same raised-cosine fade at the end, so that the key-down does not click either
-                const uint64_t fade = (uint64_t)(std::max(0.0, req_.o("out.rampMs", kTxDefaultRampMs)) * 1e-3 * rate_);
+                const uint64_t fade = (uint64_t)(std::min(500.0, std::max(0.0, req_.o("out.rampMs", kTxDefaultRampMs))) * 1e-3 * rate_);   // a long soft start does not make a long key-down
                 for (size_t i = 0; i < n; i++) {
                     const uint64_t left = limit - (made + i);   // samples still to come, this one included (>= 1)
                     if (left <= fade) blk[i] *= 0.5f - 0.5f * (float)std::cos(math::kPi * (double)(left - 1) / (double)fade);

@@ -75,6 +75,7 @@
 using namespace dect2;
 
 #include "gfx/waterfall.h"
+#include "gfx/zoom_detail.h"
 #include "vfo/vfo_state.h"
 
 extern std::string gForceTab;
@@ -155,7 +156,7 @@ using SavedChannel = plat::Channel;
 // parts of the window the tour points at
 enum WizTarget { TgNone = 0, TgSwitch, TgToolbar, TgMain, TgRight, TgConst, TgCount };
 
-constexpr int kNumFamilies = 601;   // App::family runs from 0 to kNumFamilies - 1
+constexpr int kNumFamilies = 900;   // App::family runs from 0 to kNumFamilies - 1
 constexpr int kShortwaveFamily = 212;   // Shortwave (engine standard 213): the general receiver with one-click HF decoders
 // The two modes that listen with the General receiver's screen (app/general): the General receiver and Shortwave
 inline bool isGeneralFamily(int f) { return f == 55 || f == kShortwaveFamily; }
@@ -197,6 +198,7 @@ struct App {
     bool surpriseReq = false;           // Surprise me (the command palette, My station): handled once per request by stationWindow
     bool stationOpen = false;           // My station window (View > My station; app/panels/station_ui.cpp)
     bool heardOpen = false;             // Search everything heard (View > Search everything; app/panels/heard_ui.cpp)
+    bool insightOpen = false;           // Insights (View > Insights; app/panels/insight_ui.cpp): who hears me, talkgroup activity, trunk load, automatic pages, overdue broadcasts
     bool doctorOpen = false;            // the Reception Doctor window (View > Reception doctor; app/panels/doctor_ui.cpp)
     bool stationHealthOpen = false;     // the station health report window (View > Station health; app/panels/station_health_ui.cpp)
     bool sweepOpen = false;             // the sweep scanner window (View > Sweep scanner)
@@ -331,6 +333,8 @@ struct App {
     bool sideCollapsed = false;   // Unified layout: the left controls panel is a thin icon rail
     int uniSide = 0;              // Unified layout on a wide window: 0 automatic, 1 spectrum above, 2 spectrum on the left
     std::string uniSplit;         // Unified layout: per mode "family=share,collapsed;..." (remembered splitter positions)
+    bool fitPanels = true;        // View > Fit panels to their content: the sidebar layout sizes the list and the lower row to what they show (ui/overview_layout.h)
+    std::string panelSizes;       // per mode "family=rightW,bottomH;..." in unscaled points (0 = automatic): the sizes dragged in that layout
     std::string uiLang;       // the interface language chosen in View > Language ("de", "lt" ...), empty: the system's
     int dtmbBwMhz = 8;        // DTMB channel width: 8 MHz (China, Hong Kong), 6 MHz (Cuba)
     bool dtmbAuto = true;     // DTMB: the channel width is measured from the spectrum; picking one below turns it off
@@ -372,6 +376,7 @@ struct App {
     std::string mapServer;                        // empty: https://map.on-air.dev (a local worker URL for developers)
     bool wiresharkOpen = false;   // View > Wireshark (app/wirecap/wireshark_ui.cpp)
     bool feedsOpen = false;   // View > Data feeds: the window (feeds_ui.cpp)
+    bool echolinkOpen = false;   // Tools > EchoLink: the window (app/echolink/echolink_ui.cpp)
     bool swarmOpen = false;   // View > LAN swarm: the window (swarm_ui.cpp)
     bool integrationsOpen = false;   // View > Integrations: MQTT, webhook and JSON-lines output of decoded events (app/integrations)
     bool ssbConvOpen = false;      // View > Conversations: SSB voice found on the span, organised into conversations (ssbconv_ui.cpp)
@@ -466,7 +471,7 @@ struct App {
     float holdDecay = 4.5f;             // dB a second the max-hold line falls (0: it stays until it is reset)
     float specAvgSec = 0.08f;           // time constant of the averaged trace in seconds (0: the raw frames)
     bool specLabels = true; int specLabelMask = 63;   // names drawn on the spectrum and the waterfall (gfx/autolabel.cpp); the mask: which sources (band plan, frequency database, FM, DAB, DVB, memories)
-    int specFft = 0;           // spectrum FFT size: 0 = automatic from the sample rate (8192..32768 bins), else 4096..262144 (#243)
+    int specFft = 0;           // spectrum FFT size: 0 = automatic from the sample rate (8192..65536 bins), else 4096..1048576 (#243; 1M since 4.0)
     int traceColor = 0;        // the trace colour (cmap::kTracePresets; 0: soft white, dark grey on a light theme)
     int holdColor = -1;        // the max-hold line: -1 the usual grey, else a trace preset
     bool minHold = false;      // a min-hold line too (the floor under the signals; it rises back at the hold decay)
@@ -497,6 +502,16 @@ struct App {
     bool specSmoothZoom = true;// the wheel zoom eases in over a few frames
     int specSnapHz = 0;        // a click tunes to a multiple of this (0: the mode's own step)
     bool wfLowPass = false;    // the waterfall's 2D noise reduction (off by default)
+    // 4.0 display resolution (docs/WATERFALL-4.0.md): the zoom spectrum (a bin per pixel when zoomed in; on by default), its bin cap, the
+    // window of the display transforms (specwin::Type), the overlap of long transforms (-1: automatic), the resolution readout, and the
+    // old soft look (levels interpolated between bins, the waterfall stretched) for those who want it back
+    bool specZoomFft = true;
+    int specZoomMaxBins = 65536;
+    int specWindow = 0;
+    float specOverlap = -1.f;
+    bool specResReadout = true;
+    bool wfSoft = false;
+    zdet::ZoomDetail zd;       // the zoom spectrum's trace lines and waterfall rows (gfx/zoom_detail.h)
     bool specDemo = false;     // --specdemo: a synthetic spectrum (FM carriers, an OFDM block, an SSB voice) for screenshots
     double specLastT = 0;               // when the last spectrum frame came in
     ImFont* mono = nullptr;
@@ -726,7 +741,7 @@ void keepWindowsReachable();
 // SetNextWindowSize(..., ImGuiCond_FirstUseEver) with the size made to fit the display (a large window at 150 % on a laptop screen)
 void firstWindowSize(float w, float h);
 // a button that only acts while the receiver runs: greyed out (with the reason as its tooltip) while it is stopped, instead of doing nothing
-bool runningButton(const App& a, const char* label, bool small = false);
+bool runningButton(const App& a, const char* label, bool compact = false);
 // a panel that answers Space itself (the TV picture, the transmitter) sets this to the frame number; the new interface's Space = start /
 // stop the receiver is then left out, so one key press does not do two things (widgets.cpp)
 extern int gSpaceClaimFrame;
@@ -758,6 +773,7 @@ std::string adsbTypeOfIcao(uint32_t icao);          // adsb_ui.cpp: the aircraft
 std::string adsbDistText(double nm);               // adsb_ui.cpp: a distance in the units chosen for ADS-B (NM or km), no unit
 const char* adsbDistUnit();                         // its unit
 double receiverAltitudeM();                         // its height above sea level, metres (0 until set)
+bool sondeChasePosition(double& lat, double& lon, double& altM);   // sonde_chase_ui.cpp: the live GPS position of a moving receiver (chase car), false without a fix
 void receiverLocationClear(App& a, double lat, double lon);   // adsb_ui.cpp: undo an automatic position: the old value, reported as not set
 void setReceiverLocation(App& a, double lat, double lon);   // move it (saved), e.g. View > Map's "Use as my location"
 void syncAdsbReference(App& a);                              // push antenna position into the ADS-B tracker while that mode is running
@@ -832,6 +848,18 @@ void passesDownloadTles();                          // passes_ui.cpp: fetch the 
 bool wideAllWorthIt(const App& a);                   // the capture is wide enough to hold several signals (or it is on already)
 void wideAllButton(App& a);                          // the one button of it (Simple views and the window)
 void rfFingerprintWindow(App& a);                   // rffp_ui.cpp: RF fingerprint of a transmitter, carrier-only log (a.rfFpOpen; docs/RF-FINGERPRINT.md)
+void insightWindow(App& a);                         // insight_ui.cpp: View > Insights, and the analysers' tick (called every frame)
+void insightFeedFtx(double slotUtc, double dialHz, const std::string& msg, float snr);   // insight_ui.cpp: an FT8 / FT4 / JS8 decode for who hears me and the antenna pattern
+bool wmbusIsMine(const std::string& meterKey);       // insight_ui.cpp: the wM-Bus meters the user marked as their own (leak check)
+void wmbusSetMine(const std::string& meterKey, bool mine);
+std::string insightBustedHint(const std::string& call, std::string* why);
+bool insightPagerAutomatic(const char* protocol, uint32_t address);   // insight_ui.cpp: the capcode sends automatic or test pages (the pager view's hide switch)   // insight_ui.cpp: the call a decoded one is probably a busted copy of, "" if none   // insight_ui.cpp: an FT8 / FT4 / JS8 decode for who hears me and the antenna pattern
+// app/smart5: the round-5 smart cards in the mode screens (docs/SMART5-UI-3.9.md); fed every frame by smart5Tick (from insightWindow)
+void smart5FmCard(App& a); void smart5AmCard(App& a); void smart5DabCard(App& a); void smart5DrmCard(App& a); void smart5HdCard(App& a);
+void smart5TvCard(App& a); void smart5DvbsCard(App& a); void smart5AtvCard(App& a);
+void smart5WxPassCard(App& a); void smart5GeoCard(App& a); void smart5LbandCard(App& a); void smart5CubeCard(App& a);
+void wmbusMineTick(App& a); void wmbusMineView(App& a);   // app/wmbus/wmbus_mine_ui.cpp: the user's own meters (use per hour and day)
+void smart5GnssCard(App& a); void smart5AstroCard(App& a); void smart5SidCard(App& a); void smart5MeteorCard(App& a);
 void heardWindow(App& a);                           // heard_ui.cpp: one box for a call sign, ICAO, MMSI or frequency over every mode's history
 void stationWindow(App& a);                         // station_ui.cpp: My station, radios and antennas entered once (a.stationOpen; docs/STATION-3.8.md)
 void stationAntennaFor(const App& a, bool& known, bool& forBand);   // station_ui.cpp: for the doctor's coach: is an antenna entered, and does one suit the tuned frequency
@@ -947,7 +975,8 @@ RxWidthSnap rxWidthSnapshot(const App& a);
 bool rxWidthIsCustom(const App& a);          // a custom width or a chosen sample rate is in force for this mode
 void rxWidthReset(App& a);                   // back to the mode's own bandwidth and rate (the custom values stay saved)
 void rxWidthRestore(App& a, const RxWidthSnap& s);   // Undo of "Reset this mode"
-void nextStepLine(App& a);                   // panels/diag_ui.cpp: the "what do I do next" line of the mode on screen (app/ui/next_step_logic.h), drawn by modepanel::actionBar
+void recordCompact(App& a);                  // panels/diag_ui.cpp: the top bar's flat IQ record control (dot + "rec", or the time and size while recording)
+bool nextStepLine(App& a, float maxW = 0.f); // panels/diag_ui.cpp: the "what do I do next" line of the mode on screen (app/ui/next_step_logic.h), drawn by modeActionBar; maxW > 0: on one row, cut to fit
 void vorUseNavaidFile(const std::string& path);    // vor_ui.cpp: the auto-downloaded navaids.csv becomes the VOR station list unless the user imported one
 void vorSetFixPair(App& a, double mhz1, double mhz2);   // vor_ui.cpp: the two stations of the fix
 bool airbandListenAt(App& a, double lat, double lon, int altFt, std::string& what);   // airband_ui.cpp: E15: the nearest airport's Tower / Approach / Centre for this aircraft
@@ -958,7 +987,8 @@ void firstStartSay(const std::string& text);    // a note in the hint strip for 
 void firstStartHint(App& a);                  // its line in the hint strip
 const char* curModeName(const App& a);        // ui/mode_hints.cpp: the name of the current mode-list entry (null: none)
 std::string modeAntennaNote(const ModeDef& m);
-void modeHintsLine(App& a);                  // ui/mode_hints.cpp: next pass, satellite visibility and other per-mode hints under the next step line
+void modeHintsLine(App& a, bool antenna = true);   // ui/mode_hints.cpp: next pass, satellite visibility and other per-mode hints under the next step line (antenna false: without the antenna line)
+std::string modeAntennaHint(const App& a);    // ui/mode_hints.cpp: the antenna line of the mode on screen ("Antenna: ..."), empty when there is none
 std::string modeGeoNote(const ModeDef& m);   // ui/mode_hints.cpp: non-blocking "below your horizon" note for the mode browser
 void modeActionBar(App& a);                  // ui/kit/mode_actions.cpp: next step line, "Auto setup" and "Reset this mode" with its undo note
 bool captureRowShown(const App& a);           // the Advanced row is drawn for a radio or the test signal (not a recording or a sound card)
@@ -1048,11 +1078,16 @@ void pluginRegister(App& a);       // plugin/plugin_app.cpp: discovery and the t
 void pluginFrame(App& a);          // plugin/plugin_app.cpp, every frame: discovery at the first call, starts and stops the running plugin mode, ticks the host
 void pluginShutdown();             // at exit: stops the plugins and removes the crash marker
 void pluginManagerWindow(App& a);  // View > Plugins
+void pluginStoreOpen(App& a);      // Tools > Plugin store: the plugin window, on its Store tab
 void automationWindow(App& a);   // automation_ui.cpp: the Automations window (View > Automations) and, every frame, the engine's actions that touch the receiver
+namespace dect2::automation { struct Rule; }
+bool automationAddRule(const dect2::automation::Rule& r, std::string& err);   // automation_ui.cpp: adds a rule made elsewhere (Sensors, Alert) as it is, saved and active
 extern std::string gAutomationShotPath;   // automation_sink.cpp: a screenshot of the program's own window is saved here after the next frame (then cleared)
 void wiresharkWindow(App& a);      // app/wirecap/wireshark_ui.cpp: one switch per mode, packets to Wireshark
 void loadWiresharkPrefs(App& a);
 void saveWiresharkPrefs(const App& a);
+void echolinkWindow(App& a);       // app/echolink/echolink_ui.cpp: the EchoLink client window
+void echolinkShutdown();           // its connection ends (BYE, log-out) and its sound cards close
 void feedsWindow(App& a);          // feeds_ui.cpp: the "Data feeds" window (View > Data feeds)
 void swarmWindow(App& a);          // swarm_ui.cpp: the "LAN swarm" window (View > LAN swarm)
 void rotatorWindow(App& a);        // rotator_ui.cpp: GS-232 rotator connect / status
@@ -1153,7 +1188,7 @@ extern float gSwitchWidth;
 struct ModeDef { int family; const char* name; int group; ImU32 col; const char* blurb; const char* tip; const char* sub; ImVec4 accent; const char* subId = nullptr; const char* keys = nullptr;
     // filled by modeInfoFill() (mode_info.cpp) for the Mode Browser; rows need not set them
     uint32_t tags = 0; uint8_t needs = 0; float minRateMsps = 0; double bandMinMhz = 0, bandMaxMhz = 0; bool isNew = false; };
-constexpr int kModeCapacity = 400;   // the built-in rows and the plugins' (mode_table.cpp)
+constexpr int kModeCapacity = 1024;   // the built-in rows (461 in 4.0) and the plugins' (mode_table.cpp)
 extern ModeDef kModes[];
 extern int kNumModes;
 bool addPluginModeRow(int family, const std::string& name, const std::string& blurb, const std::string& sub);   // appends a row in the PLUGINS group; false when the table is full
@@ -1243,6 +1278,15 @@ void modeVisibilityApplyText(App& a, const std::string& text);   // and put back
 bool& settingsOpen();          // the Settings window is open (menu bar > Settings, Ctrl+,)
 void settingsWindow(App& a);   // ui/settings_window.cpp: every preference in one searchable window (docs/SETTINGS.md)
 int settingsUnboundRows();     // rows of the table with no field behind them (listed on stderr)
+// ui/settings_apply.cpp (4.0): what the General, Recording and Audio pages of Settings do outside the window
+void settingsStartup(App& a, bool plainStart);   // after the preferences: start-up frequency and mode, the IQ file name pattern
+void settingsFrame(App& a);                      // every frame: start-up mode / receiver, crash restore, confirm before quitting, IQ split and free-space guard
+void toggleIqRecording(App& a);                  // start or stop an IQ recording of the radio (the Record IQ key)
+int sessionRestoreChoice();                      // Settings > General > After a crash: 0 ask, 1 always restore, 2 never offer
+void audioDefaultDeviceChanged();                // audio_control_ui.cpp: Settings > Audio > Output device changed
+// Settings > Spectrum and waterfall > Default range (-110 to -30 dB unless changed): Reset, the range key and a bad saved range go there
+inline float specDefaultLo() { const double lo = plat::prefs().getD("specDefLo", -110), hi = plat::prefs().getD("specDefHi", -30); return hi - lo >= 10 ? (float)lo : -110.f; }
+inline float specDefaultHi() { const double lo = plat::prefs().getD("specDefLo", -110), hi = plat::prefs().getD("specDefHi", -30); return hi - lo >= 10 ? (float)hi : -30.f; }
 void startReceiver(App& a);     // what the Start button does
 double audioViewOffsetHz(const App& a);   // a sound card in a Real mode with the audio-range view: where the spectrum's centre lies from the dial (else 0)
 void applyAudioSettings(App& a);   // the sound-card options into a.tune.radio (toolbar_source.cpp)
@@ -1397,6 +1441,8 @@ std::string diagnosticsText(App& a);
 void systemInfoText(std::string& os, std::string& cpu, std::string& gpu);   // diag_ui.cpp: this computer's OS, CPU and graphics names
 bool writeZipFile(const std::string& path, const std::vector<std::pair<std::string, std::string>>& files);   // diag_ui.cpp: a zip, entries stored
 void radioMessagesUi(App& a, bool vertical);
+void recordGroupUi(App& a);   // diag_ui.cpp: the Record group of the Source panel (IQ and audio recording); the Workspace Recorder block too
+void listenGroupUi(App& a);   // diag_ui.cpp: the Listen group (the monitor and its output devices); the Workspace Audio output block too
 // radio_ui.cpp: the "Radio settings" of the selected radio (only the ones it has): a collapsible section in a side panel (vertical), a
 // button with a popup in a one-line bar. A change reaches a running radio at once (a retune, or a restart for one that takes effect at open)
 void radioSettingsUi(App& a, bool vertical);
@@ -1491,6 +1537,8 @@ void dabScanTab(App& a);
 void dabScanStep(App& a);
 void fmScanTab(App& a);
 void fmSmartTick(App& a);                    // fm_smart_ui.cpp: AF follow and the DX log
+void fmTmcTick(App& a);                      // fm_tmc_ui.cpp: the TMC log
+void fmTmcPanel(App& a);                     // fm_tmc_ui.cpp: TMC messages in plain words, the user's tables
 void fmAfPanel(App& a);
 void fmCensusPanel(App& a);
 double fmChannelDb(const SpectrumFrame& f, double fs, double offHz);

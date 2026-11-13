@@ -3,12 +3,15 @@
 // Christian W. Zuckschwerdt and others) so that its own test recordings give the same pulse packages here.
 #include "dect2/sensors/sensors_rx.h"
 #include "dect2/sensors/sensors_health.h"
+#include "dect2/sensors/sensors_names.h"
 #include "dect2/sensors/sensors_tel.h"
 #include "sensors_analyze.h"
+#include "dect2/automation/engine.h"
 #include "dect2/common/mathconst.h"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -173,6 +176,9 @@ struct SensorsReceiver::Impl {
     float minLevelAuto = 0, noiseLevel = 0;
     int removeAfter = 0;
     std::set<std::string> pinned;      // keys that are never removed (under setMu)
+    std::mutex namesMu;
+    std::map<std::string, std::string> names;   // the user's names by key (setNames, under namesMu)
+    std::map<std::string, int64_t> lastEvent;   // sensor.reading: when each sensor last went out (telMu)
 
     // decoders
     std::vector<bool> on;              // by device index (protocol number - 1)
@@ -180,6 +186,8 @@ struct SensorsReceiver::Impl {
     std::vector<r_device*> devs, customDevs;
     std::mutex setMu;
     bool dirty = true;
+    std::mutex viewMu;
+    std::vector<std::string> viewPat;  // setView(): lower-case parts of the model names this view reports (empty: every sensor)
 
     // pulse pipeline
     pulse_detect_t* pd = nullptr;
@@ -272,9 +280,25 @@ struct SensorsReceiver::Impl {
     }
 
     // ---- results ----
+    bool viewAccepts(const std::string& model, const std::string& kind) {
+        std::lock_guard<std::mutex> lk(viewMu);
+        if (viewPat.empty()) return true;
+        std::string a = model;
+        for (auto& c : a) c = (char)std::tolower((unsigned char)c);
+        for (const auto& p : viewPat) {
+            if (p.rfind("kind:", 0) == 0) { if (kind == p.substr(5)) return true; }       // "kind:meter": the kind the decoder's fields say (kindOf)
+            else if (a.find(p) != std::string::npos) return true;
+        }
+        return false;
+    }
     void onData(r_device* d, data_t* data) {
         std::vector<SensorField> f;
         flatten(f, data, "");
+        {   // a sensor-family entry (setView) reports its own family only; the package still counts as recognised
+            const SensorField* vm = findField(f, "model");
+            const std::string vmodel = vm ? vm->text : std::string(d && d->name ? d->name : "?");
+            if (!viewAccepts(vmodel, kindOf(f, vmodel))) { eventsInPackage++; return; }
+        }
         std::string js;
         dataJson(js, data);
         if (jsonCb) jsonCb(js);
@@ -327,6 +351,18 @@ struct SensorsReceiver::Impl {
         if (recent.size() > kSensorsRecentMax) recent.pop_back();
         lastSnr = curPd ? curPd->snr_db : lastSnr;
         seq++;
+        // sensor.reading for the automations and Integrations: once per transmission (the radio's repeats within 2 s are one reading)
+        if (automation::wants(automation::FSensor)) {
+            if (lastEvent.size() > 4 * kSensorsDevicesMax) lastEvent.clear();
+            int64_t& le = lastEvent[key];
+            if (le == 0 || now - le >= 2 || now < le) {
+                le = now;
+                std::string nm;
+                { std::lock_guard<std::mutex> sl(namesMu); auto it = names.find(key); if (it != names.end()) nm = it->second; }
+                automation::Event ev = sensorReadingEvent(*dev, nm, (double)now, centerHz);
+                automation::emit(std::move(ev));
+            }
+        }
     }
 
     void calcRssiSnr(pulse_data_t* p) {
@@ -461,7 +497,7 @@ struct SensorsReceiver::Impl {
         pub.protocols = (unsigned)devs.size();
         pub.customProtocols = (unsigned)customDevs.size();
         pub.devices = devices;
-        pub.unknown = unknown;
+        { std::lock_guard<std::mutex> vl(viewMu); if (viewPat.empty()) pub.unknown = unknown; else pub.unknown.clear(); }
         pub.recent = recent;
     }
 };
@@ -480,6 +516,10 @@ void SensorsReceiver::setRemoveAfterSec(int s) { p_->removeAfter = s; }
 void SensorsReceiver::setPinned(const std::vector<std::string>& keys) {
     std::lock_guard<std::mutex> lk(p_->setMu);
     p_->pinned = std::set<std::string>(keys.begin(), keys.end());
+}
+void SensorsReceiver::setNames(const std::map<std::string, std::string>& byKey) {
+    std::lock_guard<std::mutex> lk(p_->namesMu);
+    p_->names = byKey;
 }
 void SensorsReceiver::setCenterHz(double hz) { p_->centerHz = hz; }
 bool SensorsReceiver::ready() const { return p_->isReady; }
@@ -516,6 +556,17 @@ void SensorsReceiver::reset() {
     s.u8.clear(); s.accI = s.accQ = 0; s.accN = 0; s.inputPos = 0; s.nIn = 0;
     s.minLevelAuto = s.noiseLevel = 0;
     pulse_detect_set_levels(s.pd, 0, s.fixedLevel, s.minLevel, s.minSnr, 0);
+}
+
+void SensorsReceiver::setView(const std::string& patterns) {
+    Impl& s = *p_;
+    std::lock_guard<std::mutex> lk(s.viewMu);
+    s.viewPat.clear();
+    std::string cur;
+    for (char c : patterns + "|") {
+        if (c == '|') { if (!cur.empty()) s.viewPat.push_back(cur); cur.clear(); }
+        else cur += (char)std::tolower((unsigned char)c);
+    }
 }
 
 void SensorsReceiver::clearResults() {

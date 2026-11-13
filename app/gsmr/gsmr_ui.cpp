@@ -2,6 +2,7 @@
 // of System Information 1 and 2, the carriers seen in the spectrum, a band scan for radios that cannot take the whole railway band at
 // once, and the log. Only what base stations broadcast to every mobile is shown.
 #include "app.h"
+#include "../d40/d40_ui.h"
 #include "state/results_export.h"
 #include "dect2/gsmr/gsmr_rx.h"
 #include "dect2/gsmr/gsmr_si.h"
@@ -142,6 +143,14 @@ void detail(App& a) {
     }
     std::string ty; for (int v : c.typesSeen) { ty += dect2::gsmr::siName(v); ty += " "; }
     ImGui::Text("messages read: %s", ty.empty() ? "-" : ty.c_str());
+    if (std::find(c.typesSeen.begin(), c.typesSeen.end(), dect2::gsmr::kSi13) != c.typesSeen.end()) ImGui::TextUnformatted(tr("GPRS / EDGE: the cell sends SI13"));
+    if (std::find(c.typesSeen.begin(), c.typesSeen.end(), dect2::gsmr::kSi2quater) != c.typesSeen.end()) ImGui::TextUnformatted(tr("3G / 4G neighbour information: the cell sends SI2quater"));
+    if (const char* bn = dect2::gsmrBandName(c.freqHz); *bn) ImGui::Text(tr("Band: %s"), bn);
+    if (c.ccch.blocks()) {
+        const double n = (double)c.ccch.blocks();
+        ImGui::Text(tr("CCCH load: %llu blocks, %.0f%% paging, %.0f%% assignments, %.0f%% rejects, %.0f%% idle (message kinds only, no contents read)"), (unsigned long long)c.ccch.blocks(),
+                    100.0 * (double)c.ccch.paging / n, 100.0 * (double)c.ccch.assign / n, 100.0 * (double)c.ccch.reject / n, 100.0 * (double)c.ccch.idle / n);
+    }
 }
 
 void listsView(App& a) {
@@ -153,11 +162,16 @@ void listsView(App& a) {
         any = true;
         char h[96]; snprintf(h, sizeof h, "ARFCN %d %s##l%d_%d", c.arfcn, opText(c).c_str(), c.arfcn, c.bsic);
         if (!ImGui::TreeNode(h)) continue;
-        if (c.hasSi1) ImGui::Text("cell allocation (SI1): %s", listText(c.cellAlloc).c_str());
+        if (c.hasSi1) {
+            ImGui::Text("cell allocation (SI1): %s", listText(c.cellAlloc).c_str());
+            ImGui::PushTextWrapPos(0); ImGui::TextDisabled("%s: %s", tr("downlink / uplink MHz (R = railway band)"), d40GsmrFrequencies(c.cellAlloc).c_str()); ImGui::PopTextWrapPos();   // 4.0 (app/d40)
+        }
         if (c.hasSi2) {
             ImGui::Text("BCCH neighbours (SI2): %s", listText(c.neigh).c_str());
+            ImGui::PushTextWrapPos(0); ImGui::TextDisabled("%s: %s", tr("downlink / uplink MHz (R = railway band)"), d40GsmrFrequencies(c.neigh).c_str()); ImGui::PopTextWrapPos();   // 4.0 (app/d40)
             ImGui::Text("neighbour NCC permitted: 0x%02X", c.nccPermitted);
         }
+        if (!c.neighBis.empty()) ImGui::Text("%s %s", tr("more BCCH neighbours (SI2bis):"), listText(c.neighBis).c_str());
         ImGui::TreePop();
     }
     if (!any) ImGui::TextDisabled("no channel list read yet (SI1 / SI2)");

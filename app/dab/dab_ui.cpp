@@ -1,10 +1,13 @@
 // DAB / DAB+ digital radio panels.
 #include "app.h"
+#include "d40/d40_ui.h"
+#include "dab/played_ui.h"
 #include "panels/journaline_view.h"
 #include "panels/enhance_ui.h"
 #include "state/results_export.h"
 #include "dect2/dab/dab_announce.h"
 #include "dect2/dab/dab_fig.h"
+#include "dect2/dab/dab_watch.h"
 #include <ctime>
 #include <filesystem>
 
@@ -272,6 +275,21 @@ void dabHistory(App& a) {
     if (a.rx.standard != 3 || a.rx.seq == lastSeq) return;
     lastSeq = a.rx.seq;
     dabAnnouncementStep(a);
+    if (a.rx.dab.state == 2 && a.rx.dab.audio.sub >= 0) {   // the played list and the broadcast.* events of the playing service (dab/played_ui.h)
+        static double lastPl = 0;
+        if (ImGui::GetTime() - lastPl > 2) {
+            lastPl = ImGui::GetTime();
+            const DabEnsemble ens = a.engine.dabEnsemble();
+            for (const auto& kv : ens.services) {
+                const DabComponent* c = kv.second.playable();
+                if (!c || c->subId != a.rx.dab.audio.sub) continue;
+                std::string ar, ti;
+                for (const DabDlpTag& t : kv.second.dlPlus) { if (t.type == 4 && ar.empty()) ar = t.text; if (t.type == 1 && ti.empty()) ti = t.text; }
+                playedNote("DAB", kv.second.label, a.freqMhz, ar, ti, kv.second.dls, kv.second.pty >= 0 ? dabPtyName(1, kv.second.pty) : "", false);
+                break;
+            }
+        }
+    }
     auto push = [](std::deque<float>& dq, float v) { dq.push_back(v); if (dq.size() > 600) dq.pop_front(); };
     if (a.rx.dab.state == 2) {
         push(a.dabSnrH, (float)a.rx.dab.snrDb); push(a.dabFicH, (float)a.rx.dab.ficRecentOk);
@@ -720,6 +738,7 @@ void dabStations(App& a) {
 void dabRadioTab(App& a) {
     const DabEnsemble ens = a.engine.dabEnsemble();
     const int cur = a.engine.dabSelected();
+    if (ImGui::CollapsingHeader(trw("Played (DL Plus songs)##dabpl"))) { ImGui::BeginChild("##dabplc", ImVec2(0, 240 * gUi)); playedPanel(a, "dabpl"); ImGui::EndChild(); }
     if (ens.services.empty()) { { ImGui::PushTextWrapPos(0); ImGui::TextDisabled(a.engine.running() ? "waiting for the ensemble information (a second or two)..." : "start the receiver on a DAB channel (5A to 13F)"); ImGui::PopTextWrapPos(); } return; }
     ImGui::AlignTextToFramePadding();
     ImGui::PushFont(a.ui, 20.f);
@@ -756,6 +775,8 @@ void dabRadioTab(App& a) {
         }
     }
     ImGui::Spacing();
+    d40DabCard(a);   // 4.0: service ranking, transmitter table (app/d40)
+    smart5DabCard(a);   // round-5 smart checks: ensemble change log, fault or reception (app/smart5)
     if (ImGui::BeginTable("dabtbl", 6, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingStretchProp)) {
         ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 34 * gUi);
         ImGui::TableSetupColumn("Station");
@@ -832,6 +853,8 @@ void dabEnsembleTab(App& a) {
 }
 
 // ------------------------------------------------------------------ the census: every ensemble of a wide capture at once
+static dect2::dabwatch::Watch gDabWatch;   // multiplex changes: new / gone ensembles, added and removed services, bit rate changes
+
 static void dabCensusSection(App& a) {
     bool on = a.engine.dabCensusOn();
     if (ImGui::Checkbox(tr("Every ensemble in the capture"), &on)) a.engine.setDabCensus(on);
@@ -853,6 +876,20 @@ static void dabCensusSection(App& a) {
             ImGui::PopID();
         }
         ImGui::EndTable();
+    }
+    {   // ensemble change watch: a ten-second-old FIC glitch is not a change, see dab_watch.h
+        std::vector<dect2::dabwatch::Obs> obs;
+        for (const auto& r : rows) {
+            dect2::dabwatch::Obs o; o.channel = r.channel; o.active = r.active && r.locked; o.eid = r.eid; o.ensemble = r.ensemble;
+            for (const auto& sv : r.services) o.services.push_back({sv.sid, sv.label, sv.dabPlus, sv.bitrate});
+            obs.push_back(std::move(o));
+        }
+        for (const auto& e : gDabWatch.update(ImGui::GetTime(), obs)) a.engine.log("DAB: " + e.text);
+        const auto& lg = gDabWatch.log();
+        if (!lg.empty() && ImGui::TreeNode(trw("Ensemble changes"))) {
+            for (auto it = lg.rbegin(); it != lg.rend(); ++it) { ImGui::PushTextWrapPos(0); ImGui::TextUnformatted(it->text.c_str()); ImGui::PopTextWrapPos(); }
+            ImGui::TreePop();
+        }
     }
     const auto merged = dect2::dabCensusMerge(rows);
     if (!merged.empty() && ImGui::TreeNode(trw("All services"))) {

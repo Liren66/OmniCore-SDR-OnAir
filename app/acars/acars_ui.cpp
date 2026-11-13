@@ -1,4 +1,6 @@
 // ACARS screens: the message list with a detail pane, the aircraft table and the channel bars.
+#include "../d40/d40_ui.h"
+#include "acars_wx_ui.h"
 #include "dect2/common/time_fmt.h"
 #include "ui/kit/mode_panel.h"
 #include "ui/kit/session_list.h"
@@ -114,6 +116,7 @@ void feedEstimates(const dect2::AcarsTelemetry& t) {
 void tick(App& a) {
     loadState();
     feedEstimates(a.rx.acars);
+    for (auto it = a.rx.acars.messages.rbegin(); it != a.rx.acars.messages.rend(); ++it) acarsWxFeed(0, it->serial, it->text, it->wallTime);   // airport weather (3.9)
     if (!a.engine.running()) { S.wasRunning = false; S.pushedCenter = 0; S.pushedThr = -1; S.pushedChans[0] = '\x01'; S.pushedChans[1] = 0; return; }
     dect2::AcarsReceiver& r = a.engine.acars();
     if (S.pushedCenter != a.freqMhz) { r.setCenterHz(a.freqMhz * 1e6); S.pushedCenter = a.freqMhz; }
@@ -178,7 +181,7 @@ void detailPane(const App& a, const dect2::AcarsMessage* m) {
     if (m->hasPos) kv("position", "%.4f %.4f", m->lat, m->lon);
     if (!m->adsc.empty()) {
         ImGui::Spacing();
-        ImGui::TextDisabled("Decoded ADS-C");
+        ImGui::TextDisabled("%s", m->adsc.rfind("FANS-1/A CPDLC", 0) == 0 ? "Decoded CPDLC (FANS-1/A)" : "Decoded ADS-C (FANS-1/A)");
         ImGui::PushFont(a.mono, 0);
         ImGui::TextUnformatted(m->adsc.c_str());
         ImGui::PopFont();
@@ -282,9 +285,9 @@ void mapCanvas(App& a, ImVec2 size) {
             S.map.zoom = std::max(2, std::min(10, (int)std::floor(std::log2(0.7 * size.x * 360.0 / (256.0 * span)))));
         }
     }
-    const double lat0 = S.map.lat, lon0 = S.map.lon;
+    const double lat0 = S.map.lat, lon0 = S.map.lon; const int zoom0 = S.map.zoom;
     adsbmap::draw(S.map, size);
-    if (S.map.lat != lat0 || S.map.lon != lon0) S.mapFollow = false;
+    if (S.map.lat != lat0 || S.map.lon != lon0 || S.map.zoom != zoom0) S.mapFollow = false;   // panned or zoomed (the wheel at the centre moves nothing)
     ImDrawList* dl = ImGui::GetWindowDrawList();
     dl->PushClipRect(p0, ImVec2(p0.x + size.x, p0.y + size.y), true);
     const dect2::AcarsAircraft* hit = nullptr; float best = 18 * gUi;
@@ -503,6 +506,7 @@ void aircraftView(const App& a) {
 
 // one bar per channel: the level over a scale of -100 to -20 dB, a carrier marker, the counts as text
 void channelView(const App& a) {
+    d40AcarsLoadCard();   // 4.0: channel load ranking (app/d40)
     const dect2::AcarsTelemetry& t = a.rx.acars;
     const bool on = live(a);
     ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -541,8 +545,9 @@ void channelView(const App& a) {
 void tab(App& a) {
     loadState();
     kit::modeHeader({16, "ACARS", live(a) ? 1 : a.engine.running() ? 2 : 0, -1000.f, a.freqMhz * 1e6});
-    kit::modeNav("acarsv", S.viewMode, {{tr("Live"), 0}, {tr("Tracks"), 4}, {tr("Map"), 1}, {tr("Aircraft"), 2, true}, {tr("Channels"), 3, true}});
+    kit::modeNav("acarsv", S.viewMode, {{tr("Live"), 0}, {tr("Tracks"), 4}, {tr("Map"), 1}, {tr("Aircraft"), 2, true}, {tr("Channels"), 3, true}, {tr("Weather"), 7, true}});
     if (S.viewMode == 4) { kit::sessionItems(16, 3, "acars"); return; }
+    if (S.viewMode == 7) { acarsWxView(); return; }
     if (S.viewMode == 0) messageView(a);
     else if (S.viewMode == 1) mapView(a);
     else if (S.viewMode == 2) aircraftView(a);

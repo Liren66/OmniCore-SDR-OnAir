@@ -9,6 +9,7 @@
 #include "dect2/dab/dab_tel.h"
 #include "dect2/fm/fm_tel.h"
 #include "dect2/dvbs/dvbs_tel.h"
+#include "dect2/dvbc2/dvbc2_rx.h"
 #include "dect2/dtmb/dtmb_tel.h"
 #include "dect2/atv/atv_tel.h"
 #include "dect2/dmr/dmr_tel.h"
@@ -55,6 +56,7 @@
 #include "dect2/nfc/nfc_engine.h"
 #include "dect2/mpt1327/mpt1327_engine.h"
 #include "dect2/isdbs/isdbs_rx.h"
+#include "dect2/dvbsh/dvbsh_engine.h"
 #include "dect2/fusion/fusion_rx.h"
 #include "dect2/ltr/ltr_tel.h"
 #include "dect2/edacs/edacs_tel.h"
@@ -116,13 +118,22 @@
 #include "dect2/inmsat/inmsat_tel.h"
 #include "dect2/rclink/rc_tel.h"
 #include "dect2/xlink/xlink_tel.h"
+#include "dect2/cishf/cishf_tel.h"
+#include "dect2/w1a/w1a_tel.h"
 #include "dect2/nrf24/nrf24_tel.h"
 #include "dect2/sensors/sensors_tel.h"
 #include "dect2/bgan/bgan_tel.h"
 #include "dect2/sferics/sferics_tel.h"
+#include "dect2/sferics/ltpos_tel.h"
+#include "dect2/fbr/fbr_tel.h"
+#include "dect2/x40/x40_tel.h"
 #include "dect2/atis/atis_tel.h"
 #include "dect2/selcal/selcal_tel.h"
 #include "dect2/umts/umts_rx.h"
+#include "dect2/cdma/cdma_rx.h"
+#include "dect2/tdscdma/tdscdma_rx.h"
+#include "dect2/vdl3/vdl3_tel.h"
+#include "dect2/cp16/cp16_tel.h"
 #include "dect2/fy3/fy3_tel.h"
 #include "dect2/wxsat/wxsat_tel.h"
 #include "dect2/sd3/sd3_tel.h"
@@ -234,6 +245,7 @@ struct RxTelemetry {
     SpecanTelemetry specan;   // valid when standard == 43 (spectrum analyser)
     OrbcommTelemetry orbcomm;   // valid when standard == 45
     DvbcTelemetry dvbc;    // valid when standard == 41
+    Dvbc2Telemetry dvbc2;  // valid when standard == 742 (DVB-C2, family 741)
     UplinkTelemetry uplink;   // valid when standard == 44 (Mode S uplink)
     AleTelemetry ale;         // valid when standard == 50 (HF ALE)
     P25Telemetry p25;         // valid when standard == 51 (P25 Phase 1)
@@ -269,12 +281,21 @@ struct RxTelemetry {
     Fy3Telemetry fy3m;        // valid when standard == 237 (FY-3 MPT, family 236, engine standard 238)
     PactorHfTelemetry pactorhf;   // valid when standard == 238, 239 or 240 (PACTOR-II / -III / -IV, families 237 .. 239, engine standards 239 .. 241)
     UmtsTelemetry umts;   // valid when standard == 481 (UMTS cells, family 480, engine standard 482)
+    CdmaTelemetry cdma;   // valid when standard == 661 (CDMA2000 cells, family 660, engine standard 662)
+    TdscdmaTelemetry tdscdma;   // valid when standard == 662 (TD-SCDMA cells, family 661, engine standard 663)
+    Vdl3Telemetry vdl3;   // valid when standard == 641 (VDL Mode 3, family 640, engine standard 642)
+    Cp16Telemetry cp16;   // valid when standard == 881 (CP16, family 880, engine standard 882)
     SelcalTelemetry selcal;   // valid when standard == 241 (SELCAL, family 240, engine standard 242)
     AtisTelemetry atis;       // valid when standard == 212 (ATIS inland waterways, family 211, engine standard 213)
     ShortwaveTelemetry shortwave;   // valid when standard == 213 (Shortwave, family 212, engine standard 214)
     SensorsTelemetry sensors; // valid when standard == 242 (Sub-GHz sensors, family 241, engine standard 243)
     BganTelemetry bgan;       // valid when standard == 246 (Inmarsat BGAN, family 245, engine standard 247)
     SfericsTelemetry sferics; // valid when standard == 244 (Sferics, family 243, engine standard 245)
+    X40Telemetry x40;       // valid when standard is 882 - 897 (the 4.0 signal modes, families 881 - 896, docs/X40-4.0.md)
+    FbrTelemetry fbr;       // valid when standard == 871 (Fleet Broadcast, family 870, engine standard 872)
+    LtPosTelemetry ltpos;   // valid when standard == 791 (Lightning position, family 790, engine standard 792)
+    CisHfTelemetry cishf;     // valid when standard == 621 .. 627 (CIS HF modes, families 620 - 626)
+    W1aTelemetry w1a;         // valid when standard == 801 .. 803 (HF packet 300 Bd, voice inversion, ELT; families 800 - 802)
     XlinkTelemetry xlink;     // valid when standard == 601 (Extra links, family 600, engine standard 602)
     RcTelemetry rclink;       // valid when standard == 361 (RC and mesh links, family 360, engine standard 362)
     Nrf24Telemetry nrf24;     // valid when standard == 211 (nRF24L01, family 210, engine standard 212)
@@ -305,6 +326,7 @@ struct RxTelemetry {
     SitorTelemetry sitor;     // valid when standard == 120 (SITOR, engine standard 121)
     DmeTelemetry dme;         // valid when standard == 123 (DME, engine standard 123)
     DcsTelemetry goesdcs;     // valid when standard == 142 (GOES DCS, family 141)
+    DcsTelemetry hrdcp;       // valid when standard == 701 (Meteosat HRDCP, family 700)
     BletrkTelemetry bletrk;   // valid when standard == 144 (BLE tracker detector, family 143)
     NavicTelemetry navic;     // valid when standard == 562 (NavIC)
     SatDetectTelemetry satdetect;   // valid for the satellite detector modes (active standards 551 on)
@@ -341,6 +363,7 @@ struct RxTelemetry {
     ElLoranTelemetry eloran;    // valid when standard == 127 (eLoran / Loran-C, family 126)
     NfcTelemetry nfc;           // valid when standard == 149 (NFC / RFID 13.56 MHz, family 148, engine standard 150)
     IsdbsTelemetry isdbs;       // valid when standard == 155 (ISDB-S, family 154)
+    DvbshTelemetry dvbsh;       // valid when standard == 747 (DVB-SH, family 746)
     MptTelemetry mpt1327;       // valid when standard == 128 (MPT1327 trunking, family 127)
     FusionTelemetry fusion;     // valid when standard == 129 (Yaesu Fusion, family 128, stdMode 130)
     LtrTelemetry ltr;           // valid when standard == 130 (LTR control channel, engine standard 131)
@@ -364,6 +387,9 @@ struct RxTelemetry {
         int symbolIdx = 0;
         uint64_t fecDropped = 0;   // symbols the error correction thread was too slow for (pipelined receiver: dropped, the decoder restarted)
         bool viterbiOnGpu = false; // the Viterbi runs on the GPU (GpuViterbi), not on the CPU
+        bool indepth = false, dvbh = false, timeSlicing = false, mpeFec = false;   // DVB-H (EN 300 744 annex F): in-depth interleaver, TPS service bits
+        int mpePid = -1;           // DVB-H data link (EN 301 192): the last MPE stream heard (-1 none), its datagrams and MPE-FEC rows
+        uint64_t mpeDatagrams = 0, mpeRowsCorrected = 0, mpeRowsFailed = 0;
     } dvbt;
     struct Isdbt {               // ISDB-T only: the TMCC parameters and the statistics of the three layers
         bool tmccOk = false;
@@ -470,6 +496,8 @@ public:
     // for the samples to be processed (they are, in order, by a later call). Off (the default) feed() is synchronous: file sources and
     // tests see everything processed when it returns.
     void setPipelined(bool on);
+    // A recording or a test: a PLP frame waits for the error correction instead of being dropped when it falls behind (off: live radios)
+    void setBlocking(bool on);
     bool telemetry(RxTelemetry& out, uint64_t lastSeq);
     // Called (on the receiver thread) for every decoded PLP frame, in order.
     // LDPC compute backend: 0 = CPU, 1 = GPU, 2 = auto (GPU once the CPU can't keep up)

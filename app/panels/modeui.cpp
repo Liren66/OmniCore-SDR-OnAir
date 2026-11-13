@@ -38,6 +38,7 @@ extern const ModeUi kMacUi;
 extern const ModeUi kGsmrUi;
 extern const ModeUi kDvbcUi;
 extern const ModeUi kIsdbsUi;
+extern const ModeUi kDvbshUi;
 extern const ModeUi kOrbcommUi;
 extern const ModeUi kTetraUi;
 extern const ModeUi kTetrapolUi;
@@ -104,9 +105,12 @@ extern const ModeUi kZwaveUi;
 extern const ModeUi kMscatterUi;
 extern const ModeUi kArdopUi;
 extern const ModeUi kGoesDcsUi;
+extern const ModeUi kHrdcpUi;
 extern const ModeUi kBletrkUi;
 extern const ModeUi kSatDetectUi;
 extern const ModeUi kNavicUi;
+extern const ModeUi kCisBeeUi, kCis14Ui, kCis12Ui, kCis36Ui, kCisHdrUi, kCis128Ui, kCis3000Ui;   // app/cishf
+extern const ModeUi kW1aPacketUi, kW1aInvertUi, kW1aEltUi;   // app/w1a
 extern const ModeUi kSatbeaconUi;
 extern const ModeUi kRidUi;
 extern const ModeUi kMeteorUi;
@@ -149,7 +153,7 @@ extern const ModeUi kChanVoiceUi;
 extern const ModeUi kLorawanUi;
 extern const ModeUi kLoraSatUi;
 extern const ModeUi kPactorUi;
-extern const ModeUi kHfuUi[dect2::kHfuKinds];
+extern const ModeUi kHfuUi[dect2::kHfuKindsAll];
 extern const ModeUi kPactor2Ui, kPactor3Ui, kPactor4Ui;
 extern const ModeUi kEsubghzUi;
 extern const ModeUi kRoshfUi;
@@ -163,10 +167,17 @@ extern const ModeUi kNrf24Ui;
 extern const ModeUi kSensorsUi;
 extern const ModeUi kBganUi;
 extern const ModeUi kSfericsUi;
-extern const ModeUi kHamsciUi[9];   // app/hamsci: the nine ham science modes by kind (families 460 - 465, 500 - 502)
+extern const ModeUi kLtposUi;
+extern const ModeUi kFbrUi;
+extern const ModeUi kX40Ui[52];   // app/x40: the 4.0 signal modes (families 881 - 895 and 752 - 759)
+extern const ModeUi kHamsciUi[16];   // app/hamsci: the ham science modes by kind (families 460 - 465, 500 - 502, 750, event monitors 820, 823 .. 835)
 extern const ModeUi kAtisUi;
 extern const ModeUi kSelcalUi;
 extern const ModeUi kUmtsUi;
+extern const ModeUi kCdmaUi;
+extern const ModeUi kTdscdmaUi;
+extern const ModeUi kVdl3Ui;
+extern const ModeUi kCp16Ui;
 extern const ModeUi kShortwaveUi;
 extern const ModeUi kGk2aLritUi;
 extern const ModeUi kGk2aHritUi;
@@ -215,6 +226,7 @@ const ModeUi* modeUi(int family) {
     case 41: return &kSpecxUi;
     case 40: return &kDvbcUi;
     case 154: return &kIsdbsUi;
+    case 746: return &kDvbshUi;
     case 44: return &kOrbcommUi;
     case 46: return &kTetraUi;
     case 36: return &kPskUi;
@@ -231,7 +243,7 @@ const ModeUi* modeUi(int family) {
     case 54: return &kWifiUi;
     case 55: return &kGeneralUi;
     case 58: return &kTimeUi;
-    case 61: return &kCubesatUi;
+    case 61: case 840: case 843: case 846: case 849: case 852: case 855: return &kCubesatUi;   // 840 .. 855: one framing each, the same panel (cubesat_rx.h: cubesatViews)
     case 62: return &kGlobalstarUi;
     case 63: return &kVdesUi;
     case 65: return &kZigbeeUi;
@@ -274,6 +286,10 @@ const ModeUi* modeUi(int family) {
     case 200: return &kLorawanUi;
     case 201: return &kLoraSatUi;
     case 430: case 431: case 432: case 433: case 434: case 435: case 436: case 437: case 438: case 439: return &kHfuUi[family - 430];
+    case dect2::kHfuHdrFamily: return &kHfuUi[dect2::kHfuKindHdr];
+    case dect2::kHfuAle3gFamily: return &kHfuUi[dect2::kHfuKindAle3g];
+    case dect2::kHfuLink11Family: return &kHfuUi[dect2::kHfuKindLink11];
+    case dect2::kHfu4481Family: return &kHfuUi[dect2::kHfuKind4481];
     case 203: return &kPactorUi;
     case 204: return &kEsubghzUi;
     case 205: return &kRoshfUi;
@@ -287,11 +303,22 @@ const ModeUi* modeUi(int family) {
     case 241: return &kSensorsUi;
     case 245: return &kBganUi;
     case 243: return &kSfericsUi;
+    case 790: return &kLtposUi;
+    case 870: return &kFbrUi;
+    case 881: case 882: case 883: case 884: case 885: case 886: case 887: case 888: case 889: case 890: case 891: case 892: case 893: case 894: case 895: return &kX40Ui[family - 881];
+    case 752: case 753: case 754: case 755: case 756: case 757: case 758: case 759: case 760: case 761: case 762: case 763: case 764: case 765: case 766: case 767: case 768: case 769: case 770: case 771: case 772: case 773: case 774: case 775: case 776: case 777: case 778: case 779: case 780: case 781: case 782: return &kX40Ui[15 + family - 752];
+    case 370: case 371: case 372: case 373: case 374: case 375: return &kX40Ui[46 + family - 370];   // the Rivet HF modes (x40 variants 46 - 51)
     case 460: case 461: case 462: case 463: case 464: case 465: return &kHamsciUi[family - 460];
     case 500: case 501: case 502: return &kHamsciUi[6 + family - 500];
+    case 750: return &kHamsciUi[9];
+    case 820: case 823: case 826: case 829: case 832: case 835: return &kHamsciUi[10 + (family - 820) / 3];
     case 211: return &kAtisUi;
     case 240: return &kSelcalUi;
     case 480: return &kUmtsUi;
+    case 660: return &kCdmaUi;
+    case 661: return &kTdscdmaUi;
+    case 640: return &kVdl3Ui;
+    case 880: return &kCp16Ui;
     case 212: return &kShortwaveUi;
     case 230: return &kGk2aLritUi;
     case 231: return &kGk2aHritUi;
@@ -336,9 +363,20 @@ const ModeUi* modeUi(int family) {
     case 104: return &kMscatterUi;
     case 140: return &kArdopUi;
     case 141: return &kGoesDcsUi;
+    case 700: return &kHrdcpUi;
     case 143: return &kBletrkUi;
     case 550: case 551: case 552: case 553: case 554: case 555: case 556: case 557: case 558: case 559: case 560: case 562: return &kSatDetectUi;
     case 561: return &kNavicUi;
+    case 620: return &kCisBeeUi;
+    case 621: return &kCis14Ui;
+    case 622: return &kCis12Ui;
+    case 623: return &kCis36Ui;
+    case 624: return &kCisHdrUi;
+    case 625: return &kCis128Ui;
+    case 626: return &kCis3000Ui;
+    case 800: return &kW1aPacketUi;
+    case 801: return &kW1aInvertUi;
+    case 802: return &kW1aEltUi;
     case 144: return &kSatbeaconUi;
     case 56: return &kRidUi;
     case 59: return &kMeteorUi;

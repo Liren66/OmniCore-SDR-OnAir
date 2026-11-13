@@ -28,11 +28,11 @@ int gTabFrame = -1;
 struct Panel { const char* name; bool App::*on; };
 const Panel kPanels[] = {
     {"Passes", &App::passesOpen}, {"Scheduler", &App::schedulerOpen}, {"Recordings", &App::recmgrOpen}, {"SatNOGS transmitters", &App::satnogsOpen}, {"Direction finder", &App::dfOpen}, {"Interference hunter", &App::rfiOpen},
-    {"Passive radar", &App::passiveRadarOpen}, {"Images", &App::galleryOpen}, {"Data feeds...", &App::feedsOpen}, {"Wireshark...", &App::wiresharkOpen},
+    {"Passive radar", &App::passiveRadarOpen}, {"Images", &App::galleryOpen}, {"Data feeds...", &App::feedsOpen}, {"EchoLink...", &App::echolinkOpen}, {"Wireshark...", &App::wiresharkOpen},
     {"Messages...", &App::msgdbOpen}, {"Protocol lab...", &App::protolabOpen}, {"TX studio...", &App::txStudioOpen}, {"Mode Builder...", &App::modeBuilderOpen}, {"Signal Lab...", &App::signallabOpen}, {"nRF24 / ESP32 radio...", &App::esp32Open}, {"Conversations...", &App::ssbConvOpen}, {"Watchlists...", &App::watchlistOpen}, {"Integrations...", &App::integrationsOpen},
     {"Automations...", &App::automationOpen}, {"Plugins...", &App::pluginsOpen}, {"Memory...", &App::memoryOpen},
     {"Datasets...", &App::datasetsOpen}, {"Data packs...", &App::packsOpen}, {"Frequencies...", &App::freqOpen}, {"Map", &App::mapOpen}, {"Propagation...", &App::propOpen},
-    {"Sweep scanner", &App::sweepOpen}, {"Station health", &App::stationHealthOpen}, {"My station", &App::stationOpen}, {"Surprise me", &App::surpriseReq}, {"Search everything heard", &App::heardOpen}, {"Reception doctor", &App::doctorOpen}, {"RF fingerprint", &App::rfFpOpen}, {"Everything in view", &App::wideAllOpen}, {"Multi-radio trunking", &App::trunkPoolOpen}, {"Antenna rotator...", &App::rotatorOpen},
+    {"Sweep scanner", &App::sweepOpen}, {"Station health", &App::stationHealthOpen}, {"My station", &App::stationOpen}, {"Surprise me", &App::surpriseReq}, {"Search everything heard", &App::heardOpen}, {"Insights", &App::insightOpen}, {"Reception doctor", &App::doctorOpen}, {"RF fingerprint", &App::rfFpOpen}, {"Everything in view", &App::wideAllOpen}, {"Multi-radio trunking", &App::trunkPoolOpen}, {"Antenna rotator...", &App::rotatorOpen},
     {"Antenna designer...", &App::antdOpen},
 };
 
@@ -91,7 +91,7 @@ void commandPalette(App& a) {
     static bool closeReq = false, focusSearch = false;
     ImGuiIO& io = ImGui::GetIO();
     const char* id = trw("Command palette");
-    if ((io.KeyCtrl || io.KeySuper) && ImGui::IsKeyPressed(ImGuiKey_K, false)) {   // Ctrl+K (Cmd+K): open, or close when open
+    if (inputmap::pressed(inputmap::Action::CommandPalette)) {   // Ctrl+K (Cmd+K) by default: open, or close when open (it fires while typing, F_Typing)
         if (ImGui::IsPopupOpen(id)) closeReq = true;
         else { ImGui::OpenPopup(id); q[0] = 0; sel = 0; focusSearch = true; }
     }

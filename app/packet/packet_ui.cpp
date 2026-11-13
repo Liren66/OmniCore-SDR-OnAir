@@ -1,12 +1,16 @@
 // APRS / Packet screens: the stations heard (table and map, the ADS-B map underneath, as for AIS), the log of raw packets, the state lamps.
 #include "app.h"
+#include "winlink/winlink_ui.h"
+#include "adsb/records_ui.h"
 #include "ui/kit/export.h"
 #include "ui/kit/mode_panel.h"
 #include "ui/kit/kit.h"
 #include "ui/kit/session_list.h"
 #include "ui/kit/mode_frame.h"
 #include "../adsb/adsb_map.h"
+#include "packet_board_ui.h"
 #include "dect2/geo/maidenhead.h"
+#include "dect2/packet/packet_beacons.h"
 #include "dect2/packet/packet_tel.h"
 #include <algorithm>
 #include <cmath>
@@ -29,6 +33,7 @@ struct State {
     int pushedFix = -1, pushedEmph = -1, pushedAudioIn = -1;
     bool vote = true, pushedVote = true, pushedVoteInit = false;   // multi-demodulator vote, saved as packetVote
     bool listen = false; int pushedListen = -1; float pushedVol = -1; int pushedMute = -1;
+    std::string pushedCall = "\x01";   // the callsign for "to me" (packet_board_ui.h)
 };
 State S;
 
@@ -223,9 +228,9 @@ void mapView(App& a, ImVec2 size) {
             S.map.zoom = std::max(2, std::min(12, (int)std::floor(std::log2(0.7 * size.x * 360.0 / (256.0 * span)))));
         }
     }
-    const double lat0 = S.map.lat, lon0 = S.map.lon;
+    const double lat0 = S.map.lat, lon0 = S.map.lon; const int zoom0 = S.map.zoom;
     adsbmap::draw(S.map, size);
-    if (S.map.lat != lat0 || S.map.lon != lon0) S.mapFollow = false;
+    if (S.map.lat != lat0 || S.map.lon != lon0 || S.map.zoom != zoom0) S.mapFollow = false;   // panned or zoomed (the wheel at the centre moves nothing)
     ImDrawList* dl = ImGui::GetWindowDrawList();
     dl->PushClipRect(p0, ImVec2(p0.x + size.x, p0.y + size.y), true);
     const PacketStation* hit = nullptr; float best = 16 * gUi;
@@ -239,11 +244,12 @@ void mapView(App& a, ImVec2 size) {
             const float r = (sel ? 8.f : 7.f) * gUi * 0.7f;
             dl->AddCircleFilled(q, r, stationColour(v));
             dl->AddCircle(q, r, sel ? IM_COL32(255, 255, 255, 255) : IM_COL32(0, 0, 0, 150), 16, sel ? 1.6f : 1.f);
-            const ImVec2 ts = ImGui::CalcTextSize(v.call.c_str());
+            const std::string label = v.hasWx && v.wx.any() ? v.call + "  " + dect2::aprsWxLabel(v.wx) : v.call;   // weather stations: temperature and wind
+            const ImVec2 ts = ImGui::CalcTextSize(label.c_str());
             const ImVec2 lp(q.x + 12 * gUi, q.y - ts.y * 0.5f - 2 * gUi);
             dl->AddRectFilled(lp, ImVec2(lp.x + ts.x + 8 * gUi, lp.y + ts.y + 4 * gUi), IM_COL32(10, 12, 14, 210), 2.f);
             dl->AddRect(lp, ImVec2(lp.x + ts.x + 8 * gUi, lp.y + ts.y + 4 * gUi), sel ? IM_COL32(255, 255, 255, 200) : IM_COL32(60, 64, 68, 255), 2.f);
-            dl->AddText(ImVec2(lp.x + 4 * gUi, lp.y + 2 * gUi), IM_COL32(235, 238, 240, 255), v.call.c_str());
+            dl->AddText(ImVec2(lp.x + 4 * gUi, lp.y + 2 * gUi), IM_COL32(235, 238, 240, 255), label.c_str());
             const float d = std::hypot(q.x - click.x, q.y - click.y);
             if (clicked && d < best) { best = d; hit = &v; }
         }
@@ -253,7 +259,7 @@ void mapView(App& a, ImVec2 size) {
     if (on && !S.sel.empty()) {   // the station card: everything heard about the selected station
         for (const auto& v : t.stations) {
             if (v.call != S.sel) continue;
-            char b[8][160];
+            char b[10][160];
             int n = 0;
             snprintf(b[n++], 160, "%s%s", v.call.c_str(), v.isObject ? "  (object)" : "");
             if (v.symTable && v.symCode) snprintf(b[n++], 160, "symbol %c%c   %u frames   last heard %.0f s ago", v.symTable, v.symCode, (unsigned)v.count, std::max(0.0, t.timeSec - v.lastHeardSec));
@@ -271,7 +277,21 @@ void mapView(App& a, ImVec2 size) {
             }
             if (!v.via.empty()) snprintf(b[n++], 160, "sent by %s", v.via.c_str());
             if (v.carrierHz > 0) snprintf(b[n++], 160, "carrier %.4f MHz", v.carrierHz / 1e6);
-            if (!v.comment.empty()) snprintf(b[n++], 160, "%s", v.comment.c_str());
+            if (v.hasWx) {
+                const dect2::AprsWx& x = v.wx;
+                std::string m;
+                char vb[48];
+                if (!std::isnan(x.tempC)) { snprintf(vb, sizeof vb, "%.1f C   ", x.tempC); m += vb; }
+                if (!std::isnan(x.windKmh)) { snprintf(vb, sizeof vb, "wind %s %.0f km/h   ", dect2::aprsCompass(x.windDirDeg), x.windKmh); m += vb; }
+                if (!std::isnan(x.gustKmh)) { snprintf(vb, sizeof vb, "gust %.0f   ", x.gustKmh); m += vb; }
+                if (!m.empty()) snprintf(b[n++], 160, "%s", m.c_str());
+                m.clear();
+                if (!std::isnan(x.humidityPct)) { snprintf(vb, sizeof vb, "humidity %.0f %%   ", x.humidityPct); m += vb; }
+                if (!std::isnan(x.pressureHpa)) { snprintf(vb, sizeof vb, "%.1f hPa   ", x.pressureHpa); m += vb; }
+                if (!std::isnan(x.rain24hMm)) { snprintf(vb, sizeof vb, "rain 24 h %.1f mm", x.rain24hMm); m += vb; }
+                if (!m.empty()) snprintf(b[n++], 160, "%s", m.c_str());
+            }
+            if (!v.comment.empty() && n < 10) snprintf(b[n++], 160, "%s", v.comment.c_str());
             float w = 0;
             for (int i = 0; i < n; i++) w = std::max(w, ImGui::CalcTextSize(b[i]).x);
             const float lh = ImGui::GetTextLineHeightWithSpacing();
@@ -367,11 +387,17 @@ void lamps(App& a) {
 
 void tick(App& a) {
     loadState();
+    winlinkTick(a);   // Winlink email (app/winlink): its session runs while the screen is open
     if (!a.engine.running()) return;
+    if (live(a)) {   // the records board: the farthest APRS station with a position (direct or through a digipeater alike; objects left out)
+        static double last = 0;
+        if (ImGui::GetTime() - last > 5) { last = ImGui::GetTime(); for (const auto& s : a.rx.packet.stations) if (s.hasPos && s.via.empty()) recordsOffer("APRS", "", recordsDistKm(s.lat, s.lon), s.call, ""); }   // stations, not objects
+    }
     dect2::PacketReceiver& r = a.engine.packet();
     if ((int)a.packetNarrow != S.pushedNarrow) { r.setNarrowChannel(a.packetNarrow); S.pushedNarrow = a.packetNarrow; }
     if (S.tableScale != S.pushedScale) { r.setTableScale(S.tableScale); S.pushedScale = S.tableScale; }
     if ((int)S.listen != S.pushedListen) { r.setListen(S.listen); S.pushedListen = S.listen; }
+    { const std::string c = aprsboard::myCall(a); if (c != S.pushedCall) { r.setMyCall(c); S.pushedCall = c; } }
     if (!S.pushedVoteInit || S.vote != S.pushedVote) { r.setVote(S.vote); S.pushedVote = S.vote; S.pushedVoteInit = true; }
     if (S.fixBits != S.pushedFix) { r.setFixBits(S.fixBits); S.pushedFix = S.fixBits; }
     if (S.emphasis != S.pushedEmph) { r.setEmphasis(S.emphasis); S.pushedEmph = S.emphasis; }
@@ -448,17 +474,54 @@ void controls(App& a) {
     }
 }
 
+// Channel use (4.0): who fills the channel and how often each station beacons, from the frames heard in the last 10 minutes.
+void channelUse(App& a) {
+    const dect2::PacketTelemetry& t = a.rx.packet;
+    const auto u = dect2::analyseChannel(t.frames, t.timeSec, 600);
+    ImGui::TextDisabled(tr("Channel busy %.0f %% of the last 10 minutes by %d stations"), u.occupancyPct, (int)u.stations.size());
+    if (u.stations.empty() || !ImGui::BeginTable("##pk_cu", 7, ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV)) return;
+    ImGui::TableSetupColumn(tr("Station")); ImGui::TableSetupColumn(tr("Frames")); ImGui::TableSetupColumn(tr("Median gap s")); ImGui::TableSetupColumn(tr("Shortest s"));
+    ImGui::TableSetupColumn(tr("Airtime %")); ImGui::TableSetupColumn(tr("Same text")); ImGui::TableSetupColumn(tr("Notes"), ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableHeadersRow();
+    for (size_t i = 0; i < u.stations.size() && i < 12; i++) {
+        const auto& s = u.stations[i];
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn(); ImGui::TextUnformatted(s.call.c_str());
+        ImGui::TableNextColumn(); ImGui::Text("%d", s.frames);
+        ImGui::TableNextColumn(); if (s.frames > 1) ImGui::Text("%.0f", s.medianGapS); else ImGui::TextDisabled("-");
+        ImGui::TableNextColumn(); if (s.frames > 1) ImGui::Text("%.0f", s.minGapS); else ImGui::TextDisabled("-");
+        ImGui::TableNextColumn(); ImGui::Text("%.1f", s.sharePct);
+        ImGui::TableNextColumn(); ImGui::Text("%d", s.repeats);
+        ImGui::TableNextColumn();
+        std::string n;
+        if (s.fast) n += std::string(tr("beacons fast")) + "  ";
+        if (s.hog) n += std::string(tr("big share")) + "  ";
+        if (s.repeat) n += std::string(tr("same text again and again")) + "  ";
+        ImGui::TextUnformatted(n.c_str());
+    }
+    ImGui::EndTable();
+}
+
 void tab(App& a) {
     loadState();
     lamps(a);
     flowNext(10 * gUi);
     controls(a);
     kit::modeHeader({24, "APRS / Packet", live(a) ? 1 : a.engine.running() ? 2 : 0, -1000.f, a.freqMhz * 1e6});
-    kit::modeNav("pktv", S.view, {{tr("Live"), 0}, {tr("Tracks"), 3}, {tr("Map"), 1}, {tr("Log"), 2, true}});
+    {
+        const int unread = aprsboard::unreadToMe(a);
+        char ml[48]; snprintf(ml, sizeof ml, unread ? "%s (%d)" : "%s", tr("Messages"), unread);
+        static std::string msgLabel; msgLabel = ml;
+        kit::modeNav("pktv", S.view, {{tr("Live"), 0}, {tr("Tracks"), 3}, {tr("Map"), 1}, {tr("Weather"), 4}, {msgLabel.c_str(), 5}, {tr("Log"), 2, true}, {tr("Winlink"), 6}});
+    }
+    if (S.view == 6) { winlinkPanel(a, 0); return; }
     if (S.view == 2) { packetLog(a); return; }
+    if (S.view == 4) { aprsboard::weatherView(a, S.sel); return; }
+    if (S.view == 5) { aprsboard::messagesView(a); return; }
     if (S.view == 3) { kit::sessionItems(24, 3, "aprs"); return; }
     if (S.view == 1) { mapView(a, ImGui::GetContentRegionAvail()); return; }
     if (!live(a)) { ImGui::PushTextWrapPos(0); ImGui::TextDisabled("%s", a.engine.running() ? "starting" : "start the receiver"); ImGui::PopTextWrapPos(); return; }
+    if (ImGui::TreeNode(trw("Channel use"))) { channelUse(a); ImGui::TreePop(); }
     stationTable(a, false);
 }
 

@@ -1,6 +1,7 @@
 // DVB-S/S2 screens: lock lamps and readouts, constellation and quality plots, the receiver tab, symbol rate and standard controls,
 // and the options of the test signal.
 #include "app.h"
+#include "d40/d40_ui.h"
 #include "ease/ease_ui.h"
 #include "dect2/satmisc/feed_hunter.h"
 #include "dect2/dvbs/dvbs_s2.h"
@@ -127,8 +128,9 @@ void tick(App& a) {
     S.wasRunning = run;
     if (run && S.autoSvc && live(a)) {   // one service in the signal: play it, and again after a retune to another signal
         Player& pl = a.engine.player();
-        const int id = dect2::autoServicePick(S.as, a.ts.services, pl.selected(), a.rx.dvbs.tsLock, ImGui::GetTime());
-        if (id >= 0) { pl.select(id); pl.setVolume(a.volume); }
+        bool restart = false;
+        const int id = dect2::autoServicePick(S.as, a.ts.services, pl.selected(), a.rx.dvbs.tsLock, ImGui::GetTime(), &restart);
+        if (id >= 0) { if (restart) pl.select(-1); pl.select(id); pl.setVolume(a.volume); }   // restart: same id on a new carrier (#410)
     }
     if (live(a) && a.rx.seq != S.lastSeq) {
         S.lastSeq = a.rx.seq;
@@ -644,6 +646,8 @@ void receiver(App& a) {
     cidSection(a, t);
     streamsSection(a, t);
     ipSection(a, t);
+    d40SatCard(a);   // 4.0: blind scan, modcods, dish pointing (app/d40)
+    smart5DvbsCard(a);   // round-5 smart checks: rain fade and margin log (app/smart5)
     ImGui::Spacing();
     ImGui::TextColored(pal::accent(), "NOTES");
     ImGui::PushTextWrapPos(0);
@@ -676,8 +680,9 @@ void tuner(App& a, bool& retune) {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Auto measures the width of the carrier in the spectrum. Set it by hand for weak or narrow carriers, or when Auto is a few percent off.\n\n"
                           "A HackRF sees about 17 MHz of band at most (20 Msps), which is a carrier of up to about %.1f Msym/s.\n"
-                          "At %.0f Msps the limit is %.1f Msym/s. Wide transponders (27.5 Msym/s and more) do not fit: use a recording or a wider radio.",
-                          dvbsMaxSymbolRate(20e6) / 1e6, fs / 1e6, dvbsMaxSymbolRate(fs) / 1e6);
+                          "At %.0f Msps the limit is %.1f Msym/s. Wide transponders (27.5 Msym/s and more) do not fit: use a recording or a wider radio.\n"
+                          "Narrow carriers (reduced bandwidth DATV): Auto finds them down to %.0f ksym/s at this rate, by hand down to %.0f ksym/s.",
+                          dvbsMaxSymbolRate(20e6) / 1e6, fs / 1e6, dvbsMaxSymbolRate(fs) / 1e6, dvbsMinAutoSymbolRate(fs) / 1e3, dvbsMinSymbolRate() / 1e3);
     sameLineIf(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x + ImGui::CalcTextSize("Auto").x, 6 * gUi);
     bool autoSr = S.srMsym <= 0;
     if (ImGui::Checkbox("Auto##dvbssr", &autoSr)) {
@@ -693,7 +698,7 @@ void tuner(App& a, bool& retune) {
     ImGui::SetNextItemWidth(std::min(104 * gUi, ImGui::GetContentRegionAvail().x));   // no wider than the side panel
     double v = autoSr ? (live(a) ? a.rx.dvbs.symbolRate / 1e6 : 0.0) : S.srMsym;
     if (ImGui::InputDouble("##dvbssrv", &v, 0, 0, autoSr ? "%.3f Msym/s" : "%.3f Msym/s")) {
-        if (!autoSr) { S.srMsym = std::max(0.05, std::min(maxMsym, v)); ch = true; }
+        if (!autoSr) { S.srMsym = std::max(dvbsMinSymbolRate() / 1e6, std::min(maxMsym, v)); ch = true; }
     }
     ImGui::EndDisabled();
     ImGui::TextDisabled("Standard");

@@ -25,6 +25,7 @@
 #include "../main_internal.h"
 #include "top_row.h"
 #include "dect2/codec/codec_guard.h"
+#include "input_map.h"
 
 bool gIdentifyDev = false;   // --identify
 
@@ -74,9 +75,9 @@ static void tickReceiver(App& a) {
 }
 
 // analog TV (standard 9) and FPV (102): their pictures in the video-only view (#326)
-bool atvFullPicture(ImVec2 disp); bool atvHasPicture();
-bool fpvFullPicture(ImVec2 disp); bool fpvHasPicture();
-bool analogFullPicture(App& a, ImVec2 disp) { return a.rx.standard == 9 ? atvFullPicture(disp) : a.rx.standard == 102 ? fpvFullPicture(disp) : false; }
+bool atvFullPicture(App& a, ImVec2 disp); bool atvHasPicture();
+bool fpvFullPicture(App& a, ImVec2 disp); bool fpvHasPicture();
+bool analogFullPicture(App& a, ImVec2 disp) { return a.rx.standard == 9 ? atvFullPicture(a, disp) : a.rx.standard == 102 ? fpvFullPicture(a, disp) : false; }
 bool analogHasPicture(const App& a) { return a.rx.standard == 9 ? atvHasPicture() : a.rx.standard == 102 ? fpvHasPicture() : false; }
 
 // F toggles the video-only view; Escape leaves it
@@ -84,9 +85,9 @@ static void videoOnlyKeys(App& a) {
     clipsui::tick(a);   // radio clips: settings, the audio ring, the C key and the dialog
     ImGuiIO& io = ImGui::GetIO();
     // I toggles the Identify tool (a click or a drag on the spectrum identifies the signal), Escape leaves it
-    if (!io.WantTextInput && !io.KeyCtrl && !io.KeySuper && !io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_I, false)) a.identifyTool = !a.identifyTool;
+    if (inputmap::pressed(inputmap::Action::IdentifyTool)) a.identifyTool = !a.identifyTool;
     if (a.identifyTool && !io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Escape, false)) a.identifyTool = false;
-    if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F, false)) {
+    if (inputmap::pressed(inputmap::Action::VideoOnly)) {
         if (a.videoOnly) { a.videoOnly = false; if (glfwGetWindowMonitor(gWindow)) toggleFullscreen(); }
         else if (a.video.has() || analogHasPicture(a)) { a.videoOnly = true; if (!glfwGetWindowMonitor(gWindow)) toggleFullscreen(); }
     }
@@ -241,6 +242,7 @@ static void floatingWindows(App& a, ImVec2 disp) {
     stationHealthWindow(a);
     stationWindow(a);
     heardWindow(a);
+    insightWindow(a);
     receptionDoctorWindow(a);
     rfFingerprintWindow(a);
     wideAllWindow(a);
@@ -269,6 +271,7 @@ static void floatingWindows(App& a, ImVec2 disp) {
     a.engine.setWideDecode(a.wideDecode && modeSupportsWideHf(a.family));
     a.engine.setMultiChannel(a.mtvOn && wholeSpanTvOffered(a), a.mtvMax, a.mtvGrid);
     feedsWindow(a);
+    if (a.rxId == 1) echolinkWindow(a);   // one EchoLink client for the program
     wiresharkWindow(a);
     swarmWindow(a);
     automationWindow(a);
@@ -367,7 +370,8 @@ void drawUI(App& a, ImVec2 disp, bool draw) {
     if (adsbmap::fullDraw(&a, a.family, disp)) return;   // any other map screen: the tab it is on over the whole window (the "full screen" button on the map)
     {   // Ctrl+Shift+M (Cmd+Shift+M): the default view back, from any interface (also Settings > Appearance > Restore the default view)
         ImGuiIO& io = ImGui::GetIO();
-        if ((io.KeyCtrl || io.KeySuper) && io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_M, false)) ui2::restoreDefaultView(a);
+        if (inputmap::pressed(inputmap::Action::RestoreView)) ui2::restoreDefaultView(a);
+        (void)io;
     }
     if (a.touchUi) touch::shell(a, disp);   // the touch interface (ui/touch_shell.cpp) over either interface's panels
     else if (a.newUi) drawShell2(a, disp);
@@ -376,7 +380,7 @@ void drawUI(App& a, ImVec2 disp, bool draw) {
         ImGui::SetNextWindowPos(ImVec2(disp.x - 12 * gUi, disp.y - 48 * gUi), ImGuiCond_Always, ImVec2(1, 1));
         ImGui::SetNextWindowBgAlpha(0.95f);
         if (ImGui::Begin("##looknotice", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav)) {
-            ImGui::TextUnformatted(tr("OnAir now uses the new Dev A look. You can switch back in View > Look."));
+            ImGui::TextUnformatted(tr("OnAir now uses the new Dev A look. You can switch back in View > Theme."));
             if (ImGui::Button(tr("Switch back to Classic"))) { a.uiTheme = 1; a.lookNotice = false; plat::prefs().setB("lookNoticeDone", true); savePrefs(a); }
             ImGui::SameLine();
             if (ImGui::Button(tr("Dismiss"))) { a.lookNotice = false; plat::prefs().setB("lookNoticeDone", true); }

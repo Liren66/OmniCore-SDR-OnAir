@@ -107,24 +107,6 @@ case 22: {
     { Table tb({"Port", "Lot", "Name", "Mime", "Size", "Have", "Version", "Expires"}); int n = 0; for (auto it = t.lots.rbegin(); it != t.lots.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.port), cell(e.lot), cell(e.name), cell(e.mime), cell(e.size), cell(e.have), cell(e.version), cell(e.expires)}); } if (n) addTable(o, "Lots", tb); }
     break;
 }
-case 23: {
-    const auto& t = rx.cdr; (void)t;
-    cardIf(o, "Cfo Hz", t.cfoHz);
-    cardIf(o, "Snr Db", t.snrDb);
-    cardIf(o, "Level Db", t.levelDb);
-    cardIf(o, "Clip Pct", t.clipPct);
-    cardIf(o, "Blocks Ok", t.blocksOk);
-    cardIf(o, "Blocks Bad", t.blocksBad);
-    cardIf(o, "Time Sec", t.timeSec);
-    cardIf(o, "Input Rate", t.inputRate);
-    cardIf(o, "Tm", t.tm);
-    cardIf(o, "Sm", t.sm);
-    cardIf(o, "Ni", t.ni);
-    cardIf(o, "Inner Khz", t.innerKhz);
-    { Table tb({"Id", "Smf Id", "Sub Index", "Kbps", "Audio Units", "Audio Bytes", "Data Bytes", "Text"}); int n = 0; for (auto it = t.services.rbegin(); it != t.services.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.id), cell(e.smfId), cell(e.subIndex), cell(e.kbps), cell(e.audioUnits), cell(e.audioBytes), cell(e.dataBytes), cell(e.text)}); } if (n) addTable(o, "Services", tb); }
-    { Table tb({"Item"}); int n = 0; for (auto it = t.notes.rbegin(); it != t.notes.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e)}); } if (n) addTable(o, "Notes", tb); }
-    break;
-}
 case 27: {
     const auto& t = rx.airband; (void)t;
     cardIf(o, "Cfo Hz", t.cfoHz);
@@ -151,12 +133,13 @@ case 30: {
     cardIf(o, "Level Db", t.levelDb);
     cardIf(o, "Blocks Ok", t.blocksOk);
     cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Fold Period Sec", t.foldPeriodSec);
+    cardIf(o, "Fold Z", t.foldZ);
+    cardIf(o, "Fold Quality", t.foldQuality);
+    cardIf(o, "Fold Text", t.foldText);
     cardIf(o, "Tone Hz", t.toneHz);
     cardIf(o, "Depth", t.depth);
     cardIf(o, "Wpm", t.wpm);
-    cardIf(o, "Ident", t.ident);
-    cardIf(o, "Text", t.text);
-    cardIf(o, "Partial", t.partial);
     { Table tb({"Item"}); int n = 0; for (auto it = t.history.rbegin(); it != t.history.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e)}); } if (n) addTable(o, "History", tb); }
     { Table tb({"Offset Hz", "Level Db", "Snr Db", "Wpm", "Tone Hz", "Ident", "Last Wall"}); int n = 0; for (auto it = t.census.rbegin(); it != t.census.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.offsetHz), cell(e.levelDb), cell(e.snrDb), cell(e.wpm), cell(e.toneHz), cell(e.ident), cell(e.lastWall)}); } if (n) addTable(o, "Census", tb); }
     break;
@@ -450,10 +433,10 @@ case 59: {
     cardIf(o, "Level Db", t.levelDb);
     cardIf(o, "Blocks Ok", t.blocksOk);
     cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Minutes Predicted", t.minutesPredicted);
     cardIf(o, "Station", t.station);
     cardIf(o, "Tick1000 Db", t.tick1000Db);
     cardIf(o, "Tick1200 Db", t.tick1200Db);
-    cardIf(o, "Time Sec", t.timeSec);
     { Table tb({"Wall Time", "Text", "Bits"}); int n = 0; for (auto it = t.log.rbegin(); it != t.log.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.wallTime), cell(e.text), cell(e.bits)}); } if (n) addTable(o, "Log", tb); }
     break;
 }
@@ -938,7 +921,7 @@ case 93: {
     cardIf(o, "Input Rate", t.inputRate);
     cardIf(o, "Wide Span Hz", t.wideSpanHz);
     cardIf(o, "Wide Channels", t.wideChannels);
-    { Table tb({"Wall Time", "Time Sec", "Snr Db", "Level Db", "Cfo Hz"}); int n = 0; for (auto it = t.log.rbegin(); it != t.log.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.wallTime), cell(e.timeSec), cell(e.snrDb), cell(e.levelDb), cell(e.cfoHz)}); } if (n) addTable(o, "Log", tb); }
+    { Table tb({"Wall Time", "Time Sec", "Snr Db", "Level Db", "Cfo Hz", "Combined"}); int n = 0; for (auto it = t.log.rbegin(); it != t.log.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.wallTime), cell(e.timeSec), cell(e.snrDb), cell(e.levelDb), cell(e.cfoHz), cell(e.combined)}); } if (n) addTable(o, "Log", tb); }
     break;
 }
 case 96: {
@@ -1041,6 +1024,10 @@ case 120: {
     cardIf(o, "Baud", t.baud);
     cardIf(o, "Chars", t.chars);
     cardIf(o, "Text", t.text);
+    cardIf(o, "Arq Blocks", t.arqBlocks);
+    cardIf(o, "Arq New", t.arqNew);
+    cardIf(o, "Arq Repeats", t.arqRepeats);
+    cardIf(o, "Arq Bad", t.arqBad);
     break;
 }
 case 121: {
@@ -1174,8 +1161,10 @@ case 128: {
     cardIf(o, "Sys Id", t.sysId);
     cardIf(o, "Input Rate", t.inputRate);
     cardIf(o, "Center Hz", t.centerHz);
+    cardIf(o, "Voice Slots", t.voiceSlots);
     { Table tb({"T", "Type", "Called", "Caller", "Channel", "Detail", "Carrier Id", "Carrier Hz"}); int n = 0; for (auto it = t.rows.rbegin(); it != t.rows.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.t), cell(e.type), cell(e.called), cell(e.caller), cell(e.channel), cell(e.detail), cell(e.carrierId), cell(e.carrierHz)}); } if (n) addTable(o, "Rows", tb); }
     { Table tb({"Channel", "Count", "Last T", "Called", "Caller"}); int n = 0; for (auto it = t.channels.rbegin(); it != t.channels.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.channel), cell(e.count), cell(e.lastT), cell(e.called), cell(e.caller)}); } if (n) addTable(o, "Channels", tb); }
+    { Table tb({"Id", "Called", "Caller", "Channel", "Freq Hz", "Voice Slot", "State", "Note"}); int n = 0; for (auto it = t.calls.rbegin(); it != t.calls.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.id), cell(e.called), cell(e.caller), cell(e.channel), cell(e.freqHz), cell(e.voiceSlot), cell(e.state), cell(e.note)}); } if (n) addTable(o, "Calls", tb); }
     break;
 }
 case 129: {
@@ -1295,8 +1284,8 @@ case 142: {
     cardIf(o, "Bin Hz", t.binHz);
     cardIf(o, "Centre Hz", t.centreHz);
     cardIf(o, "Noise Db", t.noiseDb);
+    cardIf(o, "Plan", t.plan);
     cardIf(o, "Carriers Seen", t.carriersSeen);
-    cardIf(o, "Band Low Hz", t.bandLowHz);
     { Table tb({"Id", "Wall Time", "Address", "Address Fixed", "Bps", "Freq Hz", "Channel", "Text"}); int n = 0; for (auto it = t.messages.rbegin(); it != t.messages.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.id), cell(e.wallTime), cell(e.address), cell(e.addressFixed), cell(e.bps), cell(e.freqHz), cell(e.channel), cell(e.text)}); } if (n) addTable(o, "Messages", tb); }
     { Table tb({"Address", "Count", "First Time", "Last Time", "Channel", "Bps", "Snr Db", "Last"}); int n = 0; for (auto it = t.platforms.rbegin(); it != t.platforms.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.address), cell(e.count), cell(e.firstTime), cell(e.lastTime), cell(e.channel), cell(e.bps), cell(e.snrDb), cell(e.last)}); } if (n) addTable(o, "Platforms", tb); }
     { Table tb({"Offset Hz", "Channel", "Snr Db", "State", "Bps", "Bytes"}); int n = 0; for (auto it = t.carriers.rbegin(); it != t.carriers.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.offsetHz), cell(e.channel), cell(e.snrDb), cell(e.state), cell(e.bps), cell(e.bytes)}); } if (n) addTable(o, "Carriers", tb); }
@@ -2556,5 +2545,420 @@ case 602: {
     cardIf(o, "Phy Unsupported", t.phyUnsupported);
     { Table tb({"Utc", "Time Sec", "Proto", "Id", "Type", "Detail", "Hex", "Freq Hz"}); int n = 0; for (auto it = t.frames.rbegin(); it != t.frames.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.utc), cell(e.timeSec), cell(e.proto), cell(e.id), cell(e.type), cell(e.detail), cell(e.hex), cell(e.freqHz)}); } if (n) addTable(o, "Frames", tb); }
     { Table tb({"Proto", "Id", "Last Type", "Last Detail", "Count", "Lost", "First Seen", "Last Seen"}); int n = 0; for (auto it = t.links.rbegin(); it != t.links.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.proto), cell(e.id), cell(e.lastType), cell(e.lastDetail), cell(e.count), cell(e.lost), cell(e.firstSeen), cell(e.lastSeen)}); } if (n) addTable(o, "Links", tb); }
+    break;
+}
+case 621: {
+    const auto& t = rx.cishf; (void)t;
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Level Db", t.levelDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Kind", t.kind);
+    cardIf(o, "Mode", t.mode);
+    cardIf(o, "Text", t.text);
+    cardIf(o, "Time Sec", t.timeSec);
+    cardIf(o, "Input Rate", t.inputRate);
+    cardIf(o, "Forced Baud", t.forcedBaud);
+    cardIf(o, "Forced Shift", t.forcedShift);
+    { Table tb({"Utc", "Time Sec", "Text"}); int n = 0; for (auto it = t.events.rbegin(); it != t.events.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.utc), cell(e.timeSec), cell(e.text)}); } if (n) addTable(o, "Events", tb); }
+    break;
+}
+case 622: {
+    const auto& t = rx.cishf; (void)t;
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Level Db", t.levelDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Kind", t.kind);
+    cardIf(o, "Mode", t.mode);
+    cardIf(o, "Text", t.text);
+    cardIf(o, "Time Sec", t.timeSec);
+    cardIf(o, "Input Rate", t.inputRate);
+    cardIf(o, "Forced Baud", t.forcedBaud);
+    cardIf(o, "Forced Shift", t.forcedShift);
+    { Table tb({"Utc", "Time Sec", "Text"}); int n = 0; for (auto it = t.events.rbegin(); it != t.events.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.utc), cell(e.timeSec), cell(e.text)}); } if (n) addTable(o, "Events", tb); }
+    break;
+}
+case 623: {
+    const auto& t = rx.cishf; (void)t;
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Level Db", t.levelDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Kind", t.kind);
+    cardIf(o, "Mode", t.mode);
+    cardIf(o, "Text", t.text);
+    cardIf(o, "Time Sec", t.timeSec);
+    cardIf(o, "Input Rate", t.inputRate);
+    cardIf(o, "Forced Baud", t.forcedBaud);
+    cardIf(o, "Forced Shift", t.forcedShift);
+    { Table tb({"Utc", "Time Sec", "Text"}); int n = 0; for (auto it = t.events.rbegin(); it != t.events.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.utc), cell(e.timeSec), cell(e.text)}); } if (n) addTable(o, "Events", tb); }
+    break;
+}
+case 624: {
+    const auto& t = rx.cishf; (void)t;
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Level Db", t.levelDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Kind", t.kind);
+    cardIf(o, "Mode", t.mode);
+    cardIf(o, "Text", t.text);
+    cardIf(o, "Time Sec", t.timeSec);
+    cardIf(o, "Input Rate", t.inputRate);
+    cardIf(o, "Forced Baud", t.forcedBaud);
+    cardIf(o, "Forced Shift", t.forcedShift);
+    { Table tb({"Utc", "Time Sec", "Text"}); int n = 0; for (auto it = t.events.rbegin(); it != t.events.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.utc), cell(e.timeSec), cell(e.text)}); } if (n) addTable(o, "Events", tb); }
+    break;
+}
+case 625: {
+    const auto& t = rx.cishf; (void)t;
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Level Db", t.levelDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Kind", t.kind);
+    cardIf(o, "Mode", t.mode);
+    cardIf(o, "Text", t.text);
+    cardIf(o, "Time Sec", t.timeSec);
+    cardIf(o, "Input Rate", t.inputRate);
+    cardIf(o, "Forced Baud", t.forcedBaud);
+    cardIf(o, "Forced Shift", t.forcedShift);
+    { Table tb({"Utc", "Time Sec", "Text"}); int n = 0; for (auto it = t.events.rbegin(); it != t.events.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.utc), cell(e.timeSec), cell(e.text)}); } if (n) addTable(o, "Events", tb); }
+    break;
+}
+case 626: {
+    const auto& t = rx.cishf; (void)t;
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Level Db", t.levelDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Kind", t.kind);
+    cardIf(o, "Mode", t.mode);
+    cardIf(o, "Text", t.text);
+    cardIf(o, "Time Sec", t.timeSec);
+    cardIf(o, "Input Rate", t.inputRate);
+    cardIf(o, "Forced Baud", t.forcedBaud);
+    cardIf(o, "Forced Shift", t.forcedShift);
+    { Table tb({"Utc", "Time Sec", "Text"}); int n = 0; for (auto it = t.events.rbegin(); it != t.events.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.utc), cell(e.timeSec), cell(e.text)}); } if (n) addTable(o, "Events", tb); }
+    break;
+}
+case 627: {
+    const auto& t = rx.cishf; (void)t;
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Level Db", t.levelDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Kind", t.kind);
+    cardIf(o, "Mode", t.mode);
+    cardIf(o, "Text", t.text);
+    cardIf(o, "Time Sec", t.timeSec);
+    cardIf(o, "Input Rate", t.inputRate);
+    cardIf(o, "Forced Baud", t.forcedBaud);
+    cardIf(o, "Forced Shift", t.forcedShift);
+    { Table tb({"Utc", "Time Sec", "Text"}); int n = 0; for (auto it = t.events.rbegin(); it != t.events.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.utc), cell(e.timeSec), cell(e.text)}); } if (n) addTable(o, "Events", tb); }
+    break;
+}
+case 641: {
+    const auto& t = rx.vdl3; (void)t;
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Center Hz", t.centerHz);
+    cardIf(o, "Now Sec", t.nowSec);
+    cardIf(o, "Input Rate", t.inputRate);
+    cardIf(o, "Level Db", t.levelDb);
+    cardIf(o, "Noise Db", t.noiseDb);
+    cardIf(o, "Syncs", t.syncs);
+    cardIf(o, "M Uplink", t.mUplink);
+    cardIf(o, "M Uplink3 T", t.mUplink3T);
+    { Table tb({"Serial", "Time Sec", "Kind Name", "Sync", "Info", "Data Hex", "Data Text", "Summary"}); int n = 0; for (auto it = t.bursts.rbegin(); it != t.bursts.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.serial), cell(e.timeSec), cell(e.kindName), cell(e.sync), cell(e.info), cell(e.dataHex), cell(e.dataText), cell(e.summary)}); } if (n) addTable(o, "Bursts", tb); }
+    break;
+}
+case 661: {
+    const auto& t = rx.cdma; (void)t;
+    cardIf(o, "Center Hz", t.centerHz);
+    cardIf(o, "Band Class", t.bandClass);
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Scans", t.scans);
+    cardIf(o, "Last Scan Ms", t.lastScanMs);
+    { Table tb({"Pilot Pn", "Rel Offset", "Ec Io Db", "Pilot Dbfs", "Cfo Hz", "Clock Ppm", "Blocks", "Msgs"}); int n = 0; for (auto it = t.cells.rbegin(); it != t.cells.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.pilotPn), cell(e.relOffset), cell(e.ecIoDb), cell(e.pilotDbfs), cell(e.cfoHz), cell(e.clockPpm), cell(e.blocks), cell(e.msgs)}); } if (n) addTable(o, "Cells", tb); }
+    break;
+}
+case 662: {
+    const auto& t = rx.tdscdma; (void)t;
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Scans", t.scans);
+    cardIf(o, "Last Scan Ms", t.lastScanMs);
+    { Table tb({"Sync Dl", "Cell Param", "Level Dbfs", "Snr Db", "Cfo Hz", "Mid Score", "Blocks", "Quad S1"}); int n = 0; for (auto it = t.cells.rbegin(); it != t.cells.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.syncDl), cell(e.cellParam), cell(e.levelDbfs), cell(e.snrDb), cell(e.cfoHz), cell(e.midScore), cell(e.blocks), cell(e.quadS1)}); } if (n) addTable(o, "Cells", tb); }
+    break;
+}
+case 701: {
+    const auto& t = rx.hrdcp; (void)t;
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Time Sec", t.timeSec);
+    cardIf(o, "Input Rate", t.inputRate);
+    cardIf(o, "Work Rate", t.workRate);
+    cardIf(o, "Bin Hz", t.binHz);
+    cardIf(o, "Centre Hz", t.centreHz);
+    cardIf(o, "Noise Db", t.noiseDb);
+    cardIf(o, "Plan", t.plan);
+    cardIf(o, "Carriers Seen", t.carriersSeen);
+    { Table tb({"Id", "Wall Time", "Address", "Address Fixed", "Bps", "Freq Hz", "Channel", "Text"}); int n = 0; for (auto it = t.messages.rbegin(); it != t.messages.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.id), cell(e.wallTime), cell(e.address), cell(e.addressFixed), cell(e.bps), cell(e.freqHz), cell(e.channel), cell(e.text)}); } if (n) addTable(o, "Messages", tb); }
+    { Table tb({"Address", "Count", "First Time", "Last Time", "Channel", "Bps", "Snr Db", "Last"}); int n = 0; for (auto it = t.platforms.rbegin(); it != t.platforms.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.address), cell(e.count), cell(e.firstTime), cell(e.lastTime), cell(e.channel), cell(e.bps), cell(e.snrDb), cell(e.last)}); } if (n) addTable(o, "Platforms", tb); }
+    { Table tb({"Offset Hz", "Channel", "Snr Db", "State", "Bps", "Bytes"}); int n = 0; for (auto it = t.carriers.rbegin(); it != t.carriers.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.offsetHz), cell(e.channel), cell(e.snrDb), cell(e.state), cell(e.bps), cell(e.bytes)}); } if (n) addTable(o, "Carriers", tb); }
+    break;
+}
+case 742: {
+    const auto& t = rx.dvbc2; (void)t;
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Guard Interval", t.guardInterval);
+    cardIf(o, "Clock Ppm", t.clockPpm);
+    cardIf(o, "Window Carrier", t.windowCarrier);
+    cardIf(o, "Frames", t.frames);
+    cardIf(o, "L1 Good", t.l1Good);
+    cardIf(o, "L1 Bad", t.l1Bad);
+    cardIf(o, "Sync Losses", t.syncLosses);
+    cardIf(o, "Selected Slice", t.selectedSlice);
+    { Table tb({"Slice Id", "Plp Id", "Fec Type", "Mod", "Cod", "Type", "Payload Type", "Bitrate"}); int n = 0; for (auto it = t.plps.rbegin(); it != t.plps.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.sliceId), cell(e.plpId), cell(e.fecType), cell(e.mod), cell(e.cod), cell(e.type), cell(e.payloadType), cell(e.bitrate)}); } if (n) addTable(o, "Plps", tb); }
+    break;
+}
+case 747: {
+    const auto& t = rx.dvbsh; (void)t;
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Packets Ok", t.packetsOk);
+    cardIf(o, "Packets Bad", t.packetsBad);
+    cardIf(o, "Tps Frames", t.tpsFrames);
+    cardIf(o, "Bw Mhz", t.bwMhz);
+    cardIf(o, "Ti Lmax", t.tiLmax);
+    cardIf(o, "Ti Seconds", t.tiSeconds);
+    cardIf(o, "Avg Iterations", t.avgIterations);
+    cardIf(o, "Input Rate", t.inputRate);
+    break;
+}
+case 791: {
+    const auto& t = rx.ltpos; (void)t;
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Role", t.role);
+    cardIf(o, "Time Source", t.timeSource);
+    cardIf(o, "Clock Sigma Us", t.clockSigmaUs);
+    cardIf(o, "Ppm", t.ppm);
+    cardIf(o, "Ppm Sigma", t.ppmSigma);
+    cardIf(o, "Pulses", t.pulses);
+    cardIf(o, "Sent", t.sent);
+    cardIf(o, "Send Errors", t.sendErrors);
+    { Table tb({"Id", "Name", "Lat", "Lon", "Time Source", "Sigma Us", "Age S", "Detections"}); int n = 0; for (auto it = t.stations.rbegin(); it != t.stations.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.id), cell(e.name), cell(e.lat), cell(e.lon), cell(e.timeSource), cell(e.sigmaUs), cell(e.ageS), cell(e.detections)}); } if (n) addTable(o, "Stations", tb); }
+    { Table tb({"Utc Ns", "Lat", "Lon", "Major Km", "Minor Km", "Az Deg", "Stations", "Also Heard"}); int n = 0; for (auto it = t.strikes.rbegin(); it != t.strikes.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.utcNs), cell(e.lat), cell(e.lon), cell(e.majorKm), cell(e.minorKm), cell(e.azDeg), cell(e.stations), cell(e.alsoHeard)}); } if (n) addTable(o, "Strikes", tb); }
+    break;
+}
+case 801: {
+    const auto& t = rx.w1a; (void)t;
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Level Db", t.levelDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Kind", t.kind);
+    cardIf(o, "Mode", t.mode);
+    cardIf(o, "Text", t.text);
+    cardIf(o, "Time Sec", t.timeSec);
+    cardIf(o, "Input Rate", t.inputRate);
+    cardIf(o, "Record Path", t.recordPath);
+    { Table tb({"Utc", "Time Sec", "Text"}); int n = 0; for (auto it = t.events.rbegin(); it != t.events.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.utc), cell(e.timeSec), cell(e.text)}); } if (n) addTable(o, "Events", tb); }
+    break;
+}
+case 802: {
+    const auto& t = rx.w1a; (void)t;
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Level Db", t.levelDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Kind", t.kind);
+    cardIf(o, "Mode", t.mode);
+    cardIf(o, "Text", t.text);
+    cardIf(o, "Time Sec", t.timeSec);
+    cardIf(o, "Input Rate", t.inputRate);
+    cardIf(o, "Record Path", t.recordPath);
+    { Table tb({"Utc", "Time Sec", "Text"}); int n = 0; for (auto it = t.events.rbegin(); it != t.events.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.utc), cell(e.timeSec), cell(e.text)}); } if (n) addTable(o, "Events", tb); }
+    break;
+}
+case 803: {
+    const auto& t = rx.w1a; (void)t;
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Level Db", t.levelDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Kind", t.kind);
+    cardIf(o, "Mode", t.mode);
+    cardIf(o, "Text", t.text);
+    cardIf(o, "Time Sec", t.timeSec);
+    cardIf(o, "Input Rate", t.inputRate);
+    cardIf(o, "Record Path", t.recordPath);
+    { Table tb({"Utc", "Time Sec", "Text"}); int n = 0; for (auto it = t.events.rbegin(); it != t.events.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.utc), cell(e.timeSec), cell(e.text)}); } if (n) addTable(o, "Events", tb); }
+    break;
+}
+case 841: {
+    const auto& t = rx.cube; (void)t;
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Level Db", t.levelDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Time Sec", t.timeSec);
+    cardIf(o, "Input Rate", t.inputRate);
+    cardIf(o, "Rs Fixed", t.rsFixed);
+    cardIf(o, "Kiss Sent", t.kissSent);
+    cardIf(o, "Last Frame Sec", t.lastFrameSec);
+    cardIf(o, "Dial Mhz", t.dialMhz);
+    cardIf(o, "Tracked", t.tracked);
+    { Table tb({"Time Sec", "Wall Time", "Framing", "Sat", "From", "To", "Path", "Type"}); int n = 0; for (auto it = t.frames.rbegin(); it != t.frames.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.timeSec), cell(e.wallTime), cell(e.framing), cell(e.sat), cell(e.from), cell(e.to), cell(e.path), cell(e.type)}); } if (n) addTable(o, "Frames", tb); }
+    break;
+}
+case 844: {
+    const auto& t = rx.cube; (void)t;
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Level Db", t.levelDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Time Sec", t.timeSec);
+    cardIf(o, "Input Rate", t.inputRate);
+    cardIf(o, "Rs Fixed", t.rsFixed);
+    cardIf(o, "Kiss Sent", t.kissSent);
+    cardIf(o, "Last Frame Sec", t.lastFrameSec);
+    cardIf(o, "Dial Mhz", t.dialMhz);
+    cardIf(o, "Tracked", t.tracked);
+    { Table tb({"Time Sec", "Wall Time", "Framing", "Sat", "From", "To", "Path", "Type"}); int n = 0; for (auto it = t.frames.rbegin(); it != t.frames.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.timeSec), cell(e.wallTime), cell(e.framing), cell(e.sat), cell(e.from), cell(e.to), cell(e.path), cell(e.type)}); } if (n) addTable(o, "Frames", tb); }
+    break;
+}
+case 847: {
+    const auto& t = rx.cube; (void)t;
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Level Db", t.levelDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Time Sec", t.timeSec);
+    cardIf(o, "Input Rate", t.inputRate);
+    cardIf(o, "Rs Fixed", t.rsFixed);
+    cardIf(o, "Kiss Sent", t.kissSent);
+    cardIf(o, "Last Frame Sec", t.lastFrameSec);
+    cardIf(o, "Dial Mhz", t.dialMhz);
+    cardIf(o, "Tracked", t.tracked);
+    { Table tb({"Time Sec", "Wall Time", "Framing", "Sat", "From", "To", "Path", "Type"}); int n = 0; for (auto it = t.frames.rbegin(); it != t.frames.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.timeSec), cell(e.wallTime), cell(e.framing), cell(e.sat), cell(e.from), cell(e.to), cell(e.path), cell(e.type)}); } if (n) addTable(o, "Frames", tb); }
+    break;
+}
+case 850: {
+    const auto& t = rx.cube; (void)t;
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Level Db", t.levelDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Time Sec", t.timeSec);
+    cardIf(o, "Input Rate", t.inputRate);
+    cardIf(o, "Rs Fixed", t.rsFixed);
+    cardIf(o, "Kiss Sent", t.kissSent);
+    cardIf(o, "Last Frame Sec", t.lastFrameSec);
+    cardIf(o, "Dial Mhz", t.dialMhz);
+    cardIf(o, "Tracked", t.tracked);
+    { Table tb({"Time Sec", "Wall Time", "Framing", "Sat", "From", "To", "Path", "Type"}); int n = 0; for (auto it = t.frames.rbegin(); it != t.frames.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.timeSec), cell(e.wallTime), cell(e.framing), cell(e.sat), cell(e.from), cell(e.to), cell(e.path), cell(e.type)}); } if (n) addTable(o, "Frames", tb); }
+    break;
+}
+case 853: {
+    const auto& t = rx.cube; (void)t;
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Level Db", t.levelDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Time Sec", t.timeSec);
+    cardIf(o, "Input Rate", t.inputRate);
+    cardIf(o, "Rs Fixed", t.rsFixed);
+    cardIf(o, "Kiss Sent", t.kissSent);
+    cardIf(o, "Last Frame Sec", t.lastFrameSec);
+    cardIf(o, "Dial Mhz", t.dialMhz);
+    cardIf(o, "Tracked", t.tracked);
+    { Table tb({"Time Sec", "Wall Time", "Framing", "Sat", "From", "To", "Path", "Type"}); int n = 0; for (auto it = t.frames.rbegin(); it != t.frames.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.timeSec), cell(e.wallTime), cell(e.framing), cell(e.sat), cell(e.from), cell(e.to), cell(e.path), cell(e.type)}); } if (n) addTable(o, "Frames", tb); }
+    break;
+}
+case 856: {
+    const auto& t = rx.cube; (void)t;
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Level Db", t.levelDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Time Sec", t.timeSec);
+    cardIf(o, "Input Rate", t.inputRate);
+    cardIf(o, "Rs Fixed", t.rsFixed);
+    cardIf(o, "Kiss Sent", t.kissSent);
+    cardIf(o, "Last Frame Sec", t.lastFrameSec);
+    cardIf(o, "Dial Mhz", t.dialMhz);
+    cardIf(o, "Tracked", t.tracked);
+    { Table tb({"Time Sec", "Wall Time", "Framing", "Sat", "From", "To", "Path", "Type"}); int n = 0; for (auto it = t.frames.rbegin(); it != t.frames.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.timeSec), cell(e.wallTime), cell(e.framing), cell(e.sat), cell(e.from), cell(e.to), cell(e.path), cell(e.type)}); } if (n) addTable(o, "Frames", tb); }
+    break;
+}
+case 871: {
+    const auto& t = rx.fbr; (void)t;
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Level Db", t.levelDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Time Sec", t.timeSec);
+    cardIf(o, "Input Rate", t.inputRate);
+    cardIf(o, "Center Mhz", t.centerMhz);
+    cardIf(o, "Offset Hz", t.offsetHz);
+    cardIf(o, "Freq Mhz", t.freqMhz);
+    cardIf(o, "Carrier", t.carrier);
+    cardIf(o, "Tone Db", t.toneDb);
+    { Table tb({"Item"}); int n = 0; for (auto it = t.frameLog.rbegin(); it != t.frameLog.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e)}); } if (n) addTable(o, "Frame Log", tb); }
+    { Table tb({"Item"}); int n = 0; for (auto it = t.log.rbegin(); it != t.log.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e)}); } if (n) addTable(o, "Log", tb); }
+    break;
+}
+case 881: {
+    const auto& t = rx.cp16; (void)t;
+    cardIf(o, "Cfo Hz", t.cfoHz);
+    cardIf(o, "Snr Db", t.snrDb);
+    cardIf(o, "Blocks Ok", t.blocksOk);
+    cardIf(o, "Blocks Bad", t.blocksBad);
+    cardIf(o, "Input Rate", t.inputRate);
+    cardIf(o, "Level Db", t.levelDb);
+    cardIf(o, "Now Sec", t.nowSec);
+    cardIf(o, "Base Hz", t.baseHz);
+    cardIf(o, "Spacing Hz", t.spacingHz);
+    cardIf(o, "Row Sec", t.rowSec);
+    cardIf(o, "Char Sec", t.charSec);
+    cardIf(o, "Comb Score", t.combScore);
+    { Table tb({"Serial", "Time Sec", "Text", "Cp", "Score", "Margin"}); int n = 0; for (auto it = t.chars.rbegin(); it != t.chars.rend() && n < 80; ++it, ++n) { const auto& e = *it; tb.row({cell(e.serial), cell(e.timeSec), cell(e.text), cell(e.cp), cell(e.score), cell(e.margin)}); } if (n) addTable(o, "Chars", tb); }
     break;
 }

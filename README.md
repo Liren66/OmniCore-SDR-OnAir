@@ -1,4 +1,4 @@
-# OmniCore-SDR-OnAir 3.8.0
+# OmniCore-SDR-OnAir 4.0.0
 
 **本项目是从 [adswill/OnAir](https://github.com/adswill/OnAir) fork 的独立项目，已接入 OmniCore SDR（AD9361）。** 桌面版通过 OmniCore Host 原生设备接口，支持接收（RX）、发射（TX）和全双工收发，并保留上游电视、广播和数字信号解码功能。Android 版支持 USB 直连接收，沿用上游的仅接收界面，暂不提供 TX。
 
@@ -16,17 +16,17 @@ This is an independent fork of OnAir with native OmniCore SDR integration, inclu
 - 无线电设置面板显示 RX RSSI；控制链路失效后重新打开设备。
 - 更新检查指向本仓库，不会自动替换成上游发行包。
 
-版本号跟随上游，当前统一为 **3.8.0**，不再添加 `-omnicore.*` 或 Android 后缀。程序名称保留 **OmniCore-SDR-OnAir**，以区分本分支和上游。本版合并上游 `dcfb46cd5`，并在四个平台捆绑 OmniCore Host **0.7.2**；保留上游 Git 历史和本地 OmniCore 功能提交。
+版本号跟随上游，当前统一为 **4.0.0**，不再添加 `-omnicore.*` 或 Android 后缀。程序名称保留 **OmniCore-SDR-OnAir**，以区分本分支和上游。本版合并上游 `a63c3a8eb`，并在四个平台捆绑 OmniCore Host **0.8.0**；保留上游 Git 历史和本地 OmniCore 功能提交。
 
-> **固件要求**：内置 OmniCore Host **0.7.2**，适配固件 [v2026.11.08](https://github.com/Liren66/OmniCore-SDR-Firmware/releases/tag/v2026.11.08)（以及 v2026.11.07 起的成帧 USB 传输固件）。v2026.11.07 之前的旧固件需要先升级，旧版程序（内置 OCH 0.5.0）则无法打开新固件。板子运行 [OmniCore SDR Linux](https://github.com/Liren66/OmniCore-SDR-Linux) 1.3.x 时固件已包含在镜像中。
+> **固件要求**：内置 OmniCore Host **0.8.0**，适配固件 [v2026.11.08](https://github.com/Liren66/OmniCore-SDR-Firmware/releases/tag/v2026.11.08)（以及 v2026.11.07 起的成帧 USB 传输固件）。v2026.11.07 之前的旧固件需要先升级，旧版程序（内置 OCH 0.5.0）则无法打开新固件。板子运行 [OmniCore SDR Linux](https://github.com/Liren66/OmniCore-SDR-Linux) 1.3.x 时固件已包含在镜像中。
 
 | 发布包 | 平台 | OmniCore 功能 |
 | --- | --- | --- |
-| `OmniCore-SDR-OnAir-3.8.0-windows-x64.zip` | Windows x64 | RX / TX / 全双工 |
-| `OmniCore-SDR-OnAir-3.8.0-windows-x64-setup.exe` | Windows x64 安装版 | RX / TX / 全双工 |
-| `OmniCore-SDR-OnAir-3.8.0-linux-x86_64.tar.gz` | Ubuntu 24.04 x86-64 | RX / TX / 全双工 |
-| `OmniCore-SDR-OnAir-3.8.0-macos-arm64.dmg` | macOS 15+，Apple Silicon | RX / TX / 全双工 |
-| `OmniCore-SDR-OnAir-3.8.0-android-arm64-v8a.apk` | Android 9+ ARM64，需 USB Host/OTG | USB RX |
+| `OmniCore-SDR-OnAir-4.0.0-windows-x64.zip` | Windows x64 | RX / TX / 全双工 |
+| `OmniCore-SDR-OnAir-4.0.0-windows-x64-setup.exe` | Windows x64 安装版 | RX / TX / 全双工 |
+| `OmniCore-SDR-OnAir-4.0.0-linux-x86_64.tar.gz` | Ubuntu 24.04 x86-64 | RX / TX / 全双工 |
+| `OmniCore-SDR-OnAir-4.0.0-macos-arm64.dmg` | macOS 15+，Apple Silicon | RX / TX / 全双工 |
+| `OmniCore-SDR-OnAir-4.0.0-android-arm64-v8a.apk` | Android 9+ ARM64，需 USB Host/OTG | USB RX |
 
 在 GitHub Actions 的 OmniCore builds 工作流中选择平台，或选择 `all` 同时构建四个平台。完成后可在运行页面的 Artifacts 下载。Android 工作流可生成未签名的 APK，覆盖安装已发布的应用需要使用原发布密钥签名。
 
@@ -74,7 +74,7 @@ OmniCore Host 可以另行安装，或在同一构建树中从它的源码构建
 
 保留自 3.3.0 的修复，修正 Table 页无数据、搜索无结果时的提前退出方式，解决用户日志中的界面闪退，并修正消息、飞行器、船舶及 RDS 页的相同写法。
 
-对外版本为 `3.8.0`；Android 内部安装版本号为 `3080099`，高于早期 APK 的 `3030001` / `3030002`。应用包名和签名保持一致，可以直接覆盖安装并保留设置。环境配置、构建步骤和签名说明见 [Android README](android/README.md)。
+对外版本为 `4.0.0`；Android 内部安装版本号为 `4000099`，高于早期 APK 的 `3030001` / `3030002`。应用包名和签名保持一致，可以直接覆盖安装并保留设置。环境配置、构建步骤和签名说明见 [Android README](android/README.md)。
 
 ## 许可证与来源
 

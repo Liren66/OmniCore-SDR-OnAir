@@ -2,6 +2,7 @@
 #include "../app.h"
 #include "../transcribe/transcribe_app.h"
 #include "dect2/audio/ac4_dec.h"
+#include "tv_dolby_text.h"
 #include "dect2/tv/epg.h"
 
 #include <cctype>
@@ -11,6 +12,7 @@
 #include <map>
 #include "dect2/common/png.h"
 #include "dect2/common/u8file.h"
+#include "../ui/input_map.h"
 
 namespace {
 // ---- channel logos: a PNG the user picked for a service, copied to <data>/tv-logos/<service>.png and shown on the service card
@@ -428,8 +430,9 @@ void playerTab(App& a) {
     ImGui::EndChild();
     if (vboxKeys && pl.selected() >= 0) {
         gSpaceClaimFrame = ImGui::GetFrameCount();
-        if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) { if (pl.shift().paused) pl.play(); else pl.pause(); }
-        if (ImGui::IsKeyPressed(ImGuiKey_R, false)) { if (pl.recording().active) pl.stopRecording(); else tvRecordStart(a); }
+        inputmap::scopeActive(inputmap::Scope::Tv);   // Space and R by default (Settings > Keyboard and mouse)
+        if (inputmap::pressed(inputmap::Action::TvPause)) { if (pl.shift().paused) pl.play(); else pl.pause(); }
+        if (inputmap::pressed(inputmap::Action::TvRecord)) { if (pl.recording().active) pl.stopRecording(); else tvRecordStart(a); }
     }
     const float ctlY = ImGui::GetCursorPosY();
     if (ImGui::Button(pl.selected() >= 0 ? tr("Stop##tvplay") : tr("Play##tvplay"))) { if (pl.selected() >= 0) pl.select(-1); else if (a.playReq < 0 && !a.ts.services.empty()) { int sid = a.ts.services[0].id; pl.select(sid); pl.setVolume(a.volume); } }
@@ -496,10 +499,12 @@ void playerTab(App& a) {
             }
         }
         std::string lab = tracks[cur].codec + " " + tracks[cur].lang;
+        if (tracks[cur].atmos) lab += " Atmos";
         ImGui::SetNextItemWidth(std::min(170.f * gUi, std::max(70.f * gUi, ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("Audio").x - 12 * gUi)));
         if (ImGui::BeginCombo(tr("Audio##tvaudio"), lab.c_str())) {
             for (int i = 0; i < (int)tracks.size(); i++) {
-                std::string l = tracks[i].codec + " " + tracks[i].lang + " (" + std::to_string(tracks[i].channels) + " ch)";
+                const std::string fmt = dolbytext::trackFormat(tracks[i]);   // Dolby: "Dolby Atmos (E-AC-3 JOC), 5.1 bed" from the stream's own headers
+                std::string l = (fmt.empty() ? tracks[i].codec : fmt) + " " + tracks[i].lang + (fmt.empty() ? " (" + std::to_string(tracks[i].channels) + " ch)" : std::string());
                 if (ImGui::Selectable(l.c_str(), i == cur)) { cur = i; pl.setAudioTrack(i); }
             }
             ImGui::EndCombo();
@@ -570,6 +575,9 @@ void rightPanel(App& a) {
         if (!a.engine.running() && a.rx.standard > 0) ImGui::TextDisabled(tr("stopped - showing saved results"));
         mu->list(a); return;
     }
+    // a mode with no list of its own that makes no transport stream (CIS HF, the cell modes, KAAL ...): nothing here, rather than the TV
+    // modes' clock and an empty service list (the sidebar layout then gives the spectrum the width: docs/LAYOUT-4.0.md)
+    if (const ModeUi* mu = modeUi(a.family)) if (!mu->list && !mu->stream && a.fitPanels && a.newUi && a.uiVariant == 0 && !a.layoutUnified && !a.touchUi && !a.dockOn) return;
     const bool run = a.engine.running();
     ImDrawList* dl = ImGui::GetWindowDrawList();
     // ---- clock: broadcast time (TDT) when the stream has one, otherwise this computer's clock
@@ -737,7 +745,11 @@ void rightPanel(App& a) {
                 char b[120]; snprintf(b, sizeof b, fmt, args...); ImGui::TextUnformatted(b);
             };
             if (ps.hasVideo) row(Ic::Tv, "Video", "%s  %dx%d  %.1f fps  %s", ps.videoCodec.c_str(), ps.width, ps.height, ps.fps, ps.hardware ? "(hardware)" : "(software)");
-            if (ps.hasAudio) row(Ic::Speaker, "Audio", "%s  %d ch", ps.audioCodec.c_str(), ps.audioChannels);
+            if (ps.hasAudio) {
+                const std::string dl = dolbytext::line(ps);
+                if (dl.empty()) row(Ic::Speaker, "Audio", "%s  %d ch", ps.audioCodec.c_str(), ps.audioChannels);
+                else row(Ic::Speaker, "Audio", "%s", dl.c_str());
+            }
             row(Ic::Clock, "Buffer", "%.0f ms     A/V %+.0f ms", ps.audioBufferMs, ps.avOffsetMs);
             row(Ic::Camera, "Pictures", "%llu shown / %llu late", (unsigned long long)ps.shown, (unsigned long long)ps.late);
             row(Ic::Warning, "Errors", "%llu     underruns %d", (unsigned long long)ps.errors, ps.underruns);
@@ -760,6 +772,8 @@ void rightPanel(App& a) {
         // a picture or sound OnAir's FFmpeg cannot decode (AVS+, AVS2, AVS3, DRA): why, and the codec note (docs/CODECS.md)
         if (pl.selected() >= 0) {
             if (!ps.videoNote.empty()) { codecHelpButton(ps.avsProfile == 0x48 ? CodecHelp::AvsPlus : CodecHelp::Avs); ImGui::SameLine(); ImGui::PushTextWrapPos(0); ImGui::TextColored(pal::warnAmber(), "%s", ps.videoNote.c_str()); ImGui::PopTextWrapPos(); }
+            if (*dolbytext::atmosNote(ps)) { ImGui::PushTextWrapPos(0); ImGui::TextDisabled("%s", dolbytext::atmosNote(ps)); ImGui::PopTextWrapPos(); }
+            if (!ps.passthroughNote.empty()) { ImGui::PushTextWrapPos(0); ImGui::TextColored(pal::warnAmber(), "%s", ps.passthroughNote.c_str()); ImGui::PopTextWrapPos(); }
             if (!ps.audioNote.empty()) { codecHelpButton(CodecHelp::Dra); ImGui::SameLine(); ImGui::PushTextWrapPos(0); ImGui::TextColored(pal::warnAmber(), "%s", ps.audioNote.c_str()); ImGui::PopTextWrapPos(); }
             {   // ATSC 3.0 sound in AC-4 and no decoder library: say why there is no sound
                 const dect2::Ac4Status a4 = dect2::ac4Status();

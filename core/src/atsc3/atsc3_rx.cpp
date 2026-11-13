@@ -1,3 +1,5 @@
+#include "dect2/dsp/simd.h"
+#include "dect2/common/stage_prof.h"
 #include "dect2/common/thread_name.h"
 #include <deque>
 #include "dect2/atsc3/atsc3_rx.h"
@@ -59,6 +61,7 @@ void Atsc3Rx::reset() {
 
 void Atsc3Rx::feed(const cf32* x, size_t n) {
     if (stop_) return;
+    DECT2_STAGE("a3.input");
     std::unique_lock<std::mutex> lk(mu_);
     const size_t cap = (size_t)(rate_ * 1.5);   // a second and a half of samples may wait
     if (blocking_) {
@@ -81,32 +84,42 @@ void Atsc3Rx::selectService(int id) {
 void Atsc3Rx::autoSelect() {
     if (!rx_ || rx_->selectedService() >= 0) return;
     for (auto& s : rx_->services()) {
-        if (s.category == 1 && !s.hidden && s.slsProtocol == 1) { rx_->selectService(s.serviceId); return; }
+        if (s.category == 1 && !s.hidden && s.slsProtocol == 1) { rx_->selectServiceIfNone(s.serviceId); return; }
     }
 }
 
 void Atsc3Rx::worker() {
+    DenormalsOff ftz;   // x86: no microcode assists on denormal values (nothing elsewhere)
     double lastTel = 0;
     while (!stop_) {
         std::vector<cf32> blk;
+        bool have = false;
         {
             std::unique_lock<std::mutex> lk(mu_);
             cv_.wait_for(lk, std::chrono::milliseconds(100), [&] { return stop_ || !q_.empty(); });
             if (stop_) break;
-            if (q_.empty()) continue;
-            blk = std::move(q_.front());
-            q_.pop_front();
-            queued_ -= blk.size();
-            cvSpace_.notify_all();
+            if (!q_.empty()) {
+                blk = std::move(q_.front());
+                q_.pop_front();
+                queued_ -= blk.size();
+                have = true;
+                cvSpace_.notify_all();
+            }
         }
-        const double t0 = wallNow();
-        sync_->push(blk.data(), blk.size());
+        if (have) {
+            const double t0 = wallNow();
+            DECT2_STAGE_VAR(stSync, "a3.sync");
+            sync_->push(blk.data(), blk.size());
+            stSync.stop();
+            const double dt = wallNow() - t0;
+            // the load over about the last ten seconds of signal
+            busySec_ = busySec_ + dt;
+            signalSec_ = signalSec_ + (double)blk.size() / rate_;
+            if (signalSec_ > 10.0) { busySec_ = busySec_ * 0.5; signalSec_ = signalSec_ * 0.5; }
+        }
+        // also while no samples arrive: frames still being decoded on the worker threads commit after the last block (the end of a file, a
+        // radio that stopped), and their services and counts must still be selected and shown
         autoSelect();
-        const double dt = wallNow() - t0;
-        // the load over about the last ten seconds of signal
-        busySec_ = busySec_ + dt;
-        signalSec_ = signalSec_ + (double)blk.size() / rate_;
-        if (signalSec_ > 10.0) { busySec_ = busySec_ * 0.5; signalSec_ = signalSec_ * 0.5; }
         const double now = wallNow();
         if (now - lastTel > 0.1) {
             lastTel = now;
@@ -119,6 +132,7 @@ void Atsc3Rx::worker() {
             t.locked = t.secSinceFrame < 1.5;
             t.cfoHz = ss.cfoHz; t.bootstraps = ss.bootstraps; t.frames = ss.frames; t.framesFailed = rs.framesFailed;
             t.bbPackets = rs.bbPackets; t.bbBad = rs.bbBad; t.alpPackets = rs.alpPackets; t.udp = rs.udp; t.llsTables = rs.llsTables; t.routeObjects = rs.routeObjects;
+            t.alpCompressedIp = rs.alpCompressedIp; t.alpSignaling = rs.alpSignaling; t.llsSigned = rs.llsSigned; t.slsObjects = rs.slsObjects; t.slsTables = rs.slsTables;
             t.services = rx_->services();
             t.alerts = rx_->alerts();
             t.selected = rx_->selectedService();

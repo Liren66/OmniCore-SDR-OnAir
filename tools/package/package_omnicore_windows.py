@@ -117,7 +117,7 @@ def main():
         'FFmpeg 8.0: LGPL-2.1-or-later, statically linked without GPL/nonfree/version3 options. '
         'Source: https://ffmpeg.org/releases/ffmpeg-8.0.tar.xz. '
         'See LICENSES/ffmpeg-configuration.txt and build_ffmpeg_static.sh. Rebuild this open-source application to relink.\n\n'
-        'OmniCore Host 0.7.2: GPL-3.0; https://github.com/Liren66/OmniCore-SDR-Host. '
+        'OmniCore Host 0.8.0: GPL-3.0; https://github.com/Liren66/OmniCore-SDR-Host. '
         'Exact source: https://github.com/Liren66/OmniCore-SDR-Host/tree/' + run('git', 'rev-parse', 'HEAD', cwd=source).strip() + '. Commit and DLL hash are in BUILD-INFO.json.\n\n'
         'libusbK 3.1.0.0: bundled USB transport; notices are in LICENSES/libusbK, '
         'and corresponding sources are in the OmniCore Host source snapshot.\n\n'

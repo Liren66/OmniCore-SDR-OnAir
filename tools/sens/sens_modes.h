@@ -52,6 +52,17 @@
 #include "dect2/sigfox/sigfox_tel.h"
 #include "dect2/ble/ble_rx.h"
 #include "dect2/ble/ble_tel.h"
+#include "dect2/uat/uat_rx.h"
+#include "dect2/uat/uat_tel.h"
+#include "dect2/flarm/flarm_rx.h"
+#include "dect2/adsl/adsl_rx.h"
+#include "dect2/rid/rid_rx.h"
+#include "dect2/dji/dji_rx.h"
+#include "dect2/vdes/vdes_rx.h"
+#include "dect2/vdes/vdes_tel.h"
+#include "dect2/loraraw/loraraw_rx.h"
+#include "dect2/loraraw/loraraw_tel.h"
+#include "dect2/wmbus/wmbus_live.h"
 #include "dect2/inmc/inmc_rx.h"
 #include "dect2/inmc/inmc_tel.h"
 #include "dect2/hfdl/hfdl_gen.h"
@@ -131,8 +142,9 @@ struct Mode {
     Factory make;
 };
 
+inline double g_cleanSnrDb = 120;   // the noise-free signal; the clean-signal probe (tests/sens/probe_clean.cpp) sets it lower to see which generators use SynthConfig::snrDb
 inline Sig clean(int stdMode, SynthConfig c, double rate, size_t n) {
-    c.snrDb = 120;
+    c.snrDb = g_cleanSnrDb;
     auto s = makeModeSynth(stdMode, c, rate);
     Sig v(n);
     if (!s) return v;
@@ -472,7 +484,8 @@ inline std::vector<Mode> allModes() {
     {   // Inmarsat Aero 10500 bit/s P channel
         Mode m = base("aero", "Inmarsat Aero", "satellite-data", 20, 2e6, 6.0, 12.5e3, 1545);
         m.snrHi = 25;
-        m.gen = [](size_t n) { return clean(20, SynthConfig(), 2e6, n); };
+        // the generator bakes noise in at Eb/N0 modeVal[0] (12 dB): a truly clean signal (60 dB) so that the sweep's SNR is the only noise
+        m.gen = [](size_t n) { SynthConfig c; c.modeVal[0] = 60; return clean(20, c, 2e6, n); };
         const double off = modeTuning(20) ? modeTuning(20)->tuneOffsetHz : 0;
         m.make = factory<AeroReceiver, AeroTelemetry>([off](AeroReceiver& rx, double r) { rx.setSignalOffset(-off); rx.configure(r); }, blocks<AeroTelemetry>);
         add(m);
@@ -511,6 +524,15 @@ inline std::vector<Mode> allModes() {
         SATDATA_TAG(TSigfox, SigfoxReceiver, SigfoxModeTelemetry)
         SATDATA_TAG(TBle, BleReceiver, BleTelemetry)
         SATDATA_TAG(TInmc, InmcReceiver, InmcTelemetry)
+        // 3.9 (docs/SENSITIVITY-3.9-C.md): aviation, marine, IoT and drone receivers with a built-in test signal
+        SATDATA_TAG(TUat, UatReceiver, UatTelemetry)
+        SATDATA_TAG(TFlarm, FlarmReceiver, FlarmTelemetry)
+        SATDATA_TAG(TAdsl, AdslReceiver, AdslTelemetry)
+        SATDATA_TAG(TRid, RidReceiver, RidTelemetry)
+        SATDATA_TAG(TDji, DjiReceiver, DjiTelemetry)
+        SATDATA_TAG(TVdes, VdesReceiver, VdesTelemetry)
+        SATDATA_TAG(TLoraRaw, LoraRawReceiver, LoraRawTelemetry)
+        SATDATA_TAG(TWmbus, WmbusLiveReceiver, WmbusTelemetry)
         #undef SATDATA_TAG
         addGen(TGlobalstar(), {"globalstar", "Globalstar", 64, 4.0, 1.23e6, 25});
         addGen(TOrbcomm(), {"orbcomm", "Orbcomm", 46, 6.0, 10e3, 25});
@@ -523,6 +545,14 @@ inline std::vector<Mode> allModes() {
         addGen(TSigfox(), {"sigfox", "Sigfox", 155, 6.0, 600, 25});
         addGen(TBle(), {"ble", "Bluetooth LE", 53, 4.0, 1e6, 25});
         addGen(TInmc(), {"inmc", "Inmarsat-C", 19, 40.0, 1.2e3, 25});
+        addGen(TUat(), {"uat", "UAT 978", 85, 4.0, 1.2e6, 25});
+        addGen(TFlarm(), {"flarm", "FLARM", 68, 6.0, 200e3, 25});
+        addGen(TAdsl(), {"adsl", "ADS-L", 302, 6.0, 200e3, 25});
+        addGen(TRid(), {"rid", "Drone Remote ID (BLE)", 58, 4.0, 1e6, 25});
+        addGen(TDji(), {"dji", "DJI DroneID", 70, 4.0, 10e6, 25});
+        addGen(TVdes(), {"vdes", "VDES", 65, 6.0, 25e3, 25});
+        addGen(TLoraRaw(), {"loraraw", "LoRa (raw)", 73, 8.0, 125e3, 15});
+        addGen(TWmbus(), {"wmbus", "Wireless M-Bus", 88, 6.0, 100e3, 25});
     }
     {   // DVB-C 64-QAM 6.952 Msym/s: Reed-Solomon packets (SNR = Es/N0)
         Mode m = base("dvbc", "DVB-C 64-QAM", "cable-tv", 42, 10e6, 1.5, 6.952e6, 474);
@@ -534,7 +564,9 @@ inline std::vector<Mode> allModes() {
     }
     {   // ATSC 3.0 (engine synthetic): baseband packets with a good check
         Mode m = base("atsc3", "ATSC 3.0", "ofdm-tv", 5, 8e6, 4.0, 5.83e6, 600);
-        m.snrHi = 30; m.maxJobs = 2; m.echoUs = 0;
+        // echo at about half the guard interval (GI5_1024: 1024 samples at 6.144 Msps, 167 us), as for the other modes; 0 made the echo row a
+        // copy of the direct path (4.0 X3)
+        m.snrHi = 30; m.maxJobs = 2; m.echoUs = 80;
         m.gen = [](size_t n) { return clean(5, SynthConfig(), 8e6, n); };
         m.make = factory<Atsc3Rx, Atsc3Telemetry>([](Atsc3Rx& rx, double r) { rx.setBlocking(true); rx.configure(r); },
                                                   [](const Atsc3Telemetry& t) { return Metric{(double)t.bbPackets, (double)t.bbBad}; }, true,
@@ -577,11 +609,7 @@ inline std::vector<Mode> allModes() {
         m.snrHi = 25; m.maxJobs = 4;
         m.gen = [](size_t n) {
             SynthConfig c; c.modeOpt[0] = 1; c.modeOpt[2] = 4; c.modeVal[1] = 3;
-            c.snrDb = 25;
-            auto s = makeModeSynth(17, c, 2e6);
-            Sig v(n);
-            if (s) for (size_t o = 0; o < n; o += 65536) s->generate(v.data() + o, std::min<size_t>(65536, n - o));
-            return v;
+            return clean(17, c, 2e6, n);   // was snrDb = 25: noise baked into the 'clean' signal (docs/SENSITIVITY-4.0-C1.md)
         };
         m.make = factory<MarineReceiver, MarineTelemetry>([](MarineReceiver& rx, double r) { prepGeneric(rx, r, 17); rx.setService(1); rx.setFrequencyHz(518e3); }, blocks<MarineTelemetry>);
         add(m);
@@ -591,11 +619,7 @@ inline std::vector<Mode> allModes() {
         m.snrHi = 25; m.maxJobs = 4;
         m.gen = [](size_t n) {
             SynthConfig c; c.modeOpt[0] = 1; c.modeOpt[2] = 4; c.modeVal[1] = 3;
-            c.snrDb = 25;
-            auto s = makeModeSynth(17, c, 2e6);
-            Sig v(n);
-            if (s) for (size_t o = 0; o < n; o += 65536) s->generate(v.data() + o, std::min<size_t>(65536, n - o));
-            return v;
+            return clean(17, c, 2e6, n);   // was snrDb = 25: noise baked into the 'clean' signal (docs/SENSITIVITY-4.0-C1.md)
         };
         m.make = factory<SitorLiveReceiver, SitorTelemetry>([](SitorLiveReceiver& rx, double r) { prepGeneric(rx, r, 121); }, blocks<SitorTelemetry>);
         add(m);
@@ -675,11 +699,7 @@ inline std::vector<Mode> allModes() {
         m.snrHi = 25; m.maxJobs = 4;
         m.gen = [](size_t n) {
             SynthConfig c; c.modeOpt[0] = 1; c.modeOpt[2] = 4; c.modeVal[1] = 3;
-            c.snrDb = 25;
-            auto s = makeModeSynth(17, c, 2e6);
-            Sig v(n);
-            if (s) for (size_t o = 0; o < n; o += 65536) s->generate(v.data() + o, std::min<size_t>(65536, n - o));
-            return v;
+            return clean(17, c, 2e6, n);   // was snrDb = 25: noise baked into the 'clean' signal (docs/SENSITIVITY-4.0-C1.md)
         };
         m.make = factory<MarineReceiver, MarineTelemetry>([](MarineReceiver& rx, double r) { prepGeneric(rx, r, 17); rx.setService(1); rx.setFrequencyHz(518e3); },
             [](const MarineTelemetry& t) {

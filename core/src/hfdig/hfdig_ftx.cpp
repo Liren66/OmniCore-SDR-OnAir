@@ -362,7 +362,7 @@ static const bool kFtxApQso = envOr("HFDIG_FTX_APQSO", 1) != 0;       // a-prior
 static const bool kFtxEarly = envOr("HFDIG_FTX_EARLY", 1) != 0;       // an early decode before the slot ends
 static const double kXHz = envOr("HFDIG_FTX_XHZ", 3.0), kXDt = envOr("HFDIG_FTX_XDT", 0.4);   // the same signal: frequency and DT apart at most
 static const int kXSlots = (int)envOr("HFDIG_FTX_XSLOTS", 6);          // slots the soft bits are kept for
-static const float kApQsoMinScore = (float)envOr("HFDIG_FTX_APQSOSCORE", 2.0);
+static const float kApQsoMinScore = (float)envOr("HFDIG_FTX_APQSOSCORE", 2.6);
 static const double kApQsoAgree = envOr("HFDIG_FTX_APAGREE", 0.7);     // least share of the unknown bits' reliability the result must agree with
 static const double kEarlyFrac = envOr("HFDIG_FTX_EARLYFRAC", 0.85);   // the early decode runs when this share of the transmission has been heard
 static const bool kNudgeDbg = envOr("HFDIG_FTX_NUDDBG", 0) != 0;
@@ -1202,9 +1202,9 @@ struct HfdigFtx::Impl {
     struct AutoChild { std::unique_ptr<HfdigFtx> d; int mode, sub; double period; uint64_t seen; };
     std::vector<AutoChild> autoKids;
     uint32_t autoBuilt = 0;
-    int autoSubFound[kFtxModes];
-    double autoPerFound[kFtxModes];
-    bool autoFound[kFtxModes];
+    int autoSubFound[kFtxModes] = {};
+    double autoPerFound[kFtxModes] = {};
+    bool autoFound[kFtxModes] = {};   // (read by telemetry() before the first auto search: uninitialised bools are UB, found by fuzz_engine_modes)
     int64_t autoScanAt = 0;
     void autoBuild(HfdigFtx& self, uint32_t mask);
     void autoScan();

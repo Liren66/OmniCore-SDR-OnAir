@@ -31,6 +31,7 @@ private:
     uint64_t comb_[2][4] = {};
     int cnt_ = 0;
     double cicScale_ = 1;
+    float clip_ = 8.f;                   // input limit of the CIC (configure)
     std::vector<cf32> buf_;
     double pos_ = 0;
     static constexpr int kTaps = 192, kPhases = 256;
@@ -95,10 +96,16 @@ public:
         for (size_t i = 0; i < n; i++) { float a = disc(x[i]); float s; if (slicer_.push(cf32(a, 0.f), s)) onBit(s); }
     }
     double baud() const { return slicer_.symbolRate(); }
+    // 4.0: a 4.5 kHz channel filter (2 pole Butterworth, twice) before the discriminator: the 24 kHz stream is wider than the signal (+-3 kHz deviation plus the
+    // 2.1 kHz tone), and a follow-up of the carrier offset (the mean of the discriminator) in front of it. Default on; off = the 3.9 receiver, for before / after measurements.
+    void setNarrowChannel(bool on) { narrow_ = on; }
 private:
     float disc(cf32 x);
     cf32 prev_{0, 0};
     float lp1_ = 0, lp2_ = 0;
+    bool narrow_ = true;
+    float zi_[2][2] = {{0, 0}, {0, 0}}, zq_[2][2] = {{0, 0}, {0, 0}};   // biquad states (two sections) of I and Q
+    double afcHz_ = 0, afcPh_ = 0, afcMean_ = 0;                        // the carrier follow-up that centres the signal in the narrow filter (a radio is some kHz off at 156 MHz)
     ToneSlicer slicer_;
 };
 

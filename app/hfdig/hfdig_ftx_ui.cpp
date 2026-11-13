@@ -3,6 +3,8 @@
 // map, by their locators) and the WSPR spots.
 #include "dect2/common/time_fmt.h"
 #include "app.h"
+#include "../d40/d40_ui.h"
+#include "ham/ham_events_ui.h"
 #include "../adsb/adsb_map.h"
 #include "ui/kit/kit.h"
 #include "ui/kit/export.h"
@@ -65,6 +67,8 @@ bool shown(const dect2::FtxDecode& d) {
 }
 
 void decodeTable(App& a, const dect2::HfdigFtxTelemetry& f, bool wsprOnly) {
+    if (!wsprOnly)   // who hears me and the antenna pattern (View > Insights); the hub keeps only what is new
+        for (const dect2::FtxDecode& d : f.decodes) if (d.mode != 3) insightFeedFtx(d.slotUtc, d.dialHz, d.msg, d.snrDb);
     {   // the decodes as a file: Save results (CSV / JSON ...), Copy CSV, and the text log with Auto-save (a new file each day) (#432)
         static std::string note;
         resexp::Table x; x.cols = {"time_utc_s", "mode", "snr_db", "dt_s", "audio_hz", "dial_hz", "call", "grid", "dbm", "message"};
@@ -133,6 +137,14 @@ void decodeTable(App& a, const dect2::HfdigFtxTelemetry& f, bool wsprOnly) {
         if (d.cq && d.mode != 3) ImGui::TextColored(pal::okGreen(), "%s", d.msg.c_str());
         else ImGui::TextUnformatted(d.msg.c_str());
         if (wsprOnly) { const dect2::WsprBalloon bl = dect2::wsprBalloonDecode(d.call, d.grid, d.dbm); if (bl.ok) { ImGui::SameLine(); ImGui::TextDisabled("%s", dect2::wsprBalloonText(bl).c_str()); } }
+        if (!wsprOnly && d.mode != 3 && !d.call.empty()) {   // a call heard once that is one character from a call heard often (View > Insights > Ham)
+            std::string why;
+            const std::string likely = insightBustedHint(d.call, &why);
+            if (!likely.empty()) {
+                ImGui::SameLine(); ImGui::TextColored(pal::warnAmber(), "(%s?)", likely.c_str());
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip(tr("%s may be a busted copy: %s"), d.call.c_str(), why.c_str());
+            }
+        }
         if (d.mirrored) { ImGui::SameLine(); ImGui::TextDisabled("(upside down)"); }
         if (d.early) { ImGui::SameLine(); ImGui::TextDisabled("(early)"); if (ImGui::IsItemHovered()) ImGui::SetTooltip("Decoded before the slot ended; the full decode replaces it."); }
         if (d.how == 1) { ImGui::SameLine(); ImGui::TextDisabled("(combined)"); if (ImGui::IsItemHovered()) ImGui::SetTooltip("Decoded by adding this signal's soft bits from earlier slots (the same message repeated)."); }
@@ -164,9 +176,9 @@ void mapView(App& a, const dect2::HfdigFtxTelemetry& f, ImVec2 size) {
         const double span = std::max(2.0, std::max(lo1 - lo0, (la1 - la0) * 1.4));
         S.map.zoom = std::max(adsbmap::kMinZoom, std::min(8, (int)std::floor(std::log2(0.7 * size.x * 360.0 / (256.0 * span)))));
     }
-    const double lat0 = S.map.lat, lon0 = S.map.lon;
+    const double lat0 = S.map.lat, lon0 = S.map.lon; const int zoom0 = S.map.zoom;
     adsbmap::draw(S.map, size);
-    if (S.map.lat != lat0 || S.map.lon != lon0) S.mapFollow = false;
+    if (S.map.lat != lat0 || S.map.lon != lon0 || S.map.zoom != zoom0) S.mapFollow = false;   // panned or zoomed (the wheel at the centre moves nothing)
     const auto& co = contactlines::options();
     ImDrawList* dl = ImGui::GetWindowDrawList();
     dl->PushClipRect(p0, ImVec2(p0.x + size.x, p0.y + size.y), true);
@@ -369,6 +381,8 @@ void hfdigFtxTab(App& a, const dect2::HfdigTelemetry& t) {
     const SubMode* sm = curSub(a);
     const int only = hfdigMultiBandActive() ? -1 : (sm ? sm->sel : -1);   // the monitor lists every mode of every band in one list
     if (only >= 0) S.filter = only + 1;
+    { void hfdigHopPanel(App& a, int mode); if (!hfdigMultiBandActive()) hfdigHopPanel(a, only >= 0 && only <= 3 ? only : -1); }   // band hopping (hfdig_hop_ui.cpp)
+    hamBandOpenPanel();   // when is the band open (ham/ham_events_ui.h)
     for (int m = 0; m < kFtxModes && only < 0; m++) {
         bool on = dec.enabled(m);
         ImGui::PushStyleColor(ImGuiCol_CheckMark, modeColour(m));
@@ -410,6 +424,7 @@ void hfdigFtxTab(App& a, const dect2::HfdigTelemetry& t) {
         ImGui::TextDisabled("%s", tr("The same position as in every other mode (ADS-B antenna position, Passes, Map). It is marked on the map below."));
     }
     bandButtons(a, only >= 0 ? only : 0);
+    d40FtxCard(a, f);   // 4.0: heard stations, band summary, clear TX frequency (app/d40)
     // the clock
     {
         char now[16];

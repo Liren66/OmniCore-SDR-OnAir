@@ -1,6 +1,8 @@
 // P25 Phase 1 screens: the current call (unit ID, talkgroup, emergency, encryption, voice), the call log (calls, voice grants, data
 // packets), the trunking system (site, adjacent sites, channel identifiers), the talkgroups with their activity, the decoded control
 // messages, and a "?" about the mbelib library the voice needs (docs/CODECS.md). Receive only; encrypted calls are only reported.
+#include "../d40/d40_ui.h"
+#include "../ui/typography.h"
 #include "dect2/common/time_fmt.h"
 #include "ui/kit/export.h"
 #include "app.h"
@@ -39,6 +41,7 @@
 #include <string>
 #include <map>
 #include <vector>
+#include "trunkpool/trunk1.h"
 
 namespace {
 
@@ -181,6 +184,7 @@ void nowView(App& a) {
 void callsView(App& a) {
     if (!live(a)) { ImGui::TextDisabled("%s", a.engine.running() ? "starting" : "start the receiver to see the calls"); return; }
     const auto& log = a.rx.p25.log;
+    if (typo::collapsingHeader(trw("Talkgroup activity"), 0)) d40P25Activity(a.rx.p25);   // 4.0 (app/d40)
     if (ImGui::Button("Copy")) {
         std::string txt;
         for (const auto& e : log) {
@@ -742,8 +746,9 @@ void followView(App& a) {
     if (a.wideFollow) ImGui::TextDisabled("calls inside the capture get a decoder when they are granted (up to %d Phase 1 at once, one Phase 2 as the second mode); outside it the radio leaves the control channel for them", T.ctl.follower.config().maxSlices);
     else if (wideActive(a)) ImGui::TextDisabled("whole span: every carrier in the capture is decoded, the sound moves to the followed call (up to %d at once)", T.ctl.follower.config().maxSlices);
     else ImGui::TextDisabled("single channel: the radio leaves the control channel for each call");
+    trunk1::section(a);
     FollowConfig fc = T.ctl.follower.config();
-    ImGui::SetNextItemWidth(110 * gUi); bool ch = ImGui::SliderInt("simultaneous calls", &fc.maxSlices, 1, 4);
+    ImGui::SetNextItemWidth(110 * gUi); bool ch = ImGui::SliderInt("simultaneous calls", &fc.maxSlices, 1, 8);
     ImGui::SameLine(0, 10 * gUi); ImGui::SetNextItemWidth(110 * gUi); ch |= ImGui::SliderFloat("hang time s", &S.hang, 0.5f, 6.f, "%.1f");
     fc.hangSec = S.hang;
     ch |= ImGui::Checkbox("retune the radio", &fc.allowRetune);

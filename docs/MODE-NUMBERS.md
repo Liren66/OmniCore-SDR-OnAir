@@ -111,6 +111,13 @@ Several branches picked numbers on their own; the later ones were moved (integ-3
 | SuperSID (VLF) | 500 | 502 | 501 | 501 | feat38-ham-science | 3.8; simulated signals only; numbers may need to move at merge |
 | Riometer | 501 | 503 | 502 | 502 | feat38-ham-science | 3.8; simulated signals only; numbers may need to move at merge |
 | Pulsar folding | 502 | 504 | 503 | 503 | feat38-ham-science | 3.8; simulated signals only; numbers may need to move at merge |
+| JT6M | 750 | 752 | 751 | 751 | feat39-misc | 3.9; simulated signals only |
+| Schumann resonance monitor | 820 | 822 | 821 | 821 | feat39-w1b | 3.9; ham science event monitor (hamsci kind 10); simulated signals only |
+| Whistler and tweek detector | 823 | 825 | 824 | 824 | feat39-w1b | 3.9; ham science event monitor (hamsci kind 11); simulated signals only |
+| Moon echo (EME) test | 826 | 828 | 827 | 827 | feat39-w1b | 3.9; ham science event monitor (hamsci kind 12); simulated signals only |
+| Radio Jove | 829 | 831 | 830 | 830 | feat39-w1b | 3.9; ham science event monitor (hamsci kind 13); simulated signals only |
+| e-CALLISTO solar bursts | 832 | 834 | 833 | 833 | feat39-w1b | 3.9; ham science event monitor (hamsci kind 14); simulated signals only |
+| Aurora / Es / TEP beacons | 835 | 837 | 836 | 836 | feat39-w1b | 3.9; ham science event monitor (hamsci kind 15); simulated signals only |
 | UMTS cells | 480 | 482 | 481 | 440 | feat38-broadcast | 3.8; 3G cell search by primary scrambling code (no BCH); synthetic signals only; numbers may need to move at merge |
 | JPSS HRD (NPP, NOAA-20) | 530 | 532 | 531 | 530 | feat38-sat-xband | 3.8; numbers may need to move at merge |
 | JPSS HRD (NOAA-21) | 531 | 533 | 532 | 531 | feat38-sat-xband | 3.8; numbers may need to move at merge |
@@ -132,6 +139,29 @@ Several branches picked numbers on their own; the later ones were moved (integ-3
 | Saral X-band dump | 547 | 549 | 548 | 547 | feat38-sat-xband | 3.8; numbers may need to move at merge |
 | Kanopus-V | 548 | 550 | 549 | 548 | feat38-sat-xband | 3.8; numbers may need to move at merge |
 | DMSP RTD | 549 | 551 | 550 | 549 | feat38-sat-xband | 3.8; numbers may need to move at merge |
+| CDMA2000 cells | 660 | 662 | 661 | 660 | feat39-cell | 3.9; IS-95 / cdma2000 pilot + Sync Channel; synthetic signals only |
+| TD-SCDMA cells | 661 | 663 | 662 | 661 | feat39-cell | 3.9; DwPTS SYNC-DL + TS0 midamble cell parameter, no BCH; synthetic signals only |
+| Lightning position (network) | 790 | 792 | 791 | 790 | feat39-ltpos | 3.9; TDOA from several stations, see docs/LIGHTNING-POSITION-3.9.md; simulated signals only |
+| HF packet 300 Bd | 800 | 802 | 801 | 801 | feat39-w1a | 3.9; AX.25 over 300 Bd AFSK, full decode; simulated signals only |
+| Voice inversion scrambler | 801 | 803 | 802 | 802 | feat39-w1a | 3.9; full-band inversion detection and descrambling; simulated signals only |
+| ELT 121.5 MHz | 802 | 804 | 803 | 803 | feat39-w1a | 3.9; swept-tone detection only; simulated signals only |
+| Fleet Broadcast (UHF SATCOM) | 870 | 872 | 871 | 870 | feat39-fbr | 3.9; 16 x 75 Bd UHF SATCOM multiplex, framing and channel activity only, see docs/FBR-3.9.md; simulated signals only |
+| CP16 | 880 | 882 | 881 | 880 | feat39-cp16 | 3.9; CRAC 16-carrier picture text, receive and transmit, see docs/CP16-3.9.md (renumbered from 790-792 at the merge: those are Lightning position); simulated only (plus two CP16+ software files, not off-air) |
+| RC model PPM (72 MHz) | 881 | 883 | 882 | 881 | feat40-modes1 | 4.0; PPM channel count and pulse spacings, see docs/X40-4.0.md; simulated signals only |
+| UVB-76 buzzer monitor | 882 | 884 | 883 | 882 | feat40-modes1 | 4.0; buzz train timing only, voice not decoded; simulated signals only |
+| GRAVES meteor echoes | 883 | 885 | 884 | 883 | feat40-modes1 | 4.0; carrier and meteor echo finder; simulated signals only |
+| Radio Jove bursts | 884 | 886 | 885 | 884 | feat40-modes1 | 4.0; power burst finder; simulated signals only |
+| Beacon propagation monitor | 885 | 887 | 886 | 885 | feat40-modes1 | 4.0; steady / fading / aurora-like path class of one beacon; simulated signals only |
+| EM4100 LF RFID (125 kHz) | 886 | 888 | 887 | 886 | feat40-modes2 | 4.0; simulated signals only (docs/EM4100-4.0.md) |
+| UHF RFID reader (EPC Gen2) | 887 | 889 | 888 | 887 | feat40-modes2 | 4.0; simulated signals only (docs/UHFRFID-4.0.md) |
+| Qi wireless charging | 888 | 890 | 889 | 888 | feat40-modes2 | 4.0; simulated signals only (docs/QI-4.0.md) |
+| FM modulation monitor | 889 | 891 | 890 | 889 | feat40-modes2 | 4.0; simulated signals only (docs/FMMON-4.0.md) |
+| AM modulation monitor | 890 | 892 | 891 | 890 | feat40-modes2 | 4.0; simulated signals only (docs/AMMON-4.0.md) |
+| Power-line noise locator | 891 | 893 | 892 | 891 | feat40-modes2 | 4.0; simulated signals only (docs/PLNOISE-4.0.md) |
+| Radar pulse analyser | 892 | 894 | 893 | 892 | feat40-modes2 | 4.0; simulated signals only (docs/RADAR-4.0.md) |
+| GNSS interference detector | 893 | 895 | 894 | 893 | feat40-modes2 | 4.0; simulated signals only (docs/GNSSJAM-4.0.md) |
+| Passband signal classifier | 894 | 896 | 895 | 894 | feat40-modes2 | 4.0; simulated signals only (docs/PASSBAND-4.0.md) |
+| VLF MSK transmitter monitor | 895 | 897 | 896 | 895 | feat40-modes2 | 4.0; simulated signals only (docs/VLFMSK-4.0.md) |
 | Plugins | 999 | 1001 | - | - | | |
 | Mode Builder | 19999 | - | - | - | mode-builder-030 | |
 | custom modes (Mode Builder) | 20000+ | family + 2 | - | - | mode-builder-030 | kCustomFamilyBase, saved by number in modes/registered.txt |

@@ -1,6 +1,7 @@
 // Test signals of the ham science modes (hamsci_gen.h).
 #include "dect2/hamsci/hamsci_gen.h"
 #include "dect2/hamsci/hamsci_dsp.h"
+#include "dect2/hamsci/hamsci_evt.h"
 #include "dect2/hamsci/hamsci_tel.h"
 #include "hamsci_int.h"
 #include <algorithm>
@@ -17,13 +18,39 @@ public:
     HamsciSynth(const SynthConfig& c, double rate, int kind) : cfg_(c), rate_(rate), kind_(kind), rng_(1234u + (unsigned)kind) { prepare(); }
     double sampleRate() const override { return rate_; }
     void generate(cf32* out, size_t n) override {
+        if (hamsciEvtKind(kind_)) { genEvt(out, n); return; }
         if (kind_ == kHsPulsar) { genPulsar(out, n); return; }
         if (kind_ == kHsSid) { genSid(out, n); return; }
         if (kind_ == kHsRiometer) { genRio(out, n); return; }
         genAudio(out, n);
     }
 private:
+    // the event monitors: a looped stretch of the test signal of hamsci_evt.h (the loop length keeps the buffer under 8 million samples)
+    void prepareEvt() {
+        // above 4 Msps (a custom wide capture) the stretch is made at rate_ / hold_ and each sample is held hold_ times: made at the full
+        // rate, the burst and beacon signals took longer than an engine waits for its first signal (custom_bandwidth_all, 6 MHz wide)
+        hold_ = rate_ > 4e6 ? (int)std::ceil(rate_ / 2e6) : 1;
+        const double gr = rate_ / hold_;
+        hamsci::EvtGenOpt o;
+        o.seconds = std::clamp(8e6 / gr, 4.0, 60.0);
+        o.offsetHz = cfg_.cfoHz;
+        const double L = o.seconds;
+        switch (kind_) {
+        case kHsSchumann: evt_ = hamsci::evtGenSchumann(gr, o); break;
+        case kHsWhistler: evt_ = hamsci::evtGenWhistler(gr, o, {0.07 * L, 0.5 * L}, {0.03 * L, 0.2 * L, 0.35 * L, 0.65 * L, 0.85 * L}); break;
+        case kHsEme: o.seconds = std::max(L, 16.0); evt_ = hamsci::evtGenEme(gr, o, {2.0, 9.0}, 1.5, 2.55, 120.0, 4.0, 10.0); break;
+        case kHsJove: o.offsetHz = 0; evt_ = hamsci::evtGenBursts(gr, o, {0.2 * L, 0.55 * L}, 0.15 * L, 0, 0.8 * gr); break;
+        case kHsCallisto: o.offsetHz = -0.25 * gr; evt_ = hamsci::evtGenBursts(gr, o, {0.2 * L, 0.6 * L}, 0.25 * L, 0.2 * gr / (0.25 * L), 0.2 * gr); break;
+        default: o.seconds = std::max(L, 30.0); o.level = 30.0; evt_ = hamsci::evtGenBeacon(gr, o, {5.0, 40.0}, 18.0, kind_ == kHsAurora ? 120.0 : 0.0, 3.0); break;
+        }
+        if (evt_.empty()) evt_.assign(1024, cf32(0, 0));
+    }
+    void genEvt(cf32* out, size_t n) {
+        for (size_t i = 0; i < n; i++) { out[i] = evt_[evtPos_]; if (++evtSub_ >= hold_) { evtSub_ = 0; if (++evtPos_ >= evt_.size()) evtPos_ = 0; } }
+    }
+
     void prepare() {
+        if (hamsciEvtKind(kind_)) { prepareEvt(); return; }
         const double fs = hamsci::kAudioRate;
         const double snr = cfg_.snrDb >= 99 ? 30.0 : cfg_.snrDb;
         const double off = cfg_.cfoHz;
@@ -43,9 +70,18 @@ private:
         case kHsIscat: audio_ = hamsci::iscatGenerate("CQ DX K1JT FN20", std::clamp(cfg_.modeOpt[0], 0, 1), fs, 30.0, off, 0.3, 0.0); break;
         case kHsPi4: { audio_ = hamsci::pi4Generate("PI4ABC", fs, 1200 + off, 0.3, 0.0, 30.0); break; }
         case kHsThrob: audio_ = hamsci::throbGenerate("CQ CQ DE W1AW K", std::clamp(cfg_.modeOpt[0], 0, 5), fs, 1500 + off, 0.3, 4); break;
+        case kHsJt6m: {   // three pings of 0.6 to 1.6 s in 24 s of noise, then the loop repeats
+            audio_.assign((size_t)(24 * fs), 0.f);
+            const double starts[] = {3.0, 10.4, 17.7}, lens[] = {0.8, 1.6, 0.6};
+            for (int k = 0; k < 3; k++) {
+                auto b = hamsci::jt6mGenerate("K1JT W9XYZ 26", fs, lens[k], off, 0.3);
+                for (size_t i = 0; i < b.size(); i++) audio_[(size_t)(starts[k] * fs) + i] += b[i];
+            }
+            break;
+        }
         default: break;
         }
-        if (audio_.empty() && kind_ <= kHsThrob) audio_.assign((size_t)fs, 0.f);
+        if (audio_.empty() && hamsciAudioKind(kind_)) audio_.assign((size_t)fs, 0.f);
         double p = 0;
         for (float v : audio_) p += (double)v * v;
         p /= std::max<size_t>(1, audio_.size());
@@ -132,6 +168,9 @@ private:
     uint64_t total_ = 0;
     bool burst_ = false;
     std::vector<cf32> chunk_;
+    std::vector<cf32> evt_;
+    size_t evtPos_ = 0;
+    int hold_ = 1, evtSub_ = 0;
     size_t pos2_ = 0;
     uint64_t block_ = 0;
 };

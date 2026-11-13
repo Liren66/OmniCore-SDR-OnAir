@@ -244,7 +244,11 @@ void MarineReceiver::Impl::publish() {
     }
     if (fs.state == 2 && fs.lines > faxLinesSeen) { lastFaxSec = now; }
     if (fs.state >= 1 && fs.state <= 2) lastFaxSec = now;
-    if (fs.state == 3 && prevFaxState != 3 && fs.lines > 0) { faxDone++; tel.blocksOk++; }
+    if (fs.state == 3 && prevFaxState != 3 && fs.lines > 0) {
+        faxDone++; tel.blocksOk++;
+        // a chart received: rules, integrations and the learned broadcast schedules (insight/schedule_watch.h) see it
+        automation::emitMessage("wefax", "WEFAX", freqHz.load(), "", std::to_string(fs.lines) + " lines", std::nan(""));
+    }
     prevFaxState = fs.state;
     faxLinesSeen = (uint64_t)std::max(0, fs.lines);
     if (fs.lines > 0) tel.dataValid = true;
@@ -378,6 +382,7 @@ bool MarineReceiver::telemetry(MarineTelemetry& out, uint64_t lastSeq) {
 }
 
 void MarineReceiver::setLogCallback(std::function<void(const std::string&)> cb) { std::lock_guard<std::mutex> lk(p_->mu); p_->log = std::move(cb); }
+void MarineReceiver::setVhfNarrowChannel(bool on) { p_->vhf.setNarrowChannel(on); }
 void MarineReceiver::setService(int s) { p_->service = s < 0 || s > 3 ? 0 : s; }
 void MarineReceiver::setFrequencyHz(double hz) {
     std::lock_guard<std::mutex> lk(p_->mu);

@@ -32,6 +32,7 @@ KEEP long av_interleaved_write_frame(void) { return -1; }
 KEEP int64_t av_log_get_level(void) { return 0; }
 KEEP long av_log_set_level(void) { return -1; }
 KEEP void* av_malloc(void) { return NULL; }
+KEEP int av_opt_set_int(void) { return -1; }
 KEEP void* av_mallocz(void) { return NULL; }
 KEEP long av_new_packet(void) { return -1; }
 KEEP void* av_new_program(void) { return NULL; }
@@ -73,6 +74,7 @@ KEEP long avformat_close_input(void) { return -1; }
 KEEP long avformat_find_stream_info(void) { return -1; }
 KEEP long av_guess_frame_rate(void) { return 0; }
 KEEP long avformat_free_context(void) { return -1; }
+KEEP long avformat_network_init(void) { return -1; }
 KEEP void* avformat_new_stream(void) { return NULL; }
 KEEP long avformat_open_input(void) { return -1; }
 KEEP long avformat_write_header(void) { return -1; }
@@ -80,6 +82,7 @@ KEEP void* avio_alloc_context(void) { return NULL; }
 KEEP long avio_close_dyn_buf(void) { return -1; }
 KEEP long avio_closep(void) { return -1; }
 KEEP long avio_context_free(void) { return -1; }
+KEEP void* avio_enum_protocols(void) { return NULL; }
 KEEP long avio_flush(void) { return -1; }
 KEEP long avio_open(void) { return -1; }
 KEEP long avio_open_dyn_buf(void) { return -1; }

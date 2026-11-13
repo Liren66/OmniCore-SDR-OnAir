@@ -58,7 +58,7 @@ file(COPY "${_android_hackrf_header}" DESTINATION "${CMAKE_BINARY_DIR}/android-h
 target_include_directories(dect2core PRIVATE "${CMAKE_BINARY_DIR}/android-host-headers")
 
 option(ONAIR_ANDROID_OMNICORE "Build OmniCore Host with Android USB descriptor support" ON)
-set(OMNICORE_HOST_SRC "" CACHE PATH "Unmodified OmniCore Host 0.7.2 source; downloaded when empty")
+set(OMNICORE_HOST_SRC "" CACHE PATH "Unmodified OmniCore Host 0.8.0 source; downloaded when empty")
 if(ONAIR_ANDROID_OMNICORE)
   if(NOT _have_libusb)
     message(FATAL_ERROR "OmniCore Android needs LIBUSB_SRC; its USB transport cannot use stubs")
@@ -66,7 +66,7 @@ if(ONAIR_ANDROID_OMNICORE)
   if(NOT OMNICORE_HOST_SRC)
     include(FetchContent)
     FetchContent_Declare(omnicore_host_source
-      URL https://github.com/Liren66/OmniCore-SDR-Host/archive/b4b4cf697491ab421bae5169694a5d00ea419197.tar.gz
+      URL https://github.com/Liren66/OmniCore-SDR-Host/archive/61aafbf9d720aeb5263c3f5e1d5399a20fb534b7.tar.gz
       DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
     FetchContent_GetProperties(omnicore_host_source)
     if(NOT omnicore_host_source_POPULATED)
@@ -137,6 +137,7 @@ endif()
 add_library(onair SHARED
   src/jni_onair.cpp
   src/jni_radio.cpp
+  src/jni_tv.cpp
   src/results_json.cpp
   src/stubs_ext.c
 )

@@ -870,7 +870,7 @@ static TxPayloadKind expectedKind(const std::string& id) {
     if (id == "dab" || id == "drm" || id == "hdr" || id == "cdr") return TxPayloadKind::BroadcastAudio;
     if (id == "ft8" || id == "ft4" || id == "wspr" || id == "ft2" || id == "jt65" || id == "jt9" || id == "q65" || id == "fst4" || id == "msk144") return TxPayloadKind::Ftx;
     if (id == "rtty") return TxPayloadKind::Rtty;
-    if (id == "olivia" || id == "contestia" || id == "mfsk" || id == "thor" || id == "dominoex" || id == "hell") return TxPayloadKind::Keyboard;
+    if (id == "olivia" || id == "contestia" || id == "mfsk" || id == "thor" || id == "dominoex" || id == "hell" || id == "cp16") return TxPayloadKind::Keyboard;
     if (id == "cw") return TxPayloadKind::Cw;
     if (id == "psk") return TxPayloadKind::Psk;
     if (id == "js8") return TxPayloadKind::Js8;
@@ -915,7 +915,7 @@ static TxPayloadKind expectedKind(const std::string& id) {
     if (id == "meshcore") return TxPayloadKind::Keyboard;
     if (id == "vdl4" || id == "uat" || id == "wisun" || id == "zwave") return TxPayloadKind::SatScene;
     // modes that were once refused: a generic test scene, no custom message
-    static const char* scene[] = {"gnss", "ism", "cell", "gsmr", "specx", "specan", "astro", "ble", "iono", "wifi", "general", "rid", "nr", "timesig", "nbiot", "halow", "codar", "datawell", "multitone", "ant", "tetrapol", "ndb", "elektro", "lbj", "eczas", "fpv", "wmbus", "mt63", "fsq", "ifkp", "mscatter", "cquam", "ardop", "goesdcs", "modeac", "bletracker", "satbeacon", "nfc", "adsl"};   // nfc: the fixed reader command script (no message to type)
+    static const char* scene[] = {"gnss", "ism", "cell", "gsmr", "specx", "specan", "astro", "ble", "iono", "wifi", "general", "rid", "nr", "timesig", "nbiot", "halow", "codar", "datawell", "multitone", "ant", "tetrapol", "ndb", "elektro", "lbj", "eczas", "fpv", "wmbus", "mt63", "fsq", "ifkp", "mscatter", "cquam", "ardop", "goesdcs", "modeac", "bletracker", "satbeacon", "nfc", "adsl", "winlinkpkt", "winlinkardop"};   // nfc: the fixed reader command script (no message to type)
     for (const char* w : scene) if (id == w) return TxPayloadKind::SatScene;
     return (TxPayloadKind)(-1);
 }

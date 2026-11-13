@@ -85,7 +85,7 @@ std::string Engine::setT2Export(const T2ExportConfig& c) {
 
 void Engine::setPacketTap(std::function<void(const uint8_t*, size_t, const TsSnapshot*, double)> f) { std::lock_guard<std::mutex> lk(tsMu_); tap_ = std::move(f); }
 void Engine::setRecorderTap(std::function<void(const uint8_t*, size_t, const TsSnapshot*, double)> f) { std::lock_guard<std::mutex> lk(tsMu_); rtap_ = std::move(f); }
-void Engine::clearServices() { std::lock_guard<std::mutex> lk(tsMu_); demux_.reset(); tsSnap_ = TsSnapshot(); }
+void Engine::clearServices() { std::lock_guard<std::mutex> lk(tsMu_); demux_.reset(); mpe_.reset(); tsSnap_ = TsSnapshot(); }
 TsSnapshot Engine::tsSnapshot() { std::lock_guard<std::mutex> lk(tsMu_); return tsSnap_; }
 std::map<int, std::vector<EpgEvent>> Engine::epg() {
     if (mtvActive_.load()) { if (auto m = mtvGet()) return m->epg(m->selected()); }
@@ -103,6 +103,25 @@ bool Engine::latestRx(RxTelemetry& out, uint64_t lastSeq) {
     std::lock_guard<std::mutex> lk(rxMu_);
     if (rxTel_.seq <= lastSeq) return false;
     out = rxTel_;
+    return true;
+}
+
+void Engine::setSpectrumZoom(double offsetHz, double spanHz, int px, size_t maxBins) {
+    const double fs = rate_.load();
+    std::lock_guard<std::mutex> lk(zoomMu_);
+    const zoomfft::Plan p = spanHz > 0 ? zoomfft::update(zoomPlan_, fs, analyzer_.fftSize(), offsetHz, spanHz, px, maxBins) : zoomfft::Plan();
+    if (p.on == zoomPlan_.on && (!p.on || p.id == zoomPlan_.id)) return;   // the plan holds: nothing restarts
+    zoomPlan_ = p;
+    if (!p.on) zoomPlan_.id = std::max(zoomPlan_.id, p.id);
+    zoom_.configure(zoomPlan_, fs);
+}
+
+zoomfft::Plan Engine::spectrumZoomPlan() const { std::lock_guard<std::mutex> lk(zoomMu_); return zoomPlan_; }
+
+bool Engine::latestZoomSpectrum(ZoomFrame& out, uint64_t lastSeq) {
+    std::lock_guard<std::mutex> lk(zoomMu_);
+    if (!zoomPlan_.on || zoomFrame_.seq <= lastSeq || zoomFrame_.dbfs.empty() || zoomFrame_.plan.id != zoomPlan_.id) return false;
+    out = zoomFrame_;
     return true;
 }
 

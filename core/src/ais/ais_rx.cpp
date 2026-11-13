@@ -16,6 +16,7 @@
 #include "dect2/ais/ais_phy.h"
 #include "dect2/ais/ais_alerts.h"
 #include "dect2/ais/ais_anomaly.h"
+#include "dect2/ais/ais_behave.h"
 #include "dect2/ais/ais_proto.h"
 #include "dect2/ais/ais_apps.h"
 #include "dect2/ais/ais_longrange.h"
@@ -25,6 +26,7 @@
 #include "dect2/dsp/exact_resampler.h"
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <deque>
 #include <mutex>
 #include <unordered_map>
@@ -138,6 +140,8 @@ struct Rec {
 } // namespace
 
 struct AisReceiver::Impl {
+    std::atomic<uint32_t> viewClasses{0};   // setStationView(): bit k = AisClass k, 0 every class
+    std::atomic<bool> viewDevices{false};   // setStationView(): MMSI 970 / 972 / 974 only
     std::mutex procMu;          // feed / reset / configure
     std::mutex telMu;           // the published snapshot
     std::function<void(const std::string&)> log;
@@ -184,6 +188,7 @@ struct AisReceiver::Impl {
     std::deque<AisAlertRecord> alertLog;
     AisAnomalyEngine anomalyEng;
     std::deque<AisAnomalyRecord> anomalyLog;
+    AisBehaviour behaviour;   // ais_behave.h (3.9): what a vessel is doing; its flags share the anomaly list
 
     void logLine(const std::string& s) { if (log) log(s); }
     double now() const { return fs > 0 ? (double)inSamples / fs : 0.0; }
@@ -380,7 +385,7 @@ struct AisReceiver::Impl {
                 .num("sog_kt", v.sog).num("cog_deg", v.cog).num("nav_status", v.navStatus).str("class", cls[v.cls >= 0 && v.cls <= 5 ? v.cls : 5]).str("destination", v.destination);
             automation::emit(std::move(ev));
         }
-        if (m.hasPos) { raiseAlerts(v); raiseAnomalies(v); incidentFeed(v); }
+        if (m.hasPos) { raiseAlerts(v); raiseAnomalies(v); raiseBehaviour(v); incidentFeed(v); }
     }
 
     // the sea distress board (marine/marine_incident.h) sees every position; its alerts (AIS-SART, MOB, EPIRB) are logged and become events
@@ -402,6 +407,30 @@ struct AisReceiver::Impl {
             automation::Event ev("ais.anomaly");
             ev.at(automation::wallNow(), "AIS", aisChannelHz(aisChannelIndex(v.channel)));
             ev.num("mmsi", a.mmsi).str("name", a.name).str("kind", a.kind).num("severity", a.severity).num("lat", a.lat).num("lon", a.lon).str("text", a.text);
+            automation::emit(std::move(ev));
+        }
+    }
+
+    // behaviour flags (ais_behave.h): rendezvous, loitering, status against motion, draught, destination, dragging anchor.
+    // Listed with the anomalies (kind = the flag) and sent as the automation event ais.behaviour.
+    void raiseBehaviour(const AisVessel& v) {
+        AisBehaveReport r;
+        r.mmsi = v.mmsi; r.t = v.lastUtc > 0 ? v.lastUtc : automation::wallNow(); r.lat = v.lat; r.lon = v.lon; r.sog = v.sog; r.navStatus = v.navStatus;
+        r.draughtM = v.draughtM; r.destination = v.destination; r.name = v.name; r.isShip = v.cls == AIS_CLASS_A || v.cls == AIS_CLASS_B;
+        std::vector<AisBehaveFlag> flags;
+        behaviour.add(r, flags);
+        for (const AisBehaveFlag& f : flags) {
+            AisAnomalyRecord rec;
+            rec.utc = f.t; rec.kind = f.kind; rec.severity = f.kind == "anchor_drag" ? 2 : f.kind == "draught" || f.kind == "destination" ? 0 : 1;
+            rec.mmsi = f.mmsi; rec.name = v.name; rec.lat = f.lat; rec.lon = f.lon; rec.text = f.text;
+            anomalyLog.push_back(rec);
+            while (anomalyLog.size() > 100) anomalyLog.pop_front();
+            logLine("AIS behaviour: " + f.text);
+            if (!automation::wants(automation::FAis)) continue;
+            automation::Event ev("ais.behaviour");
+            ev.at(automation::wallNow(), "AIS", aisChannelHz(aisChannelIndex(v.channel)));
+            ev.num("mmsi", f.mmsi).num("other", f.other).str("name", v.name).str("kind", f.kind).num("severity", rec.severity).num("lat", f.lat).num("lon", f.lon)
+              .num("value", f.value).str("text", f.text);
             automation::emit(std::move(ev));
         }
     }
@@ -798,11 +827,27 @@ bool AisReceiver::telemetry(AisTelemetry& out, uint64_t lastSeq) {
     if (p_->pub.seq <= lastSeq) return false;
     out = p_->pub;
     sess::observeAis(out);
+    const uint32_t cm = p_->viewClasses.load(std::memory_order_relaxed); const bool dev = p_->viewDevices.load(std::memory_order_relaxed);
+    if (cm || dev) {   // a view onto one kind of station: its stations, messages and sentences only
+        std::map<uint32_t, int> cls; for (const auto& v : out.vessels) cls[v.mmsi] = v.cls;
+        auto keep = [&](uint32_t mmsi) { if (dev) { const uint32_t p = mmsi / 1000000u; return p == 970 || p == 972 || p == 974; } const auto it = cls.find(mmsi); return it != cls.end() && ((cm >> it->second) & 1u) != 0; };
+        std::vector<AisVessel> vk; uint64_t ok = 0; for (const auto& v : out.vessels) if (keep(v.mmsi)) { vk.push_back(v); ok += v.messages; }
+        out.vessels.swap(vk); out.vesselCount = (uint32_t)out.vessels.size(); out.blocksOk = ok;
+        std::vector<AisRxRecord> rk; for (const auto& r : out.recent) if (keep(r.mmsi)) rk.push_back(r); out.recent.swap(rk);
+        std::vector<AisAppRecord> ak; for (const auto& r : out.apps) if (keep(r.mmsi)) ak.push_back(r); out.apps.swap(ak);
+        std::vector<AisAlertRecord> lk; for (const auto& r : out.alerts) if (keep(r.mmsi)) lk.push_back(r); out.alerts.swap(lk);
+        std::vector<AisAnomalyRecord> nk; for (const auto& r : out.anomalies) if (keep(r.mmsi)) nk.push_back(r); out.anomalies.swap(nk);
+        std::vector<std::string> sk;
+        for (const auto& s : out.nmea) { std::string chars; int fill = 0, fc = 0, fn = 0; if (ais::parseNmea(s, chars, fill, fc, fn) && fn == 1) { const ais::Bits b = ais::unarmour(chars, fill); if (keep(ais::getU(b, 8, 30))) sk.push_back(s); } }
+        out.nmea.swap(sk);
+        out.dataValid = out.dataValid && !out.vessels.empty();
+        if (out.state == 2 && out.vessels.empty()) out.state = 1;
+    }
     return true;
 }
 void AisReceiver::clearResults() {
     std::lock_guard<std::mutex> lk(p_->procMu);
-    p_->vessels.clear(); p_->nmea.clear(); p_->recent.clear(); p_->apps.clear(); p_->alertLog.clear(); p_->alertEng.clear(); p_->anomalyLog.clear(); p_->anomalyEng.clear();
+    p_->vessels.clear(); p_->nmea.clear(); p_->recent.clear(); p_->apps.clear(); p_->alertLog.clear(); p_->alertEng.clear(); p_->anomalyLog.clear(); p_->anomalyEng.clear(); p_->behaviour.clear();
     p_->republish();
 }
 std::string AisReceiver::saveResults() const {
@@ -836,6 +881,8 @@ void AisReceiver::setLogCallback(std::function<void(const std::string&)> cb) {
     std::lock_guard<std::mutex> lk(p_->procMu);
     p_->log = std::move(cb);
 }
+
+void AisReceiver::setStationView(uint32_t classMask, bool devicesOnly) { p_->viewClasses.store(classMask, std::memory_order_relaxed); p_->viewDevices.store(devicesOnly, std::memory_order_relaxed); }
 
 ModeTuning aisTuning() {
     ModeTuning t;

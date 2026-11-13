@@ -2,6 +2,7 @@
 // The receiver (FpvReceiver) measures the channels and makes the pictures; the telemetry carries the levels and the numbers. The on-screen display
 // of the flight controller is part of the picture: it is shown, not decoded.
 #include "app.h"
+#include "../d40/d40_ui.h"
 #include "dect2/atv/atv_std.h"
 #include "dect2/fpv/fpv_chan.h"
 #include "dect2/fpv/fpv_live.h"
@@ -337,6 +338,7 @@ void channelsView(App& a) {
     ImGui::PushTextWrapPos(0);
     ImGui::TextDisabled("%s", tr("A scan tunes the radio over the channels one after the other and measures each one inside the capture. Click a channel to tune to it."));
     ImGui::PopTextWrapPos();
+    d40FpvPickLine(t);   // 4.0: free channels for N pilots (app/d40)
     ImGui::Spacing();
     const float W = ImGui::GetContentRegionAvail().x;
     const float labW = 54 * gUi, cellW = std::max(48.f * gUi, (W - labW) / 8.f), cellH = 46 * gUi;
@@ -609,7 +611,10 @@ void synth(App& a, bool& changed) {
 
 } // namespace
 
-bool fpvFullPicture(ImVec2 disp) {
+bool fpvFullPicture(App& a, ImVec2 disp) {   // full screen draws instead of the tab: take the new frames here too (#239)
+    loadState();
+    pullFrame(a);
+    upload();
     if (!S.img || !S.frame) return false;
     const float ar = S.imgH > 0 ? (float)S.imgW / S.imgH : 4.f / 3.f;
     ImVec2 sz = disp;

@@ -6,6 +6,7 @@
 #include "dect2/common/png.h"
 #include <map>
 #include "app.h"
+#include "../d40/d40_ui.h"
 #include "codec/speech_codec_ui.h"
 #include "dect2/hdr/hdr_l2.h"
 #include "dect2/hdr/hdr_rx.h"
@@ -564,6 +565,7 @@ void signalRows(App& a) {
 
 void signalTab(App& a) {
     ImGui::BeginChild("##hdr_sig", ImVec2(0, 0));
+    d40HdrLevelsCard(a);   // 4.0: sideband levels (app/d40)
     signalRows(a);
     ImGui::EndChild();
 }
@@ -643,6 +645,7 @@ void receiver(App& a) {
     ImGui::Spacing();
     signalRows(a);
     ImGui::EndChild();
+    smart5HdCard(a);   // round-5 smart checks (app/smart5, docs/SMART5-UI-3.9.md)
 }
 
 // ---------------------------------------------------------------- the list on the right

@@ -34,9 +34,11 @@ struct Beacon {
     bool fine = false;           // the 4 second offsets of the long message were added
     double lat = 0, lon = 0;
     double posPrecisionDeg = 0;  // half of the cell the position can lie in
-    bool homing = false;         // bit 111: a 121.5 MHz homing transmitter is fitted
+    bool homing = false;         // a 121.5 MHz homing transmitter is fitted (bit 112, RLS bit 108, user protocols bits 84-85 = 01)
     bool bch2Present = false, bch2Ok = false;
     int corrected = 0;           // bits the BCH codes repaired
+    float repairMargin = 0;      // 4.0 soft decoding: how much closer the codeword is than the next one (mean |soft| units; 99: no other codeword found)
+    float repairCost = 0;        // 4.0: soft confidence of the repaired bits, in units of the message's mean confidence (0: nothing repaired)
     std::string rawHex;          // all message bits (sync included) as hex, after the BCH repair
     std::string rxHex;           // the same bits as they were received, before the BCH repair (same as rawHex when nothing was repaired)
     std::vector<int> fixedBits;  // the 1-based bit numbers the BCH codes repaired (the bit numbering of the specification, sync = bits 1-24)
@@ -52,6 +54,8 @@ std::vector<uint8_t> syncBits(bool selfTest);
 
 // Checks and (up to 3 / 2 bit errors) repairs bits[0..n) in place, then fills `out`. n is 112 or 144; the sync bits are not checked here.
 bool decode(std::vector<uint8_t>& bits, Beacon& out);
+// Only the BCH-1 repair of decode (bits 25-106 in place): the number of bits repaired, -1 when the word cannot be repaired.
+int bch1Correct(std::vector<uint8_t>& bits);
 
 struct Spec {
     bool longMsg = true;
@@ -72,6 +76,8 @@ std::vector<uint8_t> encode(const Spec& s);
 // text packed as the 6 bit modified Baudot of the user protocols (n characters)
 uint64_t baudotPack(const std::string& s, int n);
 std::string baudotUnpack(uint64_t v, int n);
+// the 5 bit shortened Baudot of the aircraft operator designator (letters only)
+std::string baudot5Unpack(uint64_t v, int n);
 
 std::string countryOfMid(int mid);
 std::string protocolName(bool user, int code, std::string* type);

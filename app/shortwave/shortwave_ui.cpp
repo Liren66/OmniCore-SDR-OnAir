@@ -4,6 +4,7 @@
 // text or picture, Clear / Save / Log / Stop, and an Advanced foldout. Pressing a decoder starts it on the channel being listened to; tuning
 // moves the decoders with the marker (the mode never changes and the frequency is never reset). Docs: docs/SHORTWAVE-MODE.md.
 #include "app.h"
+#include "d40/d40_ui.h"
 #include "gfx/gfx.h"
 #include "ui/icons.h"
 #include "ui/theme.h"
@@ -273,7 +274,7 @@ void advanced(App& a) {
             tip("Mark is the upper tone. Only used when baud and shift are fixed (automatic tries both polarities).");
         } else if (d == Dec::Psk) {
             ImGui::SetNextItemWidth(130 * gUi);
-            if (ImGui::Combo("##pm", &o.pskMode, "BPSK31\000BPSK63\000QPSK31\000QPSK63\000BPSK125\000BPSK250\000QPSK125\000")) ch = true;
+            if (ImGui::Combo("##pm", &o.pskMode, "BPSK31\000BPSK63\000QPSK31\000QPSK63\000BPSK125\000BPSK250\000QPSK125\0008PSK125\0008PSK250\000")) ch = true;
         }
         if (ch) r.setDecoderOpts(d, o);
         ImGui::PopID();
@@ -390,6 +391,8 @@ void panes(App& a) {
 void tab(App& a) {
     load();
     amSmartPanel(a);
+    d40AmCard(a);   // 4.0: carrier offset, sideband, station ID (app/d40)
+    smart5AmCard(a);   // round-5 smart checks: split carriers and modulation health (app/smart5)
     if (!gSpectrumInShell) {   // the classic layout: the waterfall (click it to tune) stays above the decoders
         const float h = std::clamp(ImGui::GetContentRegionAvail().y * 0.30f, 150.f * gUi, 400.f * gUi);
         ImGui::BeginChild("##swspec", ImVec2(0, h), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);

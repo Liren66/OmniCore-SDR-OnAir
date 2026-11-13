@@ -87,11 +87,13 @@ const char* discordInviteUrl() { return "https://discord.gg/ptxkzCuzR"; }
 
 const char* discordCodecLabel() { return tr("Join the Discord to get access to built codecs"); }
 
-bool discordCodecButton(bool small) {
+bool discordCodecButton(bool compact) {
     ImGui::PushID("codec_discord");
-    const bool clicked = small ? ImGui::SmallButton(discordCodecLabel()) : ImGui::Button(discordCodecLabel());
+    const bool clicked = compact ? ImGui::SmallButton(discordCodecLabel()) : ImGui::Button(discordCodecLabel());
     ImGui::PopID();
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tr("Opens the OnAir Discord in your browser. OnAir itself never downloads or includes a codec."));
+    if (ImGui::IsItemHovered())   // the second line: where the files are (owner, 4.0); the first line keeps its existing translations
+        ImGui::SetTooltip("%s\n%s", tr("Opens the OnAir Discord in your browser. OnAir itself never downloads or includes a codec."),
+                          tr("The Dropbox link with the ready-built codec files is posted in the Discord: download the files for your system, put them in the codecs folder and press Look again."));
     if (clicked) dect2::openUrl(discordInviteUrl());
     return clicked;
 }

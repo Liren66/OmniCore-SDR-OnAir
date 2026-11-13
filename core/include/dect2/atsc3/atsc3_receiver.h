@@ -21,6 +21,8 @@ struct ReceiverStats {
     long bbPackets = 0, bbBad = 0;
     long alpPackets = 0, alpIp = 0, alpSignaling = 0, alpTs = 0, alpCompressedIp = 0, alpOther = 0;
     long udp = 0, llsTables = 0, routeObjects = 0, objectsDelivered = 0;
+    long llsSigned = 0;                    // LLS datagrams that were a SignedMultiTable (A/331 6.7)
+    long slsObjects = 0, slsTables = 0;    // objects completed on the SLS channel (TSI 0), and the S-TSID / MPD / USBD documents read from them
 };
 
 struct FrameInfo {
@@ -48,6 +50,7 @@ public:
     std::vector<AeatAlert> alerts() const { std::lock_guard<std::mutex> lk(mu_); return alerts_; }   // the advanced emergency alerts in force (the last AEAT)
     std::vector<SltService> services() const;                 // from the low level signaling received so far
     bool selectService(int serviceId);                        // false until the service is known; may be called before, it is remembered
+    bool selectServiceIfNone(int serviceId);                  // as selectService, but nothing happens when one is already selected (checked under the lock)
     int selectedService() const { return selected_; }
     // When no service has been chosen, take the first visible linear video service (ROUTE) as soon as the service list arrives.
     void setAutoSelect(bool on) { autoSelect_ = on; }
@@ -87,7 +90,7 @@ private:
     struct CtiPlp;
     PlpResult runCti(const PlpResult& in);          // de-interleaves a CTI PLP's cells in frame order and decodes the FEC blocks that are complete
     std::map<int, std::unique_ptr<CtiPlp>> cti_;   // by PLP id
-    struct Straddle { std::vector<cf32> tail; };
+    struct Straddle { std::vector<cf32> tail; std::vector<float> tailW; };
     PlpResult joinStraddle(const PlpResult& in);    // the block made of the tail of the last frame and the head of this one goes in front of the whole blocks
     std::map<int, Straddle> straddle_;
     Atsc3Remux remux_;

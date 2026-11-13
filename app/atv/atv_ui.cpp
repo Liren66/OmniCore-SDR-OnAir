@@ -455,6 +455,7 @@ void receiver(App& a) {
         ImGui::EndTable();
     }
     ImGui::EndChild();
+    smart5AtvCard(a);   // round-5 smart checks (app/smart5, docs/SMART5-UI-3.9.md)
 }
 
 // Put the next control on the same line if it fits (the toolbar), else on the next one (the sidebar).
@@ -649,7 +650,11 @@ void meters(const App& a, std::vector<ModeMeter>& out) {
 
 } // namespace
 
-bool atvFullPicture(ImVec2 disp) {
+// The video-only view (double-click, F) draws instead of the tab, so it takes the new frames itself: without this the picture, and the
+// snow of an empty channel, stood still in full screen (#239)
+bool atvFullPicture(App& a, ImVec2 disp) {
+    loadState();
+    uploadFrame(a);
     if (!S.img || !S.frame) return false;
     const float ar = S.imgH > 0 ? (float)S.imgW / S.imgH : 4.f / 3.f;
     ImVec2 sz = disp;
